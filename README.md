@@ -1,4 +1,4 @@
-# MemoryTool
+﻿# MemoryTool
 
 Windows 常驻内存与进程管理工具。面向"并行开发 + 游戏 + AI 生图/生视频"的混合使用场景：
 识别系统中的进程并分类，检测真正未使用的进程，按场景模式做**进程级**的内存腾挪，
@@ -59,7 +59,19 @@ dotnet build src/MemoryTool.App -c Release
 dotnet test tests/MemoryTool.Tests
 ```
 
-（37 个用例）零 NuGet 依赖（纯 P/Invoke；测试项目用 xunit）。若本机安全软件对 `%TEMP%` 的批量写入拦截导致测试偶发
+（38 个用例）零 NuGet 依赖（纯 P/Invoke；测试项目用 xunit）。.NET 10 LTS（Core 引擎类库 + WPF 壳双项目）。
+
+## 资源占用（自我要求）
+
+内存管理工具不能自己是内存大户：
+
+| 状态 | 私有内存 | 说明 |
+|---|---|---|
+| 主窗可见 | ~180 MB | 全量 UI 在跑 |
+| 托盘轻量档 | **~80 MB** | 刷新间隔 10s→30s、跳过 UI 集合重建、GPU/版本信息走缓存、定期对自己做 L1 工作集回收 |
+
+（WS 表面数字里约 2/3 是共享框架映射页，由 standby list 统一回收；真正挤占系统的私有提交已减半。WPF 运行时的地板就到这——Phase 4 的 NativeAOT 服务形态才是下一级台阶。）
+若本机安全软件对 `%TEMP%` 的批量写入拦截导致测试偶发
 UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_TEST_TMP=<目录> dotnet test`。
 
 ## 测试覆盖的安全不变量

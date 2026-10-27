@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using MemoryTool.Models;
 
 namespace MemoryTool.Services;
@@ -10,7 +10,22 @@ namespace MemoryTool.Services;
 /// </summary>
 public class GpuInfoService
 {
+    private static (DateTime time, List<GpuAdapterInfo> data)? _cache;
+    private static readonly object _cacheLock = new();
+
     public List<GpuAdapterInfo> GetAdapters()
+    {
+        lock (_cacheLock)
+        {
+            if (_cache != null && (DateTime.UtcNow - _cache.Value.time).TotalSeconds < 60)
+                return _cache.Value.data;
+        }
+        var result = EnumerateAdapters();
+        lock (_cacheLock) { _cache = (DateTime.UtcNow, result); }
+        return result;
+    }
+
+    private List<GpuAdapterInfo> EnumerateAdapters()
     {
         var result = new List<GpuAdapterInfo>();
         try

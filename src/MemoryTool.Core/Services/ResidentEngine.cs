@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MemoryTool.Helpers;
 using MemoryTool.Models;
@@ -79,6 +79,13 @@ public class ResidentEngine
     }
 
     public void Stop() => _timer?.Dispose();
+
+    /// <summary>Retune the tick period at runtime (tray lightweight mode uses a slower cadence).</summary>
+    public void SetIntervalSeconds(int seconds)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(3, seconds));
+        _timer?.Change(interval, interval);
+    }
 
     /// <summary>Called by the VM after every completed refresh, with the fresh snapshot.</summary>
     public void AfterRefresh(List<ProcessInfo> procs, SystemMemoryInfo mem)

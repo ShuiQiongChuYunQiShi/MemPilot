@@ -4,8 +4,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Forms;
 using System.Windows.Media;
+using MemoryTool.Helpers;
 using MemoryTool.Models;
 using MemoryTool.Services;
 using MemoryTool.ViewModels;
@@ -23,9 +23,9 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private readonly ConfigStore _config;
     private readonly NativeMemoryCleanerService _memCleaner = new();
-    private NotifyIcon? _trayIcon;
-    private System.Drawing.Icon? _trayIconObj;
+    private TrayIconService? _tray;
     private IntPtr _trayHicon = IntPtr.Zero;
+    private System.Windows.Controls.ContextMenu? _trayMenu;
     private bool _allowClose;
     private bool _isDarkTheme;
     private System.Windows.Threading.DispatcherTimer? _trayUpdateTimer;
@@ -51,18 +51,25 @@ public partial class MainWindow : Window
         // per-tab controls are initialized lazily when their tab is first shown
         // (TabControl content is instantiated on selection)
 
-        _trayIcon = new NotifyIcon
+        _tray = new TrayIconService();
+        _tray.DoubleClick += () => Dispatcher.InvokeAsync(ShowWindow);
+        _tray.RightClick += () => Dispatcher.InvokeAsync(ShowTrayMenu);
+        _tray.SetTooltip("MemoryTool");
+        _trayMenu = new System.Windows.Controls.ContextMenu
         {
-            Icon = System.Drawing.SystemIcons.Application,
-            Text = "MemoryTool",
-            Visible = true
+            Items =
+            {
+                new System.Windows.Controls.MenuItem { Header = "显示" },
+                new System.Windows.Controls.MenuItem { Header = "刷新" },
+                new System.Windows.Controls.MenuItem { Header = "退出" }
+            }
         };
-        _trayIcon.DoubleClick += (s, e) => ShowWindow();
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("显示", null, (s, e) => ShowWindow());
-        menu.Items.Add("刷新", null, async (s, e) => await _vm.RefreshAsync());
-        menu.Items.Add("退出", null, (s, e) => { _allowClose = true; Application.Current.Shutdown(); });
-        _trayIcon.ContextMenuStrip = menu;
+        var miShow = (System.Windows.Controls.MenuItem)_trayMenu.Items[0];
+        var miRefresh = (System.Windows.Controls.MenuItem)_trayMenu.Items[1];
+        var miExit = (System.Windows.Controls.MenuItem)_trayMenu.Items[2];
+        miShow.Click += (s, e) => ShowWindow();
+        miRefresh.Click += async (s, e) => await _vm.RefreshAsync();
+        miExit.Click += (s, e) => { _allowClose = true; _tray?.Dispose(); Application.Current.Shutdown(); };
 
         // auto mode switch happens in the engine — reflect it back into the combo box
         _vm.PropertyChanged += (s, e) =>
@@ -79,8 +86,8 @@ public partial class MainWindow : Window
 
         // announce automatic mode switches in the tray (background thread -> marshal)
         _vm.Engine.ModeChanged += (s, e) =>
-            Dispatcher.InvokeAsync(() => _trayIcon?.ShowBalloonTip(3000, "模式已切换",
-                $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。", ToolTipIcon.Info));
+            Dispatcher.InvokeAsync(() => _tray?.ShowBalloon("模式已切换",
+                $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。"));
 
         Closing += MainWindow_Closing;
         _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
@@ -88,10 +95,20 @@ public partial class MainWindow : Window
         {
             SyncModeRadios(_vm.CurrentMode);
             if (AutoSwitchCheck != null) AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
+            UpdateUiActivity(); // start-minimized sessions begin in lightweight mode
             await _vm.RefreshAsync();
             _vm.StartEngine();          // resident engine: periodic refresh + policies
             StartTrayUpdateTimer();
         };
+        StateChanged += (s, e) => UpdateUiActivity();
+        IsVisibleChanged += (s, e) => UpdateUiActivity();
+    }
+
+    private void ShowTrayMenu()
+    {
+        if (_trayMenu == null) return;
+        _trayMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        _trayMenu.IsOpen = true;
     }
 
     private void ShowWindow()
@@ -99,6 +116,35 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
+        UpdateUiActivity();
+    }
+
+    /// <summary>Lightweight mode: while the window is hidden/minimized the refresh loop runs
+    /// at a slower cadence and skips rebuilding UI collections — the engine keeps deciding,
+    /// only the tray numbers stay fresh. A memory manager must not be the memory hog.</summary>
+    private DateTime _lastSelfTrimUtc = DateTime.MinValue;
+
+    private void UpdateUiActivity()
+    {
+        bool active = IsVisible && WindowState != WindowState.Minimized;
+        _vm.UiActive = active;
+        int baseSec = Math.Max(3, _config.Config.RefreshIntervalSeconds);
+        _vm.Engine.SetIntervalSeconds(active ? baseSec : Math.Max(30, baseSec * 3));
+        if (!active) ScheduleSelfTrim(TimeSpan.FromSeconds(3));
+    }
+
+    /// <summary>Eat our own dog food: in tray mode, trim our working set so the memory
+    /// manager is not itself the memory hog. Pages go to standby and return on demand.</summary>
+    private void ScheduleSelfTrim(TimeSpan delay)
+    {
+        _ = Task.Delay(delay).ContinueWith(_ =>
+        {
+            if (!_vm.UiActive)
+            {
+                _vm.ProcessService.TrimWorkingSet(Environment.ProcessId);
+                _lastSelfTrimUtc = DateTime.UtcNow;
+            }
+        });
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -107,7 +153,10 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             Hide();
+            UpdateUiActivity(); // enter tray lightweight mode
+            return;
         }
+        _tray?.Dispose();
     }
 
     // ---- selection preservation ----
@@ -171,7 +220,11 @@ public partial class MainWindow : Window
         await _vm.RefreshAsync();
     }
 
-    private void ToTray_Click(object sender, RoutedEventArgs e) => Hide();
+    private void ToTray_Click(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        UpdateUiActivity();
+    }
 
     private bool _syncingModeRadios;
 
@@ -746,12 +799,9 @@ public partial class MainWindow : Window
                 g.DrawString(text, font, white, (32 - size.Width) / 2f, (32 - size.Height) / 2f + 1f);
             }
             var hicon = bmp.GetHicon();
-            var newIcon = System.Drawing.Icon.FromHandle(hicon);
-            _trayIcon!.Icon = newIcon;
-            // free the previous icon handle (Icon.FromHandle does not take ownership)
-            if (_trayIconObj != null) { _trayIconObj.Dispose(); }
+            _tray?.SetIcon(hicon);
+            // the shell copies what it needs at SET time; free our previous handle
             if (_trayHicon != IntPtr.Zero) { DestroyIcon(_trayHicon); }
-            _trayIconObj = newIcon;
             _trayHicon = hicon;
         }
         catch { }
@@ -765,15 +815,20 @@ public partial class MainWindow : Window
         _trayUpdateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _trayUpdateTimer.Tick += (s, e) =>
         {
-            if (_trayIcon == null) return;
+            if (_tray == null) return;
+            if (!_vm.UiActive && (DateTime.UtcNow - _lastSelfTrimUtc).TotalSeconds > 60)
+            {
+                _lastSelfTrimUtc = DateTime.UtcNow;
+                _vm.ProcessService.TrimWorkingSet(Environment.ProcessId);
+            }
             if (_vm.ConfigStore.Config.ShowMemoryInTray && _vm.SysMem.TotalPhysicalBytes > 0)
             {
-                _trayIcon.Text = $"MemoryTool - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}";
+                _tray.SetTooltip($"MemoryTool - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}");
                 UpdateTrayIcon((int)Math.Round(_vm.SysMem.MemoryLoadPercent));
             }
             else
             {
-                _trayIcon.Text = "MemoryTool";
+                _tray.SetTooltip("MemoryTool");
             }
         };
         _trayUpdateTimer.Start();

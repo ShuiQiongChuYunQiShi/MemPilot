@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace MemoryTool.Services;
 
@@ -68,7 +68,11 @@ public class TrustVerifier
                 {
                     try
                     {
+                        // SYSLIB0057: X509CertificateLoader cannot extract the Authenticode
+                        // signing cert from a PE file yet; CreateFromSignedFile still does.
+#pragma warning disable SYSLIB0057
                         var cert = System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(exePath);
+#pragma warning restore SYSLIB0057
                         subject = cert.Subject;
                         issuer = cert.Issuer;
                     }

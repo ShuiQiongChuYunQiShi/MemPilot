@@ -123,6 +123,10 @@ public class MainViewModel : INotifyPropertyChanged
 
     private List<ProcessInfo> _lastProcs = new();
 
+    /// <summary>Window visible? When hidden, refreshes skip rebuilding UI collections
+    /// (tray lightweight mode — the engine keeps working, the UI stays cheap).</summary>
+    public bool UiActive { get; set; } = true;
+
     public MainViewModel(ConfigStore config, AuditLogger audit, FeedbackStore feedback)
     {
         ConfigStore = config;
@@ -192,12 +196,20 @@ public class MainViewModel : INotifyPropertyChanged
             var unusedOut = data.unused;
             var gpuOut = data.gpu;
 
+            var uiActive = UiActive;
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                UpdateCollections(_lastProcs, memOut, unusedOut);
-                _gpu = gpuOut;
-                OnPropertyChanged(nameof(GpuSummaryText));
-                UpdateTrend(memOut);
+                if (uiActive)
+                {
+                    UpdateCollections(_lastProcs, memOut, unusedOut);
+                    _gpu = gpuOut;
+                    OnPropertyChanged(nameof(GpuSummaryText));
+                    UpdateTrend(memOut);
+                }
+                else
+                {
+                    SysMem = memOut; // tray tooltip still needs fresh numbers
+                }
                 Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选。";
             });
 
@@ -262,15 +274,21 @@ public class MainViewModel : INotifyPropertyChanged
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Thread rows are rebuilt lazily — only when the thread tab is opened.</summary>
+    /// <summary>Thread rows are built on demand (thread tab) — one syscall per thread makes
+    /// this far too expensive to run inside the refresh loop.</summary>
     public void RebuildThreads()
     {
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            Threads.Clear();
-            foreach (var p in _lastProcs)
-                foreach (var t in p.Threads) Threads.Add(t);
-        });
+        var snapshot = _lastProcs;
+        Task.Run(() => ProcessService.EnumerateAllThreads(snapshot))
+            .ContinueWith(t =>
+            {
+                var list = t.Exception == null ? t.Result : new List<ThreadInfo>();
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    Threads.Clear();
+                    foreach (var th in list) Threads.Add(th);
+                });
+            });
     }
 
     private void ApplyFilter()
