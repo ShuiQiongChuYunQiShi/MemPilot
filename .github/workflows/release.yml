@@ -52,5 +52,6 @@ jobs:
       - name: Create release
         shell: pwsh
         run: |
-          $assets = @('dist/MemoryTool-' + $env:VERSION + '-portable.zip', 'dist/MemoryTool-' + $env:VERSION + '-win-x64.exe', 'dist/SHA256SUMS.txt')
-          gh release create "$env:GITHUB_REF_NAME" @assets --title "MemoryTool $env:VERSION" --generate-notes
+          # NOTE: no array splatting (@assets) — pwsh passes it to native commands as a
+          # single joined argument, which gh then glob-matches and fails to find.
+          gh release create "$env:GITHUB_REF_NAME" "dist/MemoryTool-$env:VERSION-portable.zip" "dist/MemoryTool-$env:VERSION-win-x64.exe" "dist/SHA256SUMS.txt" --title "MemoryTool $env:VERSION" --generate-notes
