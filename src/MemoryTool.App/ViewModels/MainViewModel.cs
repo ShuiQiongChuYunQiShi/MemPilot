@@ -252,7 +252,8 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task PerformCleanupAsync(UnusedCandidate cand, CleanupActionLevel level)
     {
-        Cleanup.Execute(cand.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false);
+        // graceful close may wait seconds for exit — never block the UI thread
+        await Task.Run(() => Cleanup.Execute(cand.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false)).ConfigureAwait(true);
         ReloadAudit();
         await Task.Delay(600).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
@@ -292,7 +293,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task<MakeRoomResult> ExecuteMakeRoomAsync(MakeRoomPlan plan)
     {
-        var result = await Cleanup.ExecutePlanAsync(plan, ConfigStore.Config.GracefulCloseTimeoutSeconds, CancellationToken.None).ConfigureAwait(false);
+        var result = await Task.Run(() => Cleanup.ExecutePlanAsync(plan, ConfigStore.Config.GracefulCloseTimeoutSeconds, CancellationToken.None)).ConfigureAwait(false);
         ReloadAudit();
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => SysMem = ProcessService.GetSystemMemory());
         return result;

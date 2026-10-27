@@ -469,6 +469,7 @@ public partial class MainWindow : Window
         _config.Save();
         _vm.UnusedDetector.Config = _config.Config;
         _vm.OnlineLookup.Config = _config.Config;
+        _vm.StartEngine(); // restart so the new refresh interval takes effect
         MessageBox.Show("设置已保存。", "完成");
     }
 
