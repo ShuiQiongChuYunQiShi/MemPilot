@@ -165,6 +165,38 @@ public partial class MainWindow : Window
     /// at a slower cadence and skips rebuilding UI collections — the engine keeps deciding,
     /// only the tray numbers stay fresh. A memory manager must not be the memory hog.</summary>
     private DateTime _lastSelfTrimUtc = DateTime.MinValue;
+    private int _promoteAttempts;
+
+    /// <summary>Windows 11 defaults new tray icons into the hidden overflow ("^"). Promote
+    /// ourselves in the shell's NotifyIconSettings so the icon is always visible in the
+    /// main tray area — the programmatic equivalent of dragging it out once.</summary>
+    private void PromoteTrayIcon()
+    {
+        if (_promoteAttempts > 100) return;
+        _promoteAttempts++;
+        try
+        {
+            using var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Control Panel\NotifyIconSettings", true);
+            if (root == null) return;
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe)) return;
+            foreach (var name in root.GetSubKeyNames())
+            {
+                using var k = root.OpenSubKey(name, true);
+                if (k == null) continue;
+                if (k.GetValue("ExecutablePath") is string path &&
+                    string.Equals(path, exe, StringComparison.OrdinalIgnoreCase))
+                {
+                    var current = k.GetValue("IsPromoted");
+                    if (current is int i && i == 1) { _promoteAttempts = int.MaxValue - 1; return; }
+                    k.SetValue("IsPromoted", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                    _vm.Status = "托盘图标已设为常驻显示。";
+                    return;
+                }
+            }
+        }
+        catch { }
+    }
 
     private void UpdateUiActivity()
     {
@@ -929,6 +961,7 @@ public partial class MainWindow : Window
         _trayUpdateTimer.Tick += (s, e) =>
         {
             if (_tray == null) return;
+            if (_promoteAttempts <= 100 && Environment.TickCount64 % 12000 < 3000) PromoteTrayIcon();
             if (!_vm.UiActive && (DateTime.UtcNow - _lastSelfTrimUtc).TotalSeconds > 60)
             {
                 _lastSelfTrimUtc = DateTime.UtcNow;
