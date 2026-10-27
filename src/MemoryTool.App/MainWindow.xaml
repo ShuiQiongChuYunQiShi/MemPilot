@@ -811,9 +811,9 @@
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
-                                <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,3"/>
-                                <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,3"/>
-                                <CheckBox x:Name="SetResumeOnModeChange" Content="模式切换时自动恢复被挂起的进程" Margin="0,3"/>
+                                <CheckBox x:Name="SetAutoStart" Content="开机自启（勾选即生效）" Margin="0,3" Checked="AutoStart_Changed" Unchecked="AutoStart_Changed"/>
+                                <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,3" Checked="StartMinimized_Changed" Unchecked="StartMinimized_Changed"/>
+                                <CheckBox x:Name="SetResumeOnModeChange" Content="模式切换时自动恢复被挂起的进程" Margin="0,3" Checked="ResumeOnChange_Changed" Unchecked="ResumeOnChange_Changed"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,5">
                                     <CheckBox x:Name="SetHotkeyEnabled" Content="全局热键一键腾内存：" VerticalAlignment="Center"/>
                                     <TextBox x:Name="SetHotkey" Width="150" Margin="8,0,0,0" ToolTip="格式：CTRL+SHIFT+M / ALT+F9 等"/>

@@ -59,6 +59,12 @@ public partial class MainWindow : Window
             _hotkey.TryRegister(_config.Config.GlobalHotkey);
 
         _tray = new TrayIconService();
+        _tray.AddBlocked += n => Dispatcher.InvokeAsync(() =>
+        {
+            _tray?.ShowBalloon("托盘图标被安全软件拦截",
+                "安全软件（如 360）拒绝了托盘图标注册。请把 MemoryTool 加入其信任区；加入后几秒内图标会自动出现，无需重启程序。", warning: true);
+            _vm.Status = "托盘图标注册被安全软件拒绝——请将 MemoryTool 加入信任区，加入后图标会自动出现。";
+        });
         _tray.DoubleClick += () => Dispatcher.InvokeAsync(ShowWindow);
         _tray.RightClick += () => Dispatcher.InvokeAsync(ShowTrayMenu);
         _tray.SetTooltip("MemoryTool");
@@ -341,6 +347,33 @@ public partial class MainWindow : Window
         _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Save();
         _vm.Status = _config.Config.AutoModeSwitch ? "已开启模式自动切换。" : "已关闭模式自动切换。";
+    }
+
+    private void AutoStart_Changed(object sender, RoutedEventArgs e)
+    {
+        if (SetAutoStart == null) return;
+        bool want = SetAutoStart.IsChecked == true;
+        StartupService.SetAutoStart(want); // applies immediately, not on "save"
+        if (_config != null)
+        {
+            _config.Config.StartWithWindows = want;
+            _config.Save();
+        }
+        _vm.Status = want ? "已开启开机自启。" : "已关闭开机自启。";
+    }
+
+    private void StartMinimized_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_config == null || SetStartMinimized == null) return;
+        _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
+        _config.Save();
+    }
+
+    private void ResumeOnChange_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_config == null || SetResumeOnModeChange == null) return;
+        _config.Config.ResumeSuspendedOnModeChange = SetResumeOnModeChange.IsChecked == true;
+        _config.Save();
     }
 
     // ---- home navigation ----

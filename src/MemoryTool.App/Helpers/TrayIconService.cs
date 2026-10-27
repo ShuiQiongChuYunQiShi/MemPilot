@@ -22,9 +22,14 @@ public sealed class TrayIconService : IDisposable
     private IntPtr _lastIcon = IntPtr.Zero;
     private string _lastTip = "";
     private uint _taskbarCreatedMsg;
+    private int _consecutiveAddFailures;
 
     public event Action? DoubleClick;
     public event Action? RightClick;
+
+    /// <summary>Raised once when NIM_ADD keeps failing (win32 5 = ACCESS_DENIED, the
+    /// signature of security software blocking tray registration for untrusted apps).</summary>
+    public event Action<int>? AddBlocked;
 
     public TrayIconService()
     {
@@ -80,13 +85,23 @@ public sealed class TrayIconService : IDisposable
             _added = Shell_NotifyIcon(NIM_ADD, ref data);
             if (!_added)
             {
-                try
+                _consecutiveAddFailures++;
+                if (_consecutiveAddFailures <= 3)
                 {
-                    System.IO.File.AppendAllText(
-                        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryTool", "crash.log"),
-                        $"{DateTime.UtcNow:O}  tray NIM_ADD failed (win32 error {Marshal.GetLastWin32Error()})\n");
+                    try
+                    {
+                        System.IO.File.AppendAllText(
+                            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryTool", "crash.log"),
+                            $"{DateTime.UtcNow:O}  tray NIM_ADD failed (win32 error {Marshal.GetLastWin32Error()})\n");
+                    }
+                    catch { }
                 }
-                catch { }
+                if (_consecutiveAddFailures == 10)
+                    AddBlocked?.Invoke(_consecutiveAddFailures);
+            }
+            else
+            {
+                _consecutiveAddFailures = 0;
             }
         }
         else
