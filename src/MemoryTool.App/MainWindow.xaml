@@ -5,23 +5,121 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:helpers="clr-namespace:MemoryTool.Helpers"
         mc:Ignorable="d"
-        Title="MemoryTool - 常驻内存与进程/线程管理器" Height="760" Width="1240"
+        Title="MemoryTool - 内存与进程管家" Height="780" Width="1280"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource PanelBg}"
         FontFamily="Microsoft YaHei UI,Segoe UI">
     <Window.Resources>
         <helpers:ByteSizeConverter x:Key="Bytes"/>
         <helpers:SignedBytesConverter x:Key="SignedBytes"/>
+
+        <!-- sidebar tab -->
+        <Style x:Key="NavTab" TargetType="TabItem">
+            <Setter Property="Foreground" Value="#94A3B8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="14,10" Margin="10,2">
+                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#2563EB"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsSelected" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#1E293B"/>
+                                <Setter Property="Foreground" Value="#E2E8F0"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="GhostBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="4,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E293B"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- shell -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="208"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#0F172A">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Top" Margin="18,18,18,14">
+                                        <TextBlock Text="MemoryTool" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                                        <TextBlock Text="内存与进程管家" Foreground="#64748B" FontSize="11" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel DockPanel.Dock="Bottom" Margin="18,0,18,16">
+                                        <TextBlock Text="{Binding UsedPercentText, StringFormat=内存 {0}}" Foreground="#94A3B8" FontSize="12"/>
+                                        <TextBlock Text="{Binding UsedDetailText}" Foreground="#64748B" FontSize="11" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True" Margin="0,4,0,0"/>
+                                    </ScrollViewer>
+                                </DockPanel>
+                            </Border>
+                            <DockPanel Grid.Column="1">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="14,12,14,0">
+                                    <Button Content="刷新" Click="Refresh_Click" Style="{StaticResource GhostBtn}"/>
+                                    <Button Content="最小化到托盘" Click="ToTray_Click" Style="{StaticResource GhostBtn}"/>
+                                    <Button Content="切换主题" Click="ToggleTheme_Click" Style="{StaticResource GhostBtn}"/>
+                                </StackPanel>
+                                <ContentPresenter ContentSource="SelectedContent"/>
+                            </DockPanel>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- cards & buttons -->
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="12"/>
-            <Setter Property="Margin" Value="6"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="18"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect Color="#000000" Opacity="0.06" BlurRadius="8" ShadowDepth="2"/>
+                    <DropShadowEffect Color="#000000" Opacity="0.05" BlurRadius="10" ShadowDepth="2"/>
                 </Setter.Value>
             </Setter>
         </Style>
@@ -29,13 +127,13 @@
             <Setter Property="Background" Value="{DynamicResource AccentBlue}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="Margin" Value="4"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -45,6 +143,9 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.7"/>
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -53,6 +154,57 @@
         <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
             <Setter Property="Background" Value="{DynamicResource AccentRed}"/>
         </Style>
+        <Style x:Key="LinkBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBlue}"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+        <Style x:Key="ModeChip" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,10,8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Background="#F1F5F9" CornerRadius="10" Padding="16,9">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBlue}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#E2E8F0"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="MemBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="14"/>
+            <Setter Property="Maximum" Value="100"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border Background="#E2E8F0" CornerRadius="7">
+                            <Grid>
+                                <Border x:Name="PART_Track"/>
+                                <Border x:Name="PART_Indicator" Background="#2563EB" CornerRadius="7" HorizontalAlignment="Left"/>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="DgHeader" TargetType="DataGridColumnHeader">
             <Setter Property="Background" Value="{DynamicResource HeaderBg}"/>
             <Setter Property="Foreground" Value="White"/>
@@ -75,126 +227,160 @@
             <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
         </Style>
     </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+        <TabControl x:Name="RootTabs" Grid.Row="0" SelectionChanged="TabControl_SelectionChanged">
 
-        <Border Grid.Row="0" Background="{DynamicResource HeaderBg}" Padding="10">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="MemoryTool" Foreground="White" FontSize="18" FontWeight="Bold"/>
-                    <TextBlock Text="  常驻内存与进程/线程管理器" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                    <TextBlock Text="场景模式：" Foreground="White" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <ComboBox x:Name="ModeCombo" Width="170" Margin="0,0,8,0" SelectionChanged="ModeCombo_SelectionChanged" Background="White"/>
-                    <Button Content="刷新" Click="Refresh_Click" Style="{StaticResource PrimaryBtn}"/>
-                    <Button Content="一键优化" Click="Optimize_Click" Style="{StaticResource PrimaryBtn}"/>
-                    <Button Content="最小化到托盘" Click="ToTray_Click" Style="{StaticResource PrimaryBtn}"/>
-                    <Button Content="切换主题" Click="ToggleTheme_Click" Style="{StaticResource PrimaryBtn}"/>
-                </StackPanel>
-            </DockPanel>
-        </Border>
+            <!-- ============ 主页 ============ -->
+            <TabItem Header="🏠  主页" Style="{StaticResource NavTab}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,18,20,20" MaxWidth="1000" HorizontalAlignment="Left">
 
-        <TabControl Grid.Row="1" Margin="6" Background="Transparent" SelectionChanged="TabControl_SelectionChanged">
-            <TabItem Header="概览">
-                <Grid Margin="4">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <WrapPanel Margin="0,0,0,8">
-                        <Border Style="{StaticResource Card}" Width="180">
+                        <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="物理内存总量" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding TotalMemoryText}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                <TextBlock Text="这个工具帮你做什么？" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                                           Text="找出你「没在用」的程序（没有窗口、几乎不吃 CPU、没在发声、也不在前台），然后按需腾出内存——最典型的场景：跑 AI 生图/生视频之前，把内存让出来。系统的、杀毒的、反作弊的、你正在用的，它都不会碰；自动动作永远不强杀进程，每一个决定都记录在「决策日志」里，随时可以查为什么。"/>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Card}" Width="180">
+
+                        <Border Style="{StaticResource Card}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="内存占用" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding UsedPercentText}" FontSize="52" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                        <TextBlock Text="{Binding UsedDetailText}" VerticalAlignment="Bottom" Margin="10,0,0,10" Foreground="{DynamicResource TextSecondary}" FontSize="13"/>
+                                    </StackPanel>
+                                    <ProgressBar Style="{StaticResource MemBar}" Value="{Binding UsedPercent, Mode=OneWay}" Width="440" HorizontalAlignment="Left" Margin="0,4,0,10"/>
+                                    <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12">
+                                        <Run Text="可用 "/><Run Text="{Binding AvailableMemoryText, Mode=OneWay}" FontWeight="SemiBold"/>
+                                        <Run Text="    提交 "/><Run Text="{Binding CommitText, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Width="270" Margin="20,0,0,0">
+                                    <TextBlock Text="GPU 显存" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
+                                    <TextBlock Text="{Binding GpuSummaryText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,12"/>
+                                    <TextBlock Text="可用内存趋势" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
+                                    <Canvas Width="260" Height="64" Background="#F8FAFC" Margin="0,4,0,0">
+                                        <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
+                                    </Canvas>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="可用内存" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding AvailableMemoryText}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AccentGreen}"/>
+                                <TextBlock Text="现在在做什么？选一个场景，自动清理的范围随之改变" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                <UniformGrid Columns="5" Margin="0,12,0,4">
+                                    <RadioButton x:Name="ModeRbResident" Content="🛡️ 驻守" GroupName="HomeMode" Tag="Resident" Style="{StaticResource ModeChip}" Checked="HomeMode_Checked"/>
+                                    <RadioButton x:Name="ModeRbDevelopment" Content="💻 开发" GroupName="HomeMode" Tag="Development" Style="{StaticResource ModeChip}" Checked="HomeMode_Checked"/>
+                                    <RadioButton x:Name="ModeRbGame" Content="🎮 游戏" GroupName="HomeMode" Tag="Game" Style="{StaticResource ModeChip}" Checked="HomeMode_Checked"/>
+                                    <RadioButton x:Name="ModeRbAiGeneration" Content="🤖 AI 生成" GroupName="HomeMode" Tag="AiGeneration" Style="{StaticResource ModeChip}" Checked="HomeMode_Checked"/>
+                                    <RadioButton x:Name="ModeRbBalanced" Content="⚖️ 平衡" GroupName="HomeMode" Tag="Balanced" Style="{StaticResource ModeChip}" Checked="HomeMode_Checked"/>
+                                </UniformGrid>
+                                <TextBlock Text="{Binding ModeDescription}" Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="2,0,0,6" TextWrapping="Wrap"/>
+                                <CheckBox x:Name="AutoSwitchCheck" Content="自动切换：全屏游戏→游戏模式，AI 工具常驻→AI 模式，前台 IDE→开发模式（带滞回，切换会通知）"
+                                          Checked="AutoSwitch_Changed" Unchecked="AutoSwitch_Changed" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Card}" Width="200">
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,7,14">
+                                <StackPanel>
+                                    <TextBlock Text="🤖 要跑 AI 生图 / 生视频了？" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                    <TextBlock Text="告诉它需要多少 GB，它会列出可以关闭的程序让你确认，绝不会自作主张强杀。" Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="需要" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimary}"/>
+                                        <TextBox x:Name="HomeTargetGB" Text="8" Width="56" Margin="6,0" Padding="6,4" VerticalAlignment="Center"/>
+                                        <TextBlock Text="GB 可用内存" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextPrimary}"/>
+                                        <Button Content="生成腾挪计划 →" Click="HomePlan_Click" Style="{StaticResource PrimaryBtn}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource Card}" Margin="7,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="🧹 日常维护" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                    <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,4,0,10">
+                                        可清理候选 <Run Text="{Binding UnusedCandidates.Count, Mode=OneWay}" FontWeight="Bold"/><Run Text=" 个 · 已挂起 "/><Run Text="{Binding SuspendedProcesses.Count, Mode=OneWay}" FontWeight="Bold"/><Run Text=" 个"/>
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="一键优化（温和回收）" Click="Optimize_Click" Style="{StaticResource PrimaryBtn}"/>
+                                        <Button Content="查看可清理 →" Click="GoClean_Click" Style="{StaticResource LinkBtn}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="提交内存 / 提交空闲" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding CommitText}" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
-                                <TextBlock Text="{Binding CommitFreeText}" FontSize="12" Foreground="{DynamicResource AccentGreen}"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="全部记录 →" Click="GoDecisions_Click" Style="{StaticResource LinkBtn}"/>
+                                    <TextBlock Text="引擎最近在做什么" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                </DockPanel>
+                                <ItemsControl ItemsSource="{Binding HomeDecisions}" Margin="0,8,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Margin="0,3" FontSize="12" TextWrapping="Wrap">
+                                                <Run Text="{Binding TimeText, Mode=OneWay}" Foreground="#94A3B8"/>
+                                                <Run Text="{Binding LineText, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="（还没有自动动作记录——开启自动切换或自动清理后，这里会显示引擎的每个决定和原因）"
+                                           Foreground="#94A3B8" FontSize="11" Margin="0,6,0,0"/>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Card}" Width="180">
+
+                        <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="当前模式" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding CurrentModeText}" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource AccentBlue}"/>
+                                <TextBlock Text="谁在占内存（按分类汇总）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <DataGrid ItemsSource="{Binding Groups}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="240">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="进程组" Binding="{Binding DisplayName}" Width="*"/>
+                                        <DataGridTextColumn Header="数量" Binding="{Binding Count}" Width="80"/>
+                                        <DataGridTextColumn Header="工作集" Binding="{Binding TotalWorkingSetBytes, Converter={StaticResource Bytes}}" Width="110"/>
+                                        <DataGridTextColumn Header="提交" Binding="{Binding TotalCommitBytes, Converter={StaticResource Bytes}}" Width="110"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Card}" Width="180">
-                            <StackPanel>
-                                <TextBlock Text="GPU 显存" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding GpuSummaryText}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource Card}" Width="150">
-                            <StackPanel>
-                                <TextBlock Text="进程数" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding Processes.Count}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource Card}" Width="150">
-                            <StackPanel>
-                                <TextBlock Text="可清理候选" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding UnusedCandidates.Count}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AccentRed}"/>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource Card}" Width="150">
-                            <StackPanel>
-                                <TextBlock Text="已挂起进程" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                <TextBlock Text="{Binding SuspendedProcesses.Count}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AccentRed}"/>
-                            </StackPanel>
-                        </Border>
-                    </WrapPanel>
-                    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,8,0,0" Height="110">
-                        <StackPanel>
-                            <TextBlock Text="可用内存趋势" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,4"/>
-                            <Canvas Width="300" Height="80" Background="#F8FAFC">
-                                <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
-                            </Canvas>
-                        </StackPanel>
-                    </Border>
-                    <DataGrid Grid.Row="2" Margin="0,8,0,0" ItemsSource="{Binding Groups}" AutoGenerateColumns="False" IsReadOnly="True">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="进程组" Binding="{Binding DisplayName}" Width="*"/>
-                            <DataGridTextColumn Header="数量" Binding="{Binding Count}" Width="80"/>
-                            <DataGridTextColumn Header="工作集" Binding="{Binding TotalWorkingSetBytes, Converter={StaticResource Bytes}}" Width="110"/>
-                            <DataGridTextColumn Header="私有字节" Binding="{Binding TotalPrivateBytes, Converter={StaticResource Bytes}}" Width="110"/>
-                            <DataGridTextColumn Header="提交大小" Binding="{Binding TotalCommitBytes, Converter={StaticResource Bytes}}" Width="110"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Grid>
+
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="进程">
-                <Grid Margin="4">
+            <!-- ============ 进程 ============ -->
+            <TabItem Header="📋  进程" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBox x:Name="SearchBox" Width="280" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
-                        <TextBlock Text="按名称/路径/窗口标题搜索" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
+                        <TextBlock Text="按名称 / 路径 / 窗口标题搜索；右键进程可挂起、关闭、降权或标记保留" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                     <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged">
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="L1 回收工作集" Click="CtxL1_Click"/>
-                                <MenuItem Header="L2 挂起进程" Click="CtxL2_Click"/>
-                                <MenuItem Header="L3 优雅关闭（WM_CLOSE）" Click="CtxL3_Click"/>
-                                <MenuItem Header="L4 强制结束" Click="CtxL4_Click"/>
+                                <MenuItem Header="L1 回收工作集（温和）" Click="CtxL1_Click"/>
+                                <MenuItem Header="L2 挂起进程（可恢复）" Click="CtxL2_Click"/>
+                                <MenuItem Header="L3 优雅关闭（先让它自己退出）" Click="CtxL3_Click"/>
+                                <MenuItem Header="L4 强制结束（需确认）" Click="CtxL4_Click"/>
                                 <Separator/>
                                 <MenuItem Header="恢复挂起" Click="CtxResumeProcess_Click"/>
                                 <Separator/>
@@ -203,8 +389,8 @@
                                 <MenuItem Header="开启 EcoQoS 节能" Click="CtxEcoOn_Click"/>
                                 <MenuItem Header="关闭 EcoQoS" Click="CtxEcoOff_Click"/>
                                 <Separator/>
-                                <MenuItem Header="标记为需保留（反馈）" Click="CtxFeedbackKeep_Click"/>
-                                <MenuItem Header="标记为可清理（反馈）" Click="CtxFeedbackClean_Click"/>
+                                <MenuItem Header="标记为需保留（以后不清理它）" Click="CtxFeedbackKeep_Click"/>
+                                <MenuItem Header="标记为可清理（优先清理它）" Click="CtxFeedbackClean_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
@@ -230,21 +416,22 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="未使用/清理">
-                <Grid Margin="4">
+            <!-- ============ 可清理 ============ -->
+            <TabItem Header="🧹  可清理" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="可清理候选（最小存活期 + 连续观察期 + 无窗口 + 低CPU/IO + 无音频活动 + 非系统/服务/未知分类）" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock Text="这些程序长期空闲：无窗口、低 CPU/IO、没在发声、也不在前台。处置前会再次确认。" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
                     <DataGrid x:Name="UnusedGrid" Grid.Row="1" ItemsSource="{Binding UnusedCandidates}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="UnusedGrid_SelectionChanged">
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="L1 回收工作集" Click="CtxL1_Click"/>
-                                <MenuItem Header="L2 挂起进程" Click="CtxL2_Click"/>
-                                <MenuItem Header="L3 优雅关闭（WM_CLOSE）" Click="CtxL3_Click"/>
-                                <MenuItem Header="L4 强制结束" Click="CtxL4_Click"/>
+                                <MenuItem Header="L1 回收工作集（温和）" Click="CtxL1_Click"/>
+                                <MenuItem Header="L2 挂起进程（可恢复）" Click="CtxL2_Click"/>
+                                <MenuItem Header="L3 优雅关闭（先让它自己退出）" Click="CtxL3_Click"/>
+                                <MenuItem Header="L4 强制结束（需确认）" Click="CtxL4_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
@@ -270,17 +457,18 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="腾挪内存">
-                <Grid Margin="4">
+            <!-- ============ 腾内存 ============ -->
+            <TabItem Header="🚀  腾内存" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,8">
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Text="目标腾挪：为 AI 生图/视频等大内存任务腾出空间" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource TextPrimary}"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="腾内存：为 AI 生图/视频等大内存任务腾出空间" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <TextBlock Text="目标可用物理内存 (GB):" VerticalAlignment="Center"/>
                                 <TextBox x:Name="TargetAvailGB" Text="8" Width="60" Margin="6,0,16,0" Padding="4"/>
                                 <CheckBox x:Name="EnsureCommit" Content="同时确保提交内存" IsChecked="True" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -289,7 +477,7 @@
                                 <CheckBox x:Name="AllowKill" Content="允许对无窗口进程强制结束（L4）" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <CheckBox x:Name="IncludeTrim" Content="不足部分追加工作集回收" IsChecked="True" VerticalAlignment="Center"/>
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <Button Content="① 生成计划" Click="PlanMakeRoom_Click" Style="{StaticResource PrimaryBtn}"/>
                                 <Button x:Name="ExecutePlanBtn" Content="② 执行计划" Click="ExecuteMakeRoom_Click" Style="{StaticResource DangerBtn}" IsEnabled="False"/>
                                 <Button x:Name="CancelPlanBtn" Content="取消执行" Click="CancelMakeRoom_Click" Style="{StaticResource PrimaryBtn}" IsEnabled="False"/>
@@ -310,12 +498,13 @@
                             <DataGridTextColumn Header="理由" Binding="{Binding Rationale}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                    <TextBlock Grid.Row="2" Text="说明：L3 会先发送 WM_CLOSE 让程序自行退出，超时后按选项决定是否升级为 L4；计划不包含系统/安全/反作弊/未识别分类与正在发声、前台、最小存活期内的进程。" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Row="2" Text="说明：L3 会先发送 WM_CLOSE 让程序自行退出，超时后按选项决定是否升级为 L4；计划不会包含系统、杀毒、反作弊、未识别分类，以及正在发声、前台、刚启动的进程。" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="挂起/处置">
-                <Grid Margin="4">
+            <!-- ============ 挂起/处置 ============ -->
+            <TabItem Header="⏸️  挂起/处置" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -325,7 +514,7 @@
                     </Grid.RowDefinitions>
                     <TextBlock Text="被本工具挂起的进程（挂起只冻结 CPU，不释放内存；请记得恢复）" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
                     <ListBox x:Name="SuspendedList" Grid.Row="1" ItemsSource="{Binding SuspendedProcesses}"/>
-                    <TextBlock Grid.Row="2" Text="最近被本工具关闭/结束的程序（记录 exe 路径，可一键重新启动）" Margin="0,8,0,8" Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock Grid.Row="2" Text="最近被本工具关闭/结束的程序（记录 exe 路径，可一键重新启动）" Margin="0,10,0,8" Foreground="{DynamicResource TextSecondary}"/>
                     <DataGrid x:Name="DisposalsGrid" Grid.Row="3" ItemsSource="{Binding DisposalRecords}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="150"/>
@@ -343,8 +532,9 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="决策日志">
-                <Grid Margin="4">
+            <!-- ============ 决策日志 ============ -->
+            <TabItem Header="🧠  决策日志" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -362,15 +552,32 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="线程">
-                <Grid Margin="8">
+            <!-- ============ 操作审计 ============ -->
+            <TabItem Header="📜  操作审计" Style="{StaticResource NavTab}">
+                <DataGrid Margin="14,14,14,0" ItemsSource="{Binding AuditEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="160"/>
+                        <DataGridTextColumn Header="操作" Binding="{Binding Action}" Width="110"/>
+                        <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="200"/>
+                        <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="90"/>
+                        <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="160"/>
+                        <DataGridTextColumn Header="清理前" Binding="{Binding MemoryBeforeBytes, Converter={StaticResource Bytes}}" Width="90"/>
+                        <DataGridTextColumn Header="清理后" Binding="{Binding MemoryAfterBytes, Converter={StaticResource Bytes}}" Width="90"/>
+                        <DataGridTextColumn Header="详情" Binding="{Binding Details}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <!-- ============ 线程 ============ -->
+            <TabItem Header="🧵  线程" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBox x:Name="ThreadSearchBox" Width="260" Margin="0,0,8,0" Padding="6,4" KeyUp="ThreadSearch_KeyUp"/>
-                        <TextBlock Text="按 PID 或进程名过滤（回车应用）" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
+                        <TextBlock Text="按 PID 或 TID 过滤（回车应用）" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" x:Name="ThreadGrid" ItemsSource="{Binding Threads}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.ContextMenu>
@@ -391,16 +598,17 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
-            <TabItem Header="模式">
-                <Grid Margin="4">
-                    <StackPanel>
-                        <TextBlock Text="场景模式" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" Foreground="{DynamicResource TextPrimary}"/>
-                        <ListBox x:Name="ModeList" Height="220" BorderBrush="{DynamicResource BorderBrush}" SelectionChanged="ModeList_SelectionChanged"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <Button Content="应用模式" Click="ApplyMode_Click" Style="{StaticResource PrimaryBtn}"/>
-                            <CheckBox x:Name="AutoSwitchCheck" Content="按信号自动切换（全屏游戏→游戏模式 / AI进程→AI模式 / 前台IDE→开发模式）" Margin="8,0,0,0" VerticalAlignment="Center"/>
+
+            <!-- ============ 模式 ============ -->
+            <TabItem Header="🎚️  模式" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
+                    <StackPanel MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="场景模式与规则" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                        <ListBox x:Name="ModeList" Height="200" BorderBrush="{DynamicResource BorderBrush}" SelectionChanged="ModeList_SelectionChanged"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="应用选中模式" Click="ApplyMode_Click" Style="{StaticResource PrimaryBtn}"/>
                         </StackPanel>
-                        <TextBlock Text="编辑选中模式的规则（每行一个关键词，匹配进程名或路径）：" Margin="0,12,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="编辑选中模式的规则（每行一个关键词，匹配进程名或路径）：" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -408,44 +616,31 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                 <TextBlock Text="KeepPatterns（保留，不参与自动清理）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBox x:Name="KeepPatternsEditor" Height="120" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
+                                <TextBox x:Name="KeepPatternsEditor" Height="140" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="CleanPatterns（清理名单，自动清理的作用范围）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBox x:Name="CleanPatternsEditor" Height="120" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
+                                <TextBox x:Name="CleanPatternsEditor" Height="140" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
                             </StackPanel>
                         </Grid>
-                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                             <Button Content="保存该模式规则" Click="SaveModeRules_Click" Style="{StaticResource PrimaryBtn}"/>
                             <TextBlock x:Name="ModeEditorHint" Text="（选中上方模式后编辑）" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}"/>
                         </StackPanel>
-                        <TextBlock Text="模式配置保存在 config.json；自动切换带滞回（连续两轮确认 + 60 秒冷却）。" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}"/>
+                        <TextBlock Text="模式配置保存在 config.json；自动切换带滞回（连续两轮确认 + 60 秒冷却）。" Margin="0,10,0,0" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="审计日志">
-                <DataGrid Margin="4" ItemsSource="{Binding AuditEntries}" AutoGenerateColumns="False" IsReadOnly="True">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="160"/>
-                        <DataGridTextColumn Header="操作" Binding="{Binding Action}" Width="110"/>
-                        <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="200"/>
-                        <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="90"/>
-                        <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="160"/>
-                        <DataGridTextColumn Header="清理前" Binding="{Binding MemoryBeforeBytes, Converter={StaticResource Bytes}}" Width="90"/>
-                        <DataGridTextColumn Header="清理后" Binding="{Binding MemoryAfterBytes, Converter={StaticResource Bytes}}" Width="90"/>
-                        <DataGridTextColumn Header="详情" Binding="{Binding Details}" Width="*"/>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </TabItem>
-
-            <TabItem Header="用户反馈">
-                <Grid Margin="4">
+            <!-- ============ 反馈 ============ -->
+            <TabItem Header="💬  反馈" Style="{StaticResource NavTab}">
+                <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
+                    <TextBlock Text="教它认识进程：最方便的方式是在「进程」页右键某个进程直接标记；这里也可以手工提交。" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBox x:Name="FbName" Width="160" Margin="0,0,8,0" ToolTip="进程名" Padding="6,4"/>
                         <TextBox x:Name="FbPath" Width="260" Margin="0,0,8,0" ToolTip="可执行文件路径" Padding="6,4"/>
@@ -467,16 +662,16 @@
                         <CheckBox x:Name="FbKeep" Content="标记需保留" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         <CheckBox x:Name="FbClean" Content="标记可清理" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         <CheckBox x:Name="FbSystem" Content="标记为系统进程" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="（进程页右键可直接标记选中进程）" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="内存清理">
-                <ScrollViewer Margin="4">
-                    <StackPanel>
-                        <TextBlock Text="系统内存区域清理（需要管理员权限）" FontWeight="Bold" FontSize="14" Margin="0,0,0,12" Foreground="{DynamicResource TextPrimary}"/>
-                        <TextBlock Text="注意：完整清理备用列表会让游戏重新读盘造成卡顿；游戏运行时建议只使用低优先级备用列表。" Foreground="{DynamicResource AccentRed}" FontSize="11" Margin="0,0,0,12" TextWrapping="Wrap"/>
+            <!-- ============ 系统内存清理 ============ -->
+            <TabItem Header="🧼  系统内存清理" Style="{StaticResource NavTab}">
+                <ScrollViewer Margin="14,14,14,0">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="系统内存区域清理（需要管理员权限）" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="注意：完整清理备用列表会让游戏重新读盘造成卡顿；游戏运行时建议只使用低优先级备用列表。" Foreground="{DynamicResource AccentRed}" FontSize="12" Margin="0,0,0,12" TextWrapping="Wrap"/>
                         <CheckBox x:Name="ChkCombinedPageList" Content="Combined Page List（合并页列表）" Margin="0,4"/>
                         <CheckBox x:Name="ChkModifiedFileCache" Content="Modified File Cache（修改的文件缓存）" Margin="0,4"/>
                         <CheckBox x:Name="ChkModifiedPageList" Content="Modified Page List（修改的页列表）" Margin="0,4"/>
@@ -494,10 +689,12 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="设置">
-                <ScrollViewer Margin="4">
-                    <StackPanel>
-                        <TextBlock Text="阈值配置" FontWeight="Bold" Margin="0,0,0,4" Foreground="{DynamicResource TextPrimary}"/>
+
+            <!-- ============ 设置 ============ -->
+            <TabItem Header="⚙️  设置" Style="{StaticResource NavTab}">
+                <ScrollViewer Margin="14,14,14,0">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="阈值配置" FontSize="15" FontWeight="Bold" Margin="0,0,0,6" Foreground="{DynamicResource TextPrimary}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Text="未使用 CPU 阈值 (%)" Width="240" VerticalAlignment="Center"/>
                             <TextBox x:Name="SetCpu" Width="80" Padding="4"/>
@@ -522,16 +719,16 @@
                             <TextBlock Text="优雅关闭超时 (秒)" Width="240" VerticalAlignment="Center"/>
                             <TextBox x:Name="SetGraceful" Width="80" Padding="4"/>
                         </StackPanel>
-                        <TextBlock Text="自动化" FontWeight="Bold" Margin="0,10,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="自动化" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <CheckBox x:Name="SetAutoCleanup" Content="启用模式驱动的自动清理（仅 L1 回收 / 可选 L3 优雅关闭，从不自动 L4）" Margin="0,2"/>
                         <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,2"/>
                         <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,2"/>
                         <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,2"/>
                         <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,2"/>
-                        <TextBlock Text="驻守" FontWeight="Bold" Margin="0,10,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,2"/>
                         <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,2"/>
-                        <TextBlock Text="联网查询" FontWeight="Bold" Margin="0,10,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="联网查询" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Text="查询端点 URL" Width="240" VerticalAlignment="Center"/>
                             <TextBox x:Name="SetEndpoint" Width="400" Padding="4"/>
@@ -541,7 +738,7 @@
                             <TextBox x:Name="SetApiKey" Width="400" Padding="4"/>
                         </StackPanel>
                         <CheckBox x:Name="SetOnlineEnabled" Content="启用联网查询" Margin="0,4"/>
-                        <TextBlock Text="名单管理" FontWeight="Bold" Margin="0,16,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="名单管理" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <TextBlock Text="受保护进程（每行一个）：" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,2"/>
                         <TextBox x:Name="ProtectedListEditor" Height="80" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6" Margin="0,0,0,8"/>
                         <TextBlock Text="白名单（不参与清理）：" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,2"/>
@@ -555,7 +752,7 @@
             </TabItem>
         </TabControl>
 
-        <StatusBar Grid.Row="2" Background="{DynamicResource RowAltBg}">
+        <StatusBar Grid.Row="1" Background="{DynamicResource RowAltBg}">
             <StatusBarItem>
                 <TextBlock Text="{Binding Status}" Foreground="{DynamicResource TextPrimary}"/>
             </StatusBarItem>

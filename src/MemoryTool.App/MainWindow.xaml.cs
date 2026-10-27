@@ -11,6 +11,7 @@ using MemoryTool.Services;
 using MemoryTool.ViewModels;
 using Application = System.Windows.Application;
 using TabControl = System.Windows.Controls.TabControl;
+using RadioButton = System.Windows.Controls.RadioButton;
 using MessageBox = System.Windows.MessageBox;
 using Color = System.Windows.Media.Color;
 using Colors = System.Windows.Media.Colors;
@@ -45,40 +46,10 @@ public partial class MainWindow : Window
         _vm = new MainViewModel(_config, audit, feedback);
         DataContext = _vm;
 
-        foreach (AppMode m in Enum.GetValues(typeof(AppMode)))
-        {
-            var item = new ComboBoxItem { Content = m.ToString(), Tag = m };
-            ModeCombo.Items.Add(item);
-        }
-        SelectModeCombo(_vm.CurrentMode);
+        SyncModeRadios(_vm.CurrentMode);
 
-        foreach (ProcessCategory c in Enum.GetValues(typeof(ProcessCategory)))
-            FbCategory.Items.Add(c);
-        FbCategory.SelectedItem = ProcessCategory.ThirdPartyApp;
-
-        SetCpu.Text = _config.Config.UnusedCpuThresholdPercent.ToString();
-        SetIdle.Text = _config.Config.UnusedIdleMinutes.ToString();
-        SetRefresh.Text = _config.Config.RefreshIntervalSeconds.ToString();
-        SetMinAge.Text = _config.Config.MinProcessAgeSeconds.ToString();
-        SetObservations.Text = _config.Config.RequiredIdleObservations.ToString();
-        SetGraceful.Text = _config.Config.GracefulCloseTimeoutSeconds.ToString();
-        SetEndpoint.Text = _config.Config.OnlineLookupEndpoint;
-        SetApiKey.Text = _config.Config.OnlineLookupApiKey;
-        SetOnlineEnabled.IsChecked = _config.Config.OnlineLookupEnabled;
-        SetAutoCleanup.IsChecked = _config.Config.AutoCleanupEnabled;
-        SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
-        SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
-        SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
-        SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
-        AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
-        SetAutoStart.IsChecked = StartupService.IsAutoStart();
-        SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
-        ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
-        WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
-        BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
-
-        foreach (var kv in _config.Config.ModeProfiles)
-            ModeList.Items.Add(new ListBoxItem { Content = $"{kv.Value.Name} ({kv.Key})", Tag = kv.Key });
+        // per-tab controls are initialized lazily when their tab is first shown
+        // (TabControl content is instantiated on selection)
 
         _trayIcon = new NotifyIcon
         {
@@ -96,7 +67,7 @@ public partial class MainWindow : Window
         // auto mode switch happens in the engine — reflect it back into the combo box
         _vm.PropertyChanged += (s, e) =>
         {
-            if (e.PropertyName == nameof(MainViewModel.CurrentMode)) SelectModeCombo(_vm.CurrentMode);
+            if (e.PropertyName == nameof(MainViewModel.CurrentMode)) SyncModeRadios(_vm.CurrentMode);
         };
 
         if (_config.Config.StartMinimizedToTray)
@@ -115,6 +86,8 @@ public partial class MainWindow : Window
         _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
         Loaded += async (s, e) =>
         {
+            SyncModeRadios(_vm.CurrentMode);
+            if (AutoSwitchCheck != null) AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
             await _vm.RefreshAsync();
             _vm.StartEngine();          // resident engine: periodic refresh + policies
             StartTrayUpdateTimer();
@@ -141,6 +114,7 @@ public partial class MainWindow : Window
 
     private void RestoreSelection()
     {
+        if (ProcessGrid == null || UnusedGrid == null) return;
         try
         {
             foreach (var p in _vm.FilteredProcesses.Where(p => _selectedProcessPids.Contains(p.Pid)).ToList())
@@ -182,34 +156,124 @@ public partial class MainWindow : Window
 
     private void ToTray_Click(object sender, RoutedEventArgs e) => Hide();
 
-    private void SelectModeCombo(AppMode mode)
+    private bool _syncingModeRadios;
+
+    private void SyncModeRadios(AppMode mode)
     {
-        foreach (var i in ModeCombo.Items.OfType<ComboBoxItem>())
-            if (i.Tag is AppMode m && m == mode) ModeCombo.SelectedItem = i;
+        if (ModeRbResident == null || ModeRbDevelopment == null || ModeRbGame == null ||
+            ModeRbAiGeneration == null || ModeRbBalanced == null) return; // home tab not realized yet
+        _syncingModeRadios = true;
+        try
+        {
+            var map = new Dictionary<AppMode, RadioButton>
+            {
+                [AppMode.Resident] = ModeRbResident,
+                [AppMode.Development] = ModeRbDevelopment,
+                [AppMode.Game] = ModeRbGame,
+                [AppMode.AiGeneration] = ModeRbAiGeneration,
+                [AppMode.Balanced] = ModeRbBalanced
+            };
+            foreach (var kv in map) kv.Value.IsChecked = kv.Key == mode;
+        }
+        finally { _syncingModeRadios = false; }
     }
 
-    private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void HomeMode_Checked(object sender, RoutedEventArgs e)
     {
-        if (ModeCombo.SelectedItem is ComboBoxItem { Tag: AppMode m })
+        if (_syncingModeRadios) return;
+        if (sender is RadioButton { Tag: string s } && Enum.TryParse<AppMode>(s, out var m))
             _vm.CurrentMode = m;
     }
+
+    private void AutoSwitch_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncingModeRadios || AutoSwitchCheck == null) return;
+        _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
+        _config.Save();
+        _vm.Status = _config.Config.AutoModeSwitch ? "已开启模式自动切换。" : "已关闭模式自动切换。";
+    }
+
+    // ---- home navigation ----
+
+    private void SwitchToTab(string headerPrefix)
+    {
+        foreach (var item in RootTabs.Items.OfType<TabItem>())
+        {
+            var header = item.Header?.ToString();
+            if (header == null) continue;
+            if (header.Replace(" ", "").StartsWith(headerPrefix, StringComparison.Ordinal))
+            {
+                RootTabs.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void GoClean_Click(object sender, RoutedEventArgs e) => SwitchToTab("🧹");
+    private void GoDecisions_Click(object sender, RoutedEventArgs e) => SwitchToTab("🧠");
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => _vm.SearchText = SearchBox.Text;
 
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.OriginalSource is not TabControl) return;
-        if (e.AddedItems.OfType<TabItem>().Any(t => t.Header?.ToString() == "线程"))
-            _vm.RebuildThreads();
+        var header = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Header?.ToString()?.Replace(" ", "") ?? "";
+        if (header.StartsWith("🧵")) _vm.RebuildThreads();
+        else if (header.StartsWith("🎚")) InitModeTab();
+        else if (header.StartsWith("💬")) InitFeedbackTab();
+        else if (header.StartsWith("⚙")) InitSettingsTab();
+    }
+
+    private bool _modeTabInit;
+    private void InitModeTab()
+    {
+        if (_modeTabInit || ModeList == null) return;
+        _modeTabInit = true;
+        foreach (var kv in _config.Config.ModeProfiles)
+            ModeList.Items.Add(new ListBoxItem { Content = $"{kv.Value.Name} ({kv.Key})", Tag = kv.Key });
+    }
+
+    private void InitFeedbackTab()
+    {
+        if (FbCategory == null || FbCategory.Items.Count > 0) return;
+        foreach (ProcessCategory c in Enum.GetValues(typeof(ProcessCategory)))
+            FbCategory.Items.Add(c);
+        FbCategory.SelectedItem = ProcessCategory.ThirdPartyApp;
+    }
+
+    private bool _settingsTabInit;
+    private void InitSettingsTab()
+    {
+        if (_settingsTabInit || SetCpu == null) return;
+        _settingsTabInit = true;
+        SetCpu.Text = _config.Config.UnusedCpuThresholdPercent.ToString();
+        SetIdle.Text = _config.Config.UnusedIdleMinutes.ToString();
+        SetRefresh.Text = _config.Config.RefreshIntervalSeconds.ToString();
+        SetMinAge.Text = _config.Config.MinProcessAgeSeconds.ToString();
+        SetObservations.Text = _config.Config.RequiredIdleObservations.ToString();
+        SetGraceful.Text = _config.Config.GracefulCloseTimeoutSeconds.ToString();
+        SetEndpoint.Text = _config.Config.OnlineLookupEndpoint;
+        SetApiKey.Text = _config.Config.OnlineLookupApiKey;
+        SetOnlineEnabled.IsChecked = _config.Config.OnlineLookupEnabled;
+        SetAutoCleanup.IsChecked = _config.Config.AutoCleanupEnabled;
+        SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
+        SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
+        SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
+        SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
+        SetAutoStart.IsChecked = StartupService.IsAutoStart();
+        SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
+        ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
+        WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
+        BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
     }
 
     // ---- cleanup actions ----
 
     private UnusedCandidate? GetSelectedUnused()
     {
-        if (UnusedGrid.SelectedItem is UnusedCandidate uc) return uc;
+        if (UnusedGrid != null && UnusedGrid.SelectedItem is UnusedCandidate uc) return uc;
         // context menu may target the process grid
-        if (ProcessGrid.SelectedItem is ProcessInfo pi)
+        if (ProcessGrid != null && ProcessGrid.SelectedItem is ProcessInfo pi)
             return new UnusedCandidate
             {
                 Process = pi,
@@ -369,15 +433,30 @@ public partial class MainWindow : Window
 
     private async void PlanMakeRoom_Click(object sender, RoutedEventArgs e)
     {
+        if (TargetAvailGB == null) return;
         if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { MessageBox.Show("目标可用内存请填正数（GB）。"); return; }
-        double.TryParse(TargetCommitGB.Text, out var commitGB);
+        await BuildAndShowPlanAsync(targetGB);
+    }
+
+    private async void HomePlan_Click(object sender, RoutedEventArgs e)
+    {
+        if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { MessageBox.Show("请填写需要的内存（GB）。"); return; }
+        // home CTA keeps the same safety: build the plan, review it on the 腾内存 page before executing
+        SwitchToTab("🚀"); // realize the tab's controls first
+        if (TargetAvailGB != null) TargetAvailGB.Text = targetGB.ToString("0.#");
+        await BuildAndShowPlanAsync(targetGB);
+    }
+
+    private async Task BuildAndShowPlanAsync(double targetGB)
+    {
+        double.TryParse(TargetCommitGB?.Text, out var commitGB);
         var req = new MakeRoomRequest
         {
             TargetAvailableGB = targetGB,
-            EnsureCommitToo = EnsureCommit.IsChecked == true,
+            EnsureCommitToo = EnsureCommit?.IsChecked != false,
             TargetCommitFreeGB = commitGB <= 0 ? targetGB : commitGB,
-            AllowKill = AllowKill.IsChecked == true,
-            IncludeTrim = IncludeTrim.IsChecked == true
+            AllowKill = AllowKill?.IsChecked == true,
+            IncludeTrim = IncludeTrim?.IsChecked != false
         };
         _vm.Status = "正在生成腾挪计划...";
         var plan = await _vm.BuildMakeRoomPlanAsync(req);
@@ -385,7 +464,9 @@ public partial class MainWindow : Window
         PlanGrid.ItemsSource = plan.Items;
         MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : "  ⚠ 计划不足以覆盖目标，请勾选允许 L4 或降低目标。");
         ExecutePlanBtn.IsEnabled = plan.Items.Count > 0;
-        _vm.Status = "腾挪计划已生成。";
+        _vm.Status = plan.Items.Count > 0
+            ? "腾挪计划已生成，请核对下面的名单后点「执行计划」。"
+            : "内存已经够用，不需要腾挪。";
     }
 
     private async void ExecuteMakeRoom_Click(object sender, RoutedEventArgs e)
@@ -476,7 +557,7 @@ public partial class MainWindow : Window
         if (ModeList.SelectedItem is ListBoxItem { Tag: AppMode m })
         {
             _vm.CurrentMode = m;
-            SelectModeCombo(m);
+            SyncModeRadios(m);
         }
     }
 
@@ -543,7 +624,7 @@ public partial class MainWindow : Window
         _config.Config.AutoOptimizeEnabled = SetAutoOptimize.IsChecked == true;
         _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
-        _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
+        if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
         var wantAutoStart = SetAutoStart.IsChecked == true;
         if (wantAutoStart != StartupService.IsAutoStart()) StartupService.SetAutoStart(wantAutoStart);

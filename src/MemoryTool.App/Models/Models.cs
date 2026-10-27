@@ -159,6 +159,11 @@ public class DecisionEntry
     public string Target { get; set; } = "";    // process "name (PID N)" or "-"
     public string Decision { get; set; } = "";  // 执行 / 跳过 / 切换 / 提示
     public string Reason { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string TimeText => TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LineText => $"{Decision} · {Target} · {Reason}";
 }
 
 /// <summary>A process this tool closed or killed — kept so the user can relaunch it (the L4 undo).</summary>

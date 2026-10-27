@@ -46,6 +46,9 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(AvailableMemoryText));
             OnPropertyChanged(nameof(CommitText));
             OnPropertyChanged(nameof(CommitFreeText));
+            OnPropertyChanged(nameof(UsedPercent));
+            OnPropertyChanged(nameof(UsedPercentText));
+            OnPropertyChanged(nameof(UsedDetailText));
         }
     }
 
@@ -56,6 +59,10 @@ public class MainViewModel : INotifyPropertyChanged
     public string AvailableMemoryText => FormatBytes(SysMem.AvailablePhysicalBytes);
     public string CommitText => $"{FormatBytes(SysMem.TotalCommittedBytes)} / {FormatBytes(SysMem.TotalCommitLimitBytes)}";
     public string CommitFreeText => FormatBytes(SysMem.TotalCommitLimitBytes - SysMem.TotalCommittedBytes);
+    public double UsedPercent => SysMem.TotalPhysicalBytes <= 0 ? 0 : SysMem.MemoryLoadPercent;
+    public string UsedPercentText => $"{UsedPercent:F0}%";
+    public string UsedDetailText => $"{FormatBytes(SysMem.TotalPhysicalBytes - SysMem.AvailablePhysicalBytes)} 已用 / {TotalMemoryText}";
+    public ObservableCollection<DecisionEntry> HomeDecisions { get; } = new();
 
     private AppMode _currentMode = AppMode.Resident;
     public AppMode CurrentMode
@@ -69,9 +76,19 @@ public class MainViewModel : INotifyPropertyChanged
             ConfigStore.Save();
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentModeText));
+            OnPropertyChanged(nameof(ModeDescription));
         }
     }
     public string CurrentModeText => ModeManager.Profile.Name;
+    public string ModeDescription => CurrentMode switch
+    {
+        AppMode.Resident => "安静驻守：只观察和记录，不主动动任何进程。",
+        AppMode.Development => "开发模式：保护 IDE/编译器/数据库，游戏和娱乐类进入清理名单。",
+        AppMode.Game => "游戏模式：保护游戏和反作弊，开发工具和 AI 任务进入清理名单。",
+        AppMode.AiGeneration => "AI 模式：保护 AI 工具，游戏/浏览器等进入清理名单，允许更积极的腾挪。",
+        AppMode.Balanced => "平衡模式：只做最温和的工作集回收，其余交给手动操作。",
+        _ => ""
+    };
 
     private string _status = "就绪";
     public string Status { get => _status; set => SetUi(() => _status = value); }
@@ -228,6 +245,8 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
         DecisionEntries.Clear();
         foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        HomeDecisions.Clear();
+        foreach (var d in Decisions.Recent(5)) HomeDecisions.Add(d);
         DisposalRecords.Clear();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         ApplyFilter();
@@ -281,7 +300,7 @@ public class MainViewModel : INotifyPropertyChanged
         // graceful close may wait seconds for exit — never block the UI thread
         await Task.Run(() => Cleanup.Execute(cand.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false)).ConfigureAwait(true);
         ReloadAudit();
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             DisposalRecords.Clear();
             foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
