@@ -273,7 +273,8 @@
                                     <TextBlock Text="{Binding GpuSummaryText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,12"/>
                                     <TextBlock Text="可用内存趋势" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
                                     <Canvas Width="260" Height="64" Background="{DynamicResource TrackBg}" Margin="0,4,0,0">
-                                        <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
+                                        <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="#332563EB"/>
+                                        <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2" StrokeLineJoin="Round"/>
                                     </Canvas>
                                 </StackPanel>
                             </Grid>
@@ -572,7 +573,8 @@
                                 </DockPanel>
                                 <TextBlock Text="{Binding HistorySummary}" Margin="0,6,0,8" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
                                 <Canvas Width="640" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
-                                    <Polyline Points="{Binding HistoryPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
+                                    <Polygon Points="{Binding HistoryAreaPoints}" Fill="#332563EB"/>
+                                    <Polyline Points="{Binding HistoryPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2.5" StrokeLineJoin="Round"/>
                                 </Canvas>
                                 <TextBlock Text="上：24 小时可用内存占比（越低越紧张）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
                             </StackPanel>

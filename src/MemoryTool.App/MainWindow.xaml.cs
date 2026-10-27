@@ -872,25 +872,45 @@ public partial class MainWindow : Window
     {
         try
         {
-            using var bmp = new System.Drawing.Bitmap(32, 32);
+            // draw at the shell's native small-icon size so it stays crisp at any DPI
+            int px = Math.Max(16, GetSystemMetrics(49)); // SM_CXSMICON, DPI-aware shell size
+            using var bmp = new System.Drawing.Bitmap(px, px);
             using (var g = System.Drawing.Graphics.FromImage(bmp))
             {
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-                var color = usedPercent >= 85 ? System.Drawing.Color.FromArgb(220, 38, 38)
+                g.Clear(System.Drawing.Color.Transparent);
+
+                float inset = px * 0.12f;
+                float thick = px * 0.17f;
+                var rect = new System.Drawing.RectangleF(inset, inset, px - 2 * inset, px - 2 * inset);
+
+                // dim track ring
+                using (var track = new System.Drawing.Pen(System.Drawing.Color.FromArgb(70, 90, 110), thick))
+                    g.DrawArc(track, rect, -90, 360);
+
+                // value arc, colored by pressure
+                var color = usedPercent >= 85 ? System.Drawing.Color.FromArgb(235, 61, 61)
                           : usedPercent >= 60 ? System.Drawing.Color.FromArgb(217, 119, 6)
-                          : System.Drawing.Color.FromArgb(5, 150, 105);
-                using var brush = new System.Drawing.SolidBrush(color);
-                g.FillEllipse(brush, 1, 1, 30, 30);
-                using var font = new System.Drawing.Font("Segoe UI", usedPercent >= 100 ? 10f : 12f, System.Drawing.FontStyle.Bold);
-                var text = usedPercent.ToString();
-                var size = g.MeasureString(text, font);
-                using var white = System.Drawing.Brushes.White;
-                g.DrawString(text, font, white, (32 - size.Width) / 2f, (32 - size.Height) / 2f + 1f);
+                          : System.Drawing.Color.FromArgb(16, 185, 129);
+                using (var pen = new System.Drawing.Pen(color, thick))
+                {
+                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                    g.DrawArc(pen, rect, -90, 360f * Math.Clamp(usedPercent, 0, 100) / 100f);
+                }
+
+                // percentage text only when there is room to render it legibly
+                if (px >= 28)
+                {
+                    using var font = new System.Drawing.Font("Segoe UI", px * 0.30f, System.Drawing.FontStyle.Bold);
+                    using var white = System.Drawing.Brushes.White;
+                    var text = usedPercent.ToString();
+                    var size = g.MeasureString(text, font);
+                    g.DrawString(text, font, white, (px - size.Width) / 2f, (px - size.Height) / 2f + 1f);
+                }
             }
             var hicon = bmp.GetHicon();
             _tray?.SetIcon(hicon);
-            // the shell copies what it needs at SET time; free our previous handle
             if (_trayHicon != IntPtr.Zero) { DestroyIcon(_trayHicon); }
             _trayHicon = hicon;
         }
@@ -899,6 +919,9 @@ public partial class MainWindow : Window
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr hIcon);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 
     private void StartTrayUpdateTimer()
     {

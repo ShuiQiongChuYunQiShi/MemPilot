@@ -19,6 +19,9 @@ public sealed class TrayIconService : IDisposable
 
     private HwndSource? _source;
     private bool _added;
+    private IntPtr _lastIcon = IntPtr.Zero;
+    private string _lastTip = "";
+    private uint _taskbarCreatedMsg;
 
     public event Action? DoubleClick;
     public event Action? RightClick;
@@ -33,10 +36,18 @@ public sealed class TrayIconService : IDisposable
         };
         _source = new HwndSource(parameters);
         _source.AddHook(WndProc);
+        _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // explorer.exe restarts wipe tray icons; re-add when the taskbar is recreated
+        if (_taskbarCreatedMsg != 0 && msg == (int)_taskbarCreatedMsg && _added)
+        {
+            _added = false;
+            ReAdd();
+            return IntPtr.Zero;
+        }
         if (msg != WM_APP_TRAY) return IntPtr.Zero;
         handled = true;
         switch (lParam.ToInt32())
@@ -66,6 +77,16 @@ public sealed class TrayIconService : IDisposable
         if (!_added)
         {
             _added = Shell_NotifyIcon(NIM_ADD, ref data);
+            if (!_added)
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryTool", "crash.log"),
+                        $"{DateTime.UtcNow:O}  tray NIM_ADD failed (win32 error {Marshal.GetLastWin32Error()})\n");
+                }
+                catch { }
+            }
         }
         else
         {
@@ -73,12 +94,24 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
-    public void SetIcon(IntPtr hIcon) => Modify(NIF_MESSAGE | NIF_ICON, hIcon, null, null, null, 0);
+    private void ReAdd()
+    {
+        _added = false;
+        if (_lastIcon != IntPtr.Zero || !string.IsNullOrEmpty(_lastTip))
+            Modify(NIF_MESSAGE | NIF_ICON | NIF_TIP, _lastIcon, _lastTip, null, null, 0);
+    }
+
+    public void SetIcon(IntPtr hIcon)
+    {
+        _lastIcon = hIcon;
+        Modify(NIF_MESSAGE | NIF_ICON, hIcon, _lastTip, null, null, 0);
+    }
 
     public void SetTooltip(string text)
     {
         if (text.Length > 127) text = text[..127];
-        Modify(NIF_MESSAGE | NIF_TIP, IntPtr.Zero, text, null, null, 0);
+        _lastTip = text;
+        Modify(NIF_MESSAGE | NIF_TIP, _lastIcon, text, null, null, 0);
     }
 
     public void ShowBalloon(string title, string text, bool warning = false)
@@ -128,4 +161,7 @@ public sealed class TrayIconService : IDisposable
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool Shell_NotifyIcon(int dwMessage, ref NOTIFYICONDATA lpData);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint RegisterWindowMessage(string lpString);
 }

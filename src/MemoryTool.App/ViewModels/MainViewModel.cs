@@ -102,7 +102,6 @@ public class MainViewModel : INotifyPropertyChanged
     public string AppVersionText => "v" + (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "?");
 
     // ---- usage history (历史统计) ----
-    public System.Windows.Media.PointCollection HistoryPoints { get; } = new();
     public ObservableCollection<ModeUsageRow> ModeUsageItems { get; } = new();
     public ObservableCollection<TopUsageRow> TopUsageItems { get; } = new();
     public ObservableCollection<ActionUsageRow> ActionUsageItems { get; } = new();
@@ -139,12 +138,19 @@ public class MainViewModel : INotifyPropertyChanged
             HistoryPoints.Clear();
             if (day.Count > 1 && day[0].Total > 0)
             {
+                HistoryAreaPoints.Clear();
                 for (int i = 0; i < day.Count; i++)
                 {
                     double frac = (double)day[i].Avail / day[i].Total; // 0..1 available
                     double x = i * (640.0 / Math.Max(1, day.Count - 1));
                     double y = 150 - frac * 140;
                     HistoryPoints.Add(new System.Windows.Point(x, y));
+                    HistoryAreaPoints.Add(new System.Windows.Point(x, y));
+                }
+                if (HistoryPoints.Count > 1)
+                {
+                    HistoryAreaPoints.Add(new System.Windows.Point(640, 160));
+                    HistoryAreaPoints.Add(new System.Windows.Point(0, 160));
                 }
             }
             // mode usage over 7 days
@@ -211,6 +217,9 @@ public class MainViewModel : INotifyPropertyChanged
     public string BusyText => IsBusy ? "⟳ 刷新中" : "空闲";
 
     public System.Windows.Media.PointCollection MemoryTrendPoints { get; } = new();
+    public System.Windows.Media.PointCollection MemoryTrendAreaPoints { get; } = new();
+    public System.Windows.Media.PointCollection HistoryPoints { get; } = new();
+    public System.Windows.Media.PointCollection HistoryAreaPoints { get; } = new();
     private readonly List<(DateTime t, long avail)> _memSamples = new();
 
     private string _searchText = "";
@@ -510,12 +519,19 @@ public class MainViewModel : INotifyPropertyChanged
             long maxV = _memSamples.Max(s => s.avail);
             long minV = _memSamples.Min(s => s.avail);
             double range = Math.Max(1, maxV - minV);
+            MemoryTrendAreaPoints.Clear();
             for (int i = 0; i < _memSamples.Count; i++)
             {
                 // canvas on the home page is 260x64 — scale to it, or the line gets clipped
                 double x = i * (260.0 / Math.Max(1, _memSamples.Count - 1));
                 double y = 60 - (_memSamples[i].avail - minV) / range * 54;
                 MemoryTrendPoints.Add(new System.Windows.Point(x, y));
+                MemoryTrendAreaPoints.Add(new System.Windows.Point(x, y));
+            }
+            if (MemoryTrendPoints.Count > 1)
+            {
+                MemoryTrendAreaPoints.Add(new System.Windows.Point(260, 64));
+                MemoryTrendAreaPoints.Add(new System.Windows.Point(0, 64));
             }
         }
     }
