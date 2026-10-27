@@ -10,9 +10,9 @@
     <RootNamespace>MemoryTool</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.1.0</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
     <Title>MemoryTool</Title>
     <Product>MemoryTool - 内存与进程管家</Product>
     <Description>常驻内存与进程管理器：未使用检测、场景模式、腾挪工作流</Description>

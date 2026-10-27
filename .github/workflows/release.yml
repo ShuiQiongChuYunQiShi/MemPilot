@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version from tag
+        shell: pwsh
+        run: |
+          "VERSION=$($env:GITHUB_REF_NAME -replace '^v','')" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VERSION=$env:VERSION"
+
+      - name: Test (gate: release is blocked by failing tests)
+        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
+
+      - name: Publish portable (framework-dependent, needs .NET 10 Desktop Runtime)
+        run: dotnet publish src/MemoryTool.App/MemoryTool.App.csproj -c Release -o dist/portable -v q
+
+      - name: Zip portable
+        shell: pwsh
+        run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/MemoryTool-$env:VERSION-portable.zip"
+
+      - name: Publish self-contained single exe
+        run: dotnet publish src/MemoryTool.App/MemoryTool.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/single -v q
+
+      - name: Stage single exe
+        shell: pwsh
+        run: Copy-Item "dist/single/MemoryTool.exe" "dist/MemoryTool-$env:VERSION-win-x64.exe"
+
+      - name: SHA256SUMS
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*win-x64.exe' }
+          $lines = $files | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() + '  ' + $_.Name }
+          $lines | Set-Content dist/SHA256SUMS.txt
+
+      - name: Create release
+        shell: pwsh
+        run: |
+          $assets = @('dist/MemoryTool-' + $env:VERSION + '-portable.zip', 'dist/MemoryTool-' + $env:VERSION + '-win-x64.exe', 'dist/SHA256SUMS.txt')
+          gh release create "$env:GITHUB_REF_NAME" @assets --title "MemoryTool $env:VERSION" --generate-notes
