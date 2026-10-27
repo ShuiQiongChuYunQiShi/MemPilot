@@ -1,4 +1,4 @@
-name: release
+﻿name: release
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           "VERSION=$($env:GITHUB_REF_NAME -replace '^v','')" | Out-File -FilePath $env:GITHUB_ENV -Append
           "VERSION=$env:VERSION"
 
-      - name: Test (gate: release is blocked by failing tests)
+      - name: Test gate (release blocked by failing tests)
         run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
 
       - name: Publish portable (framework-dependent, needs .NET 10 Desktop Runtime)
