@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 
@@ -30,7 +30,8 @@ public sealed class TrayIconService : IDisposable
     {
         var parameters = new HwndSourceParameters("MemoryToolTrayWindow", 1, 1)
         {
-            WindowStyle = 0, // WS_OVERLAPPED-less: hidden message-only-ish window
+            // a real overlapped window: Win11 drops tray icons whose owner has zero styles
+            WindowStyle = 0x00CF0000, // WS_OVERLAPPEDWINDOW (window is never shown)
             PositionX = -32000,
             PositionY = -32000
         };
@@ -97,21 +98,23 @@ public sealed class TrayIconService : IDisposable
     private void ReAdd()
     {
         _added = false;
-        if (_lastIcon != IntPtr.Zero || !string.IsNullOrEmpty(_lastTip))
-            Modify(NIF_MESSAGE | NIF_ICON | NIF_TIP, _lastIcon, _lastTip, null, null, 0);
+        Modify(NIF_MESSAGE | NIF_ICON | NIF_TIP, _lastIcon, _lastTip, null, null, 0);
     }
 
     public void SetIcon(IntPtr hIcon)
     {
         _lastIcon = hIcon;
-        Modify(NIF_MESSAGE | NIF_ICON, hIcon, _lastTip, null, null, 0);
+        // Win11 silently drops an ADD without an icon image — so the single ADD only
+        // happens here, complete with icon + tip; tooltips before that just cache.
+        Modify(NIF_MESSAGE | NIF_ICON | NIF_TIP, hIcon, _lastTip, null, null, 0);
     }
 
     public void SetTooltip(string text)
     {
         if (text.Length > 127) text = text[..127];
         _lastTip = text;
-        Modify(NIF_MESSAGE | NIF_TIP, _lastIcon, text, null, null, 0);
+        if (_added)
+            Modify(NIF_MESSAGE | NIF_TIP, _lastIcon, text, null, null, 0);
     }
 
     public void ShowBalloon(string title, string text, bool warning = false)
