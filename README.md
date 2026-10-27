@@ -50,7 +50,9 @@ Windows 常驻内存与进程管理工具。面向"并行开发 + 游戏 + AI �
   → 执行后清理低优先级备用列表兑现回收 → 前后实测写审计。
 - **托盘**：图标直接绘制占用百分比（<60% 绿 / <85% 黄 / ≥85% 红），悬停显示可用内存与挂起数。
 - **工程化**：单实例互斥、全局异常捕获（crash.log）、`/reset` 出厂重置、
-  控制台模式（`MemoryTool.exe /standbylistlowpriority` 等，可配计划任务）。
+  控制台模式（`MemoryTool.exe /standbylistlowpriority` 等，可配计划任务）；
+  全局热键（默认 CTRL+SHIFT+M，唤起主窗并生成腾挪计划）；系统级清理缺权限时
+  一键 UAC 提权重启并自动执行所选区域；审计可选同步写入 Windows 事件日志。
 
 ## 构建
 

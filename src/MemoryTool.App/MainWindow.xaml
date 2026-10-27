@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:helpers="clr-namespace:MemoryTool.Helpers"
         mc:Ignorable="d"
-        Title="MemoryTool - 内存与进程管家" Height="780" Width="1280"
+        Title="MemoryTool - 内存与进程管家" Height="780" Width="1280" Icon="app.ico"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource PanelBg}"
         FontFamily="Microsoft YaHei UI,Segoe UI">
@@ -89,6 +89,7 @@
                                     <StackPanel DockPanel.Dock="Bottom" Margin="18,0,18,16">
                                         <TextBlock Text="{Binding UsedPercentText, StringFormat=内存 {0}}" Foreground="#94A3B8" FontSize="12"/>
                                         <TextBlock Text="{Binding UsedDetailText}" Foreground="#64748B" FontSize="11" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding AppVersionText}" Foreground="#475569" FontSize="10" Margin="0,6,0,0"/>
                                     </StackPanel>
                                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                                         <StackPanel IsItemsHost="True" Margin="0,4,0,0"/>
@@ -734,6 +735,7 @@
                                 <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
                                 <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,3"/>
+                                <CheckBox x:Name="SetEventLog" Content="审计同步写入 Windows 事件日志（来源注册需要一次管理员运行）" Margin="0,3"/>
                             </StackPanel>
                         </Border>
 
@@ -742,6 +744,11 @@
                                 <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
                                 <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,3"/>
                                 <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,3"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <CheckBox x:Name="SetHotkeyEnabled" Content="全局热键一键腾内存：" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="SetHotkey" Width="150" Margin="8,0,0,0" ToolTip="格式：CTRL+SHIFT+M / ALT+F9 等"/>
+                                </StackPanel>
+                                <TextBlock Text="热键动作：唤起主窗 → 打开腾内存页 → 按主页的目标 GB 生成计划（仍需手动确认执行）。" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="20,2,0,0"/>
                             </StackPanel>
                         </Border>
 

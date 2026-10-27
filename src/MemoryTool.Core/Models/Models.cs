@@ -1,4 +1,4 @@
-namespace MemoryTool.Models;
+﻿namespace MemoryTool.Models;
 
 public enum ProcessCategory
 {
@@ -341,6 +341,7 @@ public class AppConfig
     public string GlobalHotkey { get; set; } = "CTRL+SHIFT+M";
     public bool StartWithWindows { get; set; } = false;
     public bool StartMinimizedToTray { get; set; } = false;
+    public bool WriteEventLogAudit { get; set; } = false;
     public bool ResumeSuspendedOnModeChange { get; set; } = false;
     public Dictionary<AppMode, ModeProfile> ModeProfiles { get; set; } = new();
 }

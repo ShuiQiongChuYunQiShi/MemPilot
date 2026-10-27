@@ -87,6 +87,8 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
     public string CurrentModeText => ModeManager.Profile.Name;
+    public string AppVersionText => "v" + (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "?");
+
     public string ModeDescription => CurrentMode switch
     {
         AppMode.Resident => "安静驻守：只观察和记录，不主动动任何进程。",
@@ -147,6 +149,7 @@ public class MainViewModel : INotifyPropertyChanged
             ReloadDecisions();
         };
         OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
+        WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         CurrentMode = config.Config.CurrentMode;
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
         foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);

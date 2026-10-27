@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private readonly ConfigStore _config;
     private readonly NativeMemoryCleanerService _memCleaner = new();
     private TrayIconService? _tray;
+    private HotkeyService? _hotkey;
     private IntPtr _trayHicon = IntPtr.Zero;
     private System.Windows.Controls.ContextMenu? _trayMenu;
     private bool _allowClose;
@@ -50,6 +51,11 @@ public partial class MainWindow : Window
 
         // per-tab controls are initialized lazily when their tab is first shown
         // (TabControl content is instantiated on selection)
+
+        _hotkey = new HotkeyService();
+        _hotkey.Activated += () => Dispatcher.InvokeAsync(HotkeyActivateMakeRoom);
+        if (_config.Config.GlobalHotkeyEnabled)
+            _hotkey.TryRegister(_config.Config.GlobalHotkey);
 
         _tray = new TrayIconService();
         _tray.DoubleClick += () => Dispatcher.InvokeAsync(ShowWindow);
@@ -102,6 +108,17 @@ public partial class MainWindow : Window
         };
         StateChanged += (s, e) => UpdateUiActivity();
         IsVisibleChanged += (s, e) => UpdateUiActivity();
+    }
+
+    private async void HotkeyActivateMakeRoom()
+    {
+        ShowWindow();
+        SwitchToTab("🚀");
+        double gb = 8;
+        if (HomeTargetGB != null) double.TryParse(HomeTargetGB.Text, out gb);
+        if (gb <= 0) gb = 8;
+        if (TargetAvailGB != null) TargetAvailGB.Text = gb.ToString("0.#");
+        await BuildAndShowPlanAsync(gb);
     }
 
     private void ShowTrayMenu()
@@ -157,6 +174,7 @@ public partial class MainWindow : Window
             return;
         }
         _tray?.Dispose();
+        _hotkey?.Dispose();
     }
 
     // ---- selection preservation ----
@@ -215,9 +233,14 @@ public partial class MainWindow : Window
             MessageBox.Show("当前没有可清理候选（观察期可能未满）。", "提示");
             return;
         }
+        long before = _vm.SysMem.AvailablePhysicalBytes;
         foreach (var c in targets)
             await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim);
         await _vm.RefreshAsync();
+        long delta = _vm.SysMem.AvailablePhysicalBytes - before;
+        string msg = $"已回收 {targets.Count} 项工作集，可用内存 {(delta >= 0 ? "+" : "")}{delta / 1073741824.0:F1} GB";
+        _tray?.ShowBalloon("一键优化完成", msg);
+        _vm.Status = msg;
     }
 
     private void ToTray_Click(object sender, RoutedEventArgs e)
@@ -332,6 +355,9 @@ public partial class MainWindow : Window
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetAutoStart.IsChecked = StartupService.IsAutoStart();
         SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
+        SetHotkeyEnabled.IsChecked = _config.Config.GlobalHotkeyEnabled;
+        SetHotkey.Text = _config.Config.GlobalHotkey;
+        SetEventLog.IsChecked = _config.Config.WriteEventLogAudit;
         ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
         WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
         BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
@@ -558,6 +584,7 @@ public partial class MainWindow : Window
             var result = await _vm.ExecuteMakeRoomAsync(_currentPlan, _planCts.Token);
             MakeRoomResultText.Text = result.SummaryText;
             _vm.Status = "腾挪计划执行完毕。" + result.SummaryText;
+            _tray?.ShowBalloon("腾挪完成", result.SummaryText);
         }
         catch (OperationCanceledException)
         {
@@ -696,6 +723,10 @@ public partial class MainWindow : Window
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
+        _config.Config.WriteEventLogAudit = SetEventLog.IsChecked == true;
+        WindowsEventLog.Enabled = _config.Config.WriteEventLogAudit;
+        _config.Config.GlobalHotkeyEnabled = SetHotkeyEnabled.IsChecked == true;
+        _config.Config.GlobalHotkey = SetHotkey.Text.Trim().ToUpperInvariant();
         var wantAutoStart = SetAutoStart.IsChecked == true;
         if (wantAutoStart != StartupService.IsAutoStart()) StartupService.SetAutoStart(wantAutoStart);
         _config.Config.ProtectedNames = ProtectedListEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
@@ -705,7 +736,17 @@ public partial class MainWindow : Window
         _vm.UnusedDetector.Config = _config.Config;
         _vm.OnlineLookup.Config = _config.Config;
         _vm.StartEngine(); // restart so the new refresh interval takes effect
-        MessageBox.Show("设置已保存。", "完成");
+        UpdateUiActivity();
+        _hotkey?.Unregister();
+        string hotkeyNote = "";
+        if (_config.Config.GlobalHotkeyEnabled)
+        {
+            if (_hotkey != null && _hotkey.TryRegister(_config.Config.GlobalHotkey))
+                hotkeyNote = " 全局热键已生效。";
+            else
+                hotkeyNote = " 全局热键注册失败（格式如 CTRL+SHIFT+M，或被其他程序占用）。";
+        }
+        MessageBox.Show("设置已保存。" + hotkeyNote, "完成");
     }
 
     // ---- system memory areas ----
@@ -725,7 +766,22 @@ public partial class MainWindow : Window
         if (areas.Contains(MemoryArea.StandbyList) &&
             MessageBox.Show("完整清理备用列表会清掉文件缓存，游戏运行时会造成卡顿。确认继续？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             return;
-        if (!_memCleaner.IsAdmin()) { MessageBox.Show("需要管理员权限。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        if (!Elevation.IsAdmin())
+        {
+            var argList = areas.Select(a => "/" + a).ToList();
+            var res2 = MessageBox.Show(
+                "系统级内存清理需要管理员权限。\n\n以管理员身份重启 MemoryTool 并自动执行所选区域？",
+                "需要提权", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (res2 == MessageBoxResult.Yes &&
+                Elevation.RestartAsAdmin(string.Join(" ", argList)))
+            {
+                _allowClose = true;
+                _tray?.Dispose();
+                _hotkey?.Dispose();
+                Application.Current.Shutdown();
+            }
+            return;
+        }
         var results = _memCleaner.CleanAreas(areas);
         var sb = new System.Text.StringBuilder();
         foreach (var kv in results) sb.AppendLine($"{kv.Key}: {(kv.Value.success ? "OK" : "FAIL")} {kv.Value.message}");

@@ -77,6 +77,7 @@ public class CleanupEngine
             MemoryAfterBytes = after,
             Details = p.CategoryReason
         });
+        WindowsEventLog.TryWrite($"MemoryTool {level}: {p.Name} (PID {p.Pid}) -> {result}");
         // keep a relaunchable record of close/kill attempts (the closest thing to an undo)
         if (level is CleanupActionLevel.L3GracefulClose or CleanupActionLevel.L4ForceKill)
         {

@@ -8,3 +8,4 @@ test_*.txt
 src/MemoryTool.App/Data/
 *.zip
 .test-tmp/
+_patch*.py
