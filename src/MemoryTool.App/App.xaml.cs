@@ -10,6 +10,11 @@ namespace MemoryTool.App;
 public partial class App : Application
 {
     private static Mutex? _singleInstance;
+    private static EventWaitHandle? _showSignal;
+    private const string ShowSignalName = @"Local\MemoryTool.ShowSignal";
+
+    /// <summary>The running instance wires this to its safe WPF show path.</summary>
+    public static event Action? ShowRequested;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -26,11 +31,19 @@ public partial class App : Application
         _singleInstance = new Mutex(true, @"Local\MemoryTool.SingleInstance", out var isNew);
         if (!isNew)
         {
-            // quiet: bring the existing instance's window to the front instead of nagging
-            TryActivateExistingWindow();
+            // quiet: signal the running instance to show itself on its own dispatcher.
+            // Never touch the other process's window cross-process: SW_RESTORE on a
+            // WPF window that WPF believes is hidden renders a frozen black frame.
+            _showSignal?.Set();
             Shutdown();
             return;
         }
+
+        // first instance: listen for "show yourself" signals from future launches
+        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+        ThreadPool.RegisterWaitForSingleObject(_showSignal,
+            (s, timedOut) => Dispatcher.InvokeAsync(() => ShowRequested?.Invoke()),
+            null, -1, executeOnlyOnce: false);
 
         var args2 = e.Args;
         if (args2.Length > 0 && args2[0].StartsWith("/"))
@@ -82,29 +95,6 @@ public partial class App : Application
                 Console.WriteLine($"{kv.Key}: {(kv.Value.success ? "OK" : "FAIL")} {kv.Value.message}");
         }
         Application.Current.Shutdown();
-    }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-    private static extern IntPtr FindWindow(string? lpClassName, string lpWindowName);
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); // SW_RESTORE = 9
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    private static void TryActivateExistingWindow()
-    {
-        try
-        {
-            var hwnd = FindWindow(null, "MemoryTool - 内存与进程管家");
-            if (hwnd != IntPtr.Zero)
-            {
-                ShowWindow(hwnd, 9);
-                SetForegroundWindow(hwnd);
-            }
-        }
-        catch { }
     }
 
     private static void TryLogCrash(Exception? ex)

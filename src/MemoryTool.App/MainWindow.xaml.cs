@@ -102,6 +102,7 @@ public partial class MainWindow : Window
             Dispatcher.InvokeAsync(() => _tray?.ShowBalloon("模式已切换",
                 $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。"));
 
+        App.ShowRequested += () => Dispatcher.InvokeAsync(ShowWindow);
         Closing += MainWindow_Closing;
         _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
         Loaded += async (s, e) =>
