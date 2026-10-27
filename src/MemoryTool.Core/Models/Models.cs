@@ -265,6 +265,8 @@ public class MakeRoomPlanItem
     public string Rationale { get; set; } = "";
     /// <summary>For L3 items: if the graceful close times out, escalate to L4.</summary>
     public bool KillIfCloseFails { get; set; }
+    /// <summary>Processes this item's process is a parent of — closing it affects them too.</summary>
+    public int ChildCount { get; set; }
     public string ActionText => Action switch
     {
         CleanupActionLevel.L1Trim => "L1 回收工作集",
@@ -342,6 +344,9 @@ public class AppConfig
     public bool StartWithWindows { get; set; } = false;
     public bool StartMinimizedToTray { get; set; } = false;
     public bool WriteEventLogAudit { get; set; } = false;
+    public int UsageRetentionDays { get; set; } = 30;
+    public double CompactLeft { get; set; } = -1;
+    public double CompactTop { get; set; } = -1;
     public bool ResumeSuspendedOnModeChange { get; set; } = false;
     public Dictionary<AppMode, ModeProfile> ModeProfiles { get; set; } = new();
 }

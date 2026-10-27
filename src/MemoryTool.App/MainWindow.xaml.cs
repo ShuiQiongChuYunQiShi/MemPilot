@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly NativeMemoryCleanerService _memCleaner = new();
     private TrayIconService? _tray;
     private HotkeyService? _hotkey;
+    private CompactWindow? _compact;
     private IntPtr _trayHicon = IntPtr.Zero;
     private System.Windows.Controls.ContextMenu? _trayMenu;
     private bool _allowClose;
@@ -114,12 +115,36 @@ public partial class MainWindow : Window
     {
         ShowWindow();
         SwitchToTab("🚀");
+        await BuildMakeRoomFromHomeAsync();
+    }
+
+    private async Task BuildMakeRoomFromHomeAsync()
+    {
         double gb = 8;
         if (HomeTargetGB != null) double.TryParse(HomeTargetGB.Text, out gb);
         if (gb <= 0) gb = 8;
         if (TargetAvailGB != null) TargetAvailGB.Text = gb.ToString("0.#");
         await BuildAndShowPlanAsync(gb);
     }
+
+    private void Compact_Click(object sender, RoutedEventArgs e)
+    {
+        if (_compact != null) { _compact.Activate(); return; }
+        _compact = new CompactWindow(_vm, _config, OnCompactMakeRoom, ShowWindow);
+        _compact.Closed += (s, e) => _compact = null;
+        _compact.Show();
+        Hide(); // the mini bar replaces the main window; tray stays alive
+        UpdateUiActivity();
+    }
+
+    private void OnCompactMakeRoom()
+    {
+        ShowWindow();
+        SwitchToTab("🚀");
+        _ = BuildMakeRoomFromHomeAsync();
+    }
+
+    private void LoadHistory_Click(object sender, RoutedEventArgs e) => _vm.LoadHistory();
 
     private void ShowTrayMenu()
     {
@@ -315,6 +340,7 @@ public partial class MainWindow : Window
         else if (header.StartsWith("🎚")) InitModeTab();
         else if (header.StartsWith("💬")) InitFeedbackTab();
         else if (header.StartsWith("⚙")) InitSettingsTab();
+        else if (header.StartsWith("📊")) _vm.LoadHistory();
     }
 
     private bool _modeTabInit;
@@ -358,6 +384,7 @@ public partial class MainWindow : Window
         SetHotkeyEnabled.IsChecked = _config.Config.GlobalHotkeyEnabled;
         SetHotkey.Text = _config.Config.GlobalHotkey;
         SetEventLog.IsChecked = _config.Config.WriteEventLogAudit;
+        SetResumeOnModeChange.IsChecked = _config.Config.ResumeSuspendedOnModeChange;
         ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
         WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
         BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
@@ -384,9 +411,12 @@ public partial class MainWindow : Window
 
     private async Task RunCleanup(UnusedCandidate c, CleanupActionLevel level)
     {
+        var childNote = c.Process.ChildPids.Count > 0
+            ? $"\n注意：该进程有 {c.Process.ChildPids.Count} 个子进程，结束可能连带影响它们。"
+            : "";
         if (level == CleanupActionLevel.L4ForceKill)
         {
-            var msg = $"强制结束 {c.Process.Name} (PID {c.Process.Pid})？\n预计释放: {c.EstimatedReclaimableBytes / 1048576.0:F0} MB\n该操作不可撤销。";
+            var msg = $"强制结束 {c.Process.Name} (PID {c.Process.Pid})？\n预计释放: {c.EstimatedReclaimableBytes / 1048576.0:F0} MB{childNote}\n该操作不可撤销。";
             if (MessageBox.Show(msg, "确认 L4", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             if (MessageBox.Show("第二次确认：确定强制结束？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
@@ -397,7 +427,7 @@ public partial class MainWindow : Window
         }
         else if (level == CleanupActionLevel.L3GracefulClose)
         {
-            if (MessageBox.Show($"向 {c.Process.Name} (PID {c.Process.Pid}) 的窗口发送关闭消息？程序将有机会保存数据后自行退出。",
+            if (MessageBox.Show($"向 {c.Process.Name} (PID {c.Process.Pid}) 的窗口发送关闭消息？程序将有机会保存数据后自行退出。{childNote}",
                 "确认 L3", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         }
         await _vm.PerformCleanupAsync(c, level);
@@ -570,7 +600,8 @@ public partial class MainWindow : Window
     {
         if (_currentPlan == null || _currentPlan.Items.Count == 0) return;
         var lines = string.Join("\n", _currentPlan.Items.Select(i =>
-            $"{i.ActionText}  {i.Process.Name} (PID {i.Process.Pid})  预计物理 {i.EstimatedPhysicalReclaimBytes / 1048576.0:F0} MB"));
+            $"{i.ActionText}  {i.Process.Name} (PID {i.Process.Pid})  预计物理 {i.EstimatedPhysicalReclaimBytes / 1048576.0:F0} MB"
+            + (i.ChildCount > 0 ? $"（含 {i.ChildCount} 子进程）" : "")));
         var res = MessageBox.Show($"将执行 {_currentPlan.Items.Count} 项操作：\n\n{lines}\n\n" +
             (_currentPlan.Items.Any(i => i.KillIfCloseFails) ? "部分 L3 项在关闭超时后会升级为强制结束。\n" : "") +
             "继续？", "确认执行腾挪计划", MessageBoxButton.YesNo, MessageBoxImage.Warning);
@@ -725,6 +756,7 @@ public partial class MainWindow : Window
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
         _config.Config.WriteEventLogAudit = SetEventLog.IsChecked == true;
+        _config.Config.ResumeSuspendedOnModeChange = SetResumeOnModeChange.IsChecked == true;
         WindowsEventLog.Enabled = _config.Config.WriteEventLogAudit;
         _config.Config.GlobalHotkeyEnabled = SetHotkeyEnabled.IsChecked == true;
         _config.Config.GlobalHotkey = SetHotkey.Text.Trim().ToUpperInvariant();

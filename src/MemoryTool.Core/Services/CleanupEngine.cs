@@ -170,7 +170,7 @@ public class CleanupEngine
         bool modeAllowsKill = profile.AllowedActions.Contains(CleanupActionLevel.L4ForceKill);
         bool allowKill = req.AllowKill && modeAllowsKill;
 
-        var pool = new List<(ProcessInfo p, CleanupActionLevel action, long phys, long commit, string why, int risk)>();
+        var pool = new List<(ProcessInfo p, CleanupActionLevel action, long phys, long commit, string why, int risk, int children)>();
         foreach (var p in processes)
         {
             if (p.IsProtected || p.IsSystemProcess || p.IsService) continue;
@@ -185,22 +185,23 @@ public class CleanupEngine
                 p.ExecutablePath.Contains(pat, StringComparison.OrdinalIgnoreCase));
             bool idle = p.IdleMinutes > 0;
 
+            string childNote = p.ChildPids.Count > 0 ? $"（含 {p.ChildPids.Count} 个子进程，关闭将连带影响它们）" : "";
             if (p.HasVisibleWindow)
             {
                 pool.Add((p, CleanupActionLevel.L3GracefulClose, p.Memory.PrivateWorkingSetBytes, p.Memory.PrivateBytes,
-                    modeClean ? "模式清理名单 + 有窗口 → 优雅关闭" : idle ? "空闲且有窗口 → 优雅关闭" : "有窗口 → 优雅关闭（会先尝试正常退出）",
-                    modeClean ? 0 : idle ? 1 : 2));
+                    (modeClean ? "模式清理名单 + 有窗口 → 优雅关闭" : idle ? "空闲且有窗口 → 优雅关闭" : "有窗口 → 优雅关闭（会先尝试正常退出）") + childNote,
+                    modeClean ? 0 : idle ? 1 : 2, p.ChildPids.Count));
             }
             else if (allowKill)
             {
                 pool.Add((p, CleanupActionLevel.L4ForceKill, p.Memory.PrivateWorkingSetBytes, p.Memory.PrivateBytes,
-                    modeClean ? "模式清理名单 + 无窗口 → 直接结束" : "无窗口无音频 → 结束",
-                    modeClean ? 0 : 2));
+                    (modeClean ? "模式清理名单 + 无窗口 → 直接结束" : "无窗口无音频 → 结束") + childNote,
+                    modeClean ? 0 : 2, p.ChildPids.Count));
             }
             else if (req.IncludeTrim && p.Memory.PrivateWorkingSetBytes > 64 * 1024 * 1024)
             {
                 pool.Add((p, CleanupActionLevel.L1Trim, p.Memory.PrivateWorkingSetBytes / 2, 0,
-                    "无窗口（未允许结束）→ 仅回收工作集（效果弱）", 0));
+                    "无窗口（未允许结束）→ 仅回收工作集（效果弱）", 0, p.ChildPids.Count));
             }
         }
 
@@ -221,6 +222,7 @@ public class CleanupEngine
                 EstimatedPhysicalReclaimBytes = c.phys,
                 EstimatedCommitReclaimBytes = c.commit,
                 Rationale = c.why,
+                ChildCount = c.children,
                 KillIfCloseFails = c.action == CleanupActionLevel.L3GracefulClose && allowKill
             });
             needPhys -= c.phys;

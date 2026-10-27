@@ -28,6 +28,8 @@ public class ResidentEngine
     private readonly NativeMemoryCleanerService _memCleaner;
     private readonly AuditLogger _audit;
     private readonly DecisionLog _decisions;
+    private readonly UsageRecorder _usage;
+    private int _intervalSeconds;
 
     private System.Threading.Timer? _timer;
     private readonly object _tickLock = new();
@@ -46,13 +48,15 @@ public class ResidentEngine
     public string ForegroundProcessName { get; private set; } = "";
 
     public ResidentEngine(ConfigStore config, CleanupEngine cleanup, NativeMemoryCleanerService memCleaner,
-        AuditLogger audit, DecisionLog decisions)
+        AuditLogger audit, DecisionLog decisions, UsageRecorder usage)
     {
         _config = config;
         _cleanup = cleanup;
         _memCleaner = memCleaner;
         _audit = audit;
         _decisions = decisions;
+        _usage = usage;
+        _intervalSeconds = Math.Max(3, config.Config.RefreshIntervalSeconds);
     }
 
     /// <summary>Start ticking. refreshAsync runs on a background thread (VM marshals UI updates).</summary>
@@ -83,7 +87,8 @@ public class ResidentEngine
     /// <summary>Retune the tick period at runtime (tray lightweight mode uses a slower cadence).</summary>
     public void SetIntervalSeconds(int seconds)
     {
-        var interval = TimeSpan.FromSeconds(Math.Max(3, seconds));
+        _intervalSeconds = Math.Max(3, seconds);
+        var interval = TimeSpan.FromSeconds(_intervalSeconds);
         _timer?.Change(interval, interval);
     }
 
@@ -97,6 +102,7 @@ public class ResidentEngine
             AutoCleanup(procs);
         if (cfg.AutoOptimizeEnabled) AutoOptimize(mem);
         WatchMemoryGrowth(procs);
+        _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds);
     }
 
     // ---- foreground / fullscreen sampling ----
@@ -222,11 +228,28 @@ public class ResidentEngine
                 Decision = "切换",
                 Reason = $"{from} → {target.Value}：{reason}（滞回确认 2 轮）"
             });
+            MaybeResumeSuspendedOnModeChange();
             ModeChanged?.Invoke(this, new ModeSwitchEventArgs { Mode = target.Value, Reason = reason });
         }
     }
 
     public event EventHandler<ModeSwitchEventArgs>? ModeChanged;
+
+    private void MaybeResumeSuspendedOnModeChange()
+    {
+        if (!_config.Config.ResumeSuspendedOnModeChange) return;
+        var records = _cleanup.Suspended.LiveRecords();
+        foreach (var rec in records)
+            _cleanup.Resume(rec.Pid, rec.Name);
+        if (records.Count > 0)
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "AutoCleanup",
+                Target = $"{records.Count} 个挂起进程",
+                Decision = "恢复",
+                Reason = "模式切换且开启了“切模式自动恢复挂起”"
+            });
+    }
 
     // ---- per-process auto cleanup (mode CleanPatterns), capped at L1 trim / L3 close ----
 

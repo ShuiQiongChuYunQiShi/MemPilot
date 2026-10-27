@@ -20,6 +20,7 @@ public class MainViewModel : INotifyPropertyChanged
     public CleanupEngine Cleanup { get; }
     public ResidentEngine Engine { get; }
     public DecisionLog Decisions { get; }
+    public UsageRecorder Usage { get; }
     public ConfigStore ConfigStore { get; }
     public AuditLogger Audit { get; }
     public FeedbackStore Feedback { get; }
@@ -84,10 +85,109 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentModeText));
             OnPropertyChanged(nameof(ModeDescription));
+            if (ConfigStore.Config.ResumeSuspendedOnModeChange)
+            {
+                var records = Cleanup.Suspended.LiveRecords();
+                foreach (var rec in records)
+                    Cleanup.Resume(rec.Pid, rec.Name);
+                if (records.Count > 0)
+                {
+                    SuspendedProcesses.Clear();
+                    Status = $"模式已切换，恢复了 {records.Count} 个挂起进程。";
+                }
+            }
         }
     }
     public string CurrentModeText => ModeManager.Profile.Name;
     public string AppVersionText => "v" + (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "?");
+
+    // ---- usage history (历史统计) ----
+    public System.Windows.Media.PointCollection HistoryPoints { get; } = new();
+    public ObservableCollection<ModeUsageRow> ModeUsageItems { get; } = new();
+    public ObservableCollection<TopUsageRow> TopUsageItems { get; } = new();
+    public ObservableCollection<ActionUsageRow> ActionUsageItems { get; } = new();
+    private string _historySummary = "";
+    public string HistorySummary { get => _historySummary; private set { _historySummary = value; OnPropertyChanged(); } }
+
+    public sealed class ModeUsageRow
+    {
+        public string Mode { get; set; } = "";
+        public double Hours { get; set; }
+        public string Display => $"{Mode}    {Hours:F1} 小时";
+    }
+    public sealed class TopUsageRow
+    {
+        public string Name { get; set; } = "";
+        public double AvgWsMb { get; set; }
+        public double MaxWsMb { get; set; }
+        public double AvgCpu { get; set; }
+        public double Threads { get; set; }
+        public int Seen { get; set; }
+    }
+    public sealed class ActionUsageRow
+    {
+        public string Action { get; set; } = "";
+        public int Count { get; set; }
+    }
+
+    public void LoadHistory()
+    {
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            // 24h available-memory curve
+            var day = Usage.ReadWindow(TimeSpan.FromHours(24));
+            HistoryPoints.Clear();
+            if (day.Count > 1 && day[0].Total > 0)
+            {
+                for (int i = 0; i < day.Count; i++)
+                {
+                    double frac = (double)day[i].Avail / day[i].Total; // 0..1 available
+                    double x = i * (640.0 / Math.Max(1, day.Count - 1));
+                    double y = 150 - frac * 140;
+                    HistoryPoints.Add(new System.Windows.Point(x, y));
+                }
+            }
+            // mode usage over 7 days
+            var week = Usage.ReadWindow(TimeSpan.FromDays(7));
+            ModeUsageItems.Clear();
+            foreach (var g in week.GroupBy(s => s.Mode).OrderByDescending(g => g.Sum(s => (double)s.Interval)))
+            {
+                ModeUsageItems.Add(new ModeUsageRow { Mode = g.Key, Hours = g.Sum(s => (double)s.Interval) / 3600.0 });
+            }
+            // top processes over 24h
+            TopUsageItems.Clear();
+            var byName = new Dictionary<string, (long sumWs, long maxWs, double sumCpu, long sumThreads, int n)>();
+            foreach (var s in day)
+                foreach (var tp in s.Top)
+                {
+                    var cur = byName.TryGetValue(tp.N, out var v) ? v : (0, 0, 0.0, 0L, 0);
+                    byName[tp.N] = (cur.sumWs + tp.W, Math.Max(cur.maxWs, tp.W), cur.sumCpu + tp.C, cur.sumThreads + tp.T, cur.n + 1);
+                }
+            foreach (var kv in byName.OrderByDescending(kv => kv.Value.sumWs).Take(12))
+            {
+                var v = kv.Value;
+                TopUsageItems.Add(new TopUsageRow
+                {
+                    Name = kv.Key,
+                    AvgWsMb = v.sumWs / v.n / 1048576.0,
+                    MaxWsMb = v.maxWs / 1048576.0,
+                    AvgCpu = Math.Round(v.sumCpu / v.n, 1),
+                    Threads = Math.Round((double)v.sumThreads / v.n, 0),
+                    Seen = v.n
+                });
+            }
+            // action counts over 7 days from the audit trail
+            ActionUsageItems.Clear();
+            var since = DateTime.UtcNow - TimeSpan.FromDays(7);
+            var actions = Audit.Recent(2000).Where(a => a.TimestampUtc >= since)
+                               .GroupBy(a => a.Action).OrderByDescending(g => g.Count());
+            foreach (var g in actions)
+                ActionUsageItems.Add(new ActionUsageRow { Action = g.Key, Count = g.Count() });
+            HistorySummary = day.Count == 0
+                ? "（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）"
+                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}";
+        });
+    }
 
     public string ModeDescription => CurrentMode switch
     {
@@ -139,8 +239,9 @@ public class MainViewModel : INotifyPropertyChanged
         UnusedDetector.Config = config.Config;
         OnlineLookup.Config = config.Config;
         Decisions = new DecisionLog(ConfigStore.DataDirectory);
+        Usage = new UsageRecorder(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
         Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
-        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions);
+        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage);
         Engine.ModeChanged += (s, e) =>
         {
             _currentMode = e.Mode;

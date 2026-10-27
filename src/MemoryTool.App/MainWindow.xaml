@@ -99,6 +99,7 @@
                             <DockPanel Grid.Column="1">
                                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="14,12,14,0">
                                     <Button Content="刷新" Click="Refresh_Click" Style="{StaticResource GhostBtn}"/>
+                                    <Button Content="迷你条" Click="Compact_Click" Style="{StaticResource GhostBtn}"/>
                                     <Button Content="最小化到托盘" Click="ToTray_Click" Style="{StaticResource GhostBtn}"/>
                                     <Button Content="切换主题" Click="ToggleTheme_Click" Style="{StaticResource GhostBtn}"/>
                                 </StackPanel>
@@ -405,6 +406,7 @@
                             <DataGridTextColumn Header="CPU%" Binding="{Binding Memory.CpuPercent, StringFormat=F1}" Width="55"/>
                             <DataGridTextColumn Header="空闲(min)" Binding="{Binding IdleMinutes, StringFormat=F0}" Width="65"/>
                             <DataGridTextColumn Header="内存增长" Binding="{Binding MemoryGrowthBytes, Converter={StaticResource SignedBytes}}" Width="85"/>
+                            <DataGridTextColumn Header="子进程" Binding="{Binding ChildPids.Count}" Width="55"/>
                             <DataGridTextColumn Header="线程" Binding="{Binding Memory.ThreadCount}" Width="50"/>
                             <DataGridTextColumn Header="厂商" Binding="{Binding Company}" Width="130"/>
                             <DataGridTextColumn Header="窗口标题" Binding="{Binding MainWindowTitle}" Width="150"/>
@@ -500,6 +502,7 @@
                             <DataGridTextColumn Header="分类" Binding="{Binding Process.Category}" Width="100"/>
                             <DataGridTextColumn Header="预计释放(物理)" Binding="{Binding EstimatedPhysicalReclaimBytes, Converter={StaticResource Bytes}}" Width="120"/>
                             <DataGridTextColumn Header="预计释放(提交)" Binding="{Binding EstimatedCommitReclaimBytes, Converter={StaticResource Bytes}}" Width="120"/>
+                            <DataGridTextColumn Header="子进程" Binding="{Binding ChildCount}" Width="60"/>
                             <DataGridTextColumn Header="理由" Binding="{Binding Rationale}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
@@ -555,6 +558,70 @@
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
+            </TabItem>
+
+            <!-- ============ 历史 ============ -->
+            <TabItem Header="📊  历史" Style="{StaticResource NavTab}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14,14,14,20" MaxWidth="900" HorizontalAlignment="Left">
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="刷新统计" Click="LoadHistory_Click" Style="{StaticResource PrimaryBtn}"/>
+                                    <TextBlock Text="使用习惯记录（每 5 分钟一个采样点，本地保存 30 天）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
+                                </DockPanel>
+                                <TextBlock Text="{Binding HistorySummary}" Margin="0,6,0,8" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                                <Canvas Width="640" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
+                                    <Polyline Points="{Binding HistoryPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
+                                </Canvas>
+                                <TextBlock Text="上：24 小时可用内存占比（越低越紧张）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,7,0">
+                                <StackPanel>
+                                    <TextBlock Text="模式使用时长（7 天）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                                    <DataGrid ItemsSource="{Binding ModeUsageItems}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="220">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="模式 / 时长" Binding="{Binding Display}" Width="*"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource Card}" Margin="7,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="动作计数（7 天，来自审计）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                                    <DataGrid ItemsSource="{Binding ActionUsageItems}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="220">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="动作" Binding="{Binding Action}" Width="*"/>
+                                            <DataGridTextColumn Header="次数" Binding="{Binding Count}" Width="70"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="吃内存大户（24 小时均值 Top12）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                                <DataGrid ItemsSource="{Binding TopUsageItems}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="300">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="进程" Binding="{Binding Name}" Width="170"/>
+                                        <DataGridTextColumn Header="平均私有WS" Binding="{Binding AvgWsMb, StringFormat={}{0:F0} MB}" Width="110"/>
+                                        <DataGridTextColumn Header="峰值" Binding="{Binding MaxWsMb, StringFormat={}{0:F0} MB}" Width="100"/>
+                                        <DataGridTextColumn Header="平均CPU%" Binding="{Binding AvgCpu}" Width="90"/>
+                                        <DataGridTextColumn Header="平均线程" Binding="{Binding Threads, StringFormat=F0}" Width="90"/>
+                                        <DataGridTextColumn Header="出现采样" Binding="{Binding Seen}" Width="80"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock Text="这些数据也是将来 AI 功能（习惯学习、腾挪预测、异常检测）的训练地基。" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <!-- ============ 操作审计 ============ -->
@@ -744,6 +811,7 @@
                                 <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
                                 <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,3"/>
                                 <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,3"/>
+                                <CheckBox x:Name="SetResumeOnModeChange" Content="模式切换时自动恢复被挂起的进程" Margin="0,3"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,5">
                                     <CheckBox x:Name="SetHotkeyEnabled" Content="全局热键一键腾内存：" VerticalAlignment="Center"/>
                                     <TextBox x:Name="SetHotkey" Width="150" Margin="8,0,0,0" ToolTip="格式：CTRL+SHIFT+M / ALT+F9 等"/>
