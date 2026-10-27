@@ -11,7 +11,26 @@ public class OnlineLookupService
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
     public AppConfig Config { get; set; } = new();
 
+    // per-path result cache: refreshes must not re-query the same binaries
+    private static readonly Dictionary<string, (DateTime time, OnlineLookupResult result)> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object _cacheLock = new();
+    private const int CacheDays = 7;
+
     public async Task<OnlineLookupResult> LookupAsync(ProcessInfo p)
+    {
+        var res = await LookupUncachedAsync(p).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(p.ExecutablePath) && res.Status is not ("error" or "offline"))
+        {
+            lock (_cacheLock)
+            {
+                if (_cache.Count > 2048) _cache.Clear();
+                _cache[p.ExecutablePath] = (DateTime.UtcNow, res);
+            }
+        }
+        return res;
+    }
+
+    private async Task<OnlineLookupResult> LookupUncachedAsync(ProcessInfo p)
     {
         var res = new OnlineLookupResult();
         if (!Config.OnlineLookupEnabled)
@@ -19,6 +38,15 @@ public class OnlineLookupService
             res.Status = "disabled";
             res.Summary = "联网查询已禁用";
             return res;
+        }
+        if (!string.IsNullOrEmpty(p.ExecutablePath))
+        {
+            lock (_cacheLock)
+            {
+                if (_cache.TryGetValue(p.ExecutablePath, out var hit) &&
+                    (DateTime.UtcNow - hit.time).TotalDays < CacheDays)
+                    return hit.result;
+            }
         }
 
         string hash = "";

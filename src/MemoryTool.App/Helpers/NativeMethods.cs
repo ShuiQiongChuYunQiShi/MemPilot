@@ -9,6 +9,8 @@ public static class NativeMethods
     public const uint PROCESS_VM_READ = 0x0010;
     public const uint PROCESS_SUSPEND_RESUME = 0x0800;
     public const uint PROCESS_TERMINATE = 0x0001;
+    public const uint PROCESS_SET_QUOTA = 0x0100;
+    public const uint PROCESS_SET_INFORMATION = 0x0200;
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
@@ -18,6 +20,9 @@ public static class NativeMethods
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool GetProcessIoCounters(IntPtr hProcess, out IO_COUNTERS lpIoCounters);
@@ -55,9 +60,6 @@ public static class NativeMethods
     [DllImport("psapi.dll", SetLastError = true)]
     public static extern bool K32GetProcessMemoryInfo(IntPtr hProcess, ref PROCESS_MEMORY_COUNTERS_EX2 ppsmemCounters, uint cb);
 
-    [DllImport("psapi.dll", SetLastError = true)]
-    public static extern bool EnumProcesses(int[] lpidProcess, uint cb, out uint lpcbNeeded);
-
     // NtQueryInformationProcess
     public enum PROCESSINFOCLASS { ProcessBasicInformation = 0, ProcessCommandLineInformation = 60 }
 
@@ -78,6 +80,43 @@ public static class NativeMethods
     [DllImport("ntdll.dll")]
     public static extern int NtQueryInformationProcess(IntPtr processHandle, int processInformationClass, IntPtr processInformation, int processInformationLength, out int returnLength);
 
+    // Whole-process suspend/resume (no TID enumeration needed, no stale-TID races)
+    [DllImport("ntdll.dll")]
+    public static extern int NtSuspendProcess(IntPtr processHandle);
+
+    [DllImport("ntdll.dll")]
+    public static extern int NtResumeProcess(IntPtr processHandle);
+
+    // SetProcessInformation: memory priority / power throttling (EcoQoS)
+    public enum PROCESS_INFORMATION_CLASS
+    {
+        ProcessMemoryPriority = 0,
+        ProcessMemoryExhaustionInfo = 1,
+        ProcessAppMemoryInfo = 2,
+        ProcessInPrivateInfo = 3,
+        ProcessPowerThrottling = 4
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_MEMORY_PRIORITY
+    {
+        public uint MemoryPriority; // MEMORY_PRIORITY_VERY_LOW=1 .. NORMAL=5
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_POWER_THROTTLING_STATE
+    {
+        public uint Version;      // PROCESS_POWER_THROTTLING_CURRENT_VERSION = 1
+        public uint ControlMask;  // PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1
+        public uint StateMask;    // 1 = EcoQoS on, 0 = off
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetProcessInformation(IntPtr hProcess, int processInformationClass, ref PROCESS_MEMORY_PRIORITY info, int size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetProcessInformation(IntPtr hProcess, int processInformationClass, ref PROCESS_POWER_THROTTLING_STATE info, int size);
+
     // Windows / EnumWindows
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -90,8 +129,51 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex); // GWL_EXSTYLE = -20
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam); // WM_CLOSE = 0x0010
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags); // MONITOR_DEFAULTTONEAREST = 2
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size); // DWMWA_CLOAKED = 14
+
+    // Fullscreen/notification state (QUNS_RUNNING_D3D_FULL_SCREEN = 3)
+    public enum QUERY_USER_NOTIFICATION_STATE
+    {
+        QUNS_NOT_PRESENT = 1, QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3,
+        QUNS_PRESENTATION_MODE = 4, QUNS_ACCEPTS_NOTIFICATIONS = 5, QUNS_QUIET_TIME = 6, QUNS_APP = 7
+    }
+
+    [DllImport("shell32.dll")]
+    public static extern int SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE state);
 
     // Suspend/Resume threads
     [DllImport("kernel32.dll")]
@@ -192,12 +274,10 @@ public static class NativeMethods
         public uint dwOwningPid;
     }
 
-    // Device drivers
-    [DllImport("psapi.dll", SetLastError = true)]
-    public static extern bool EnumDeviceDrivers(IntPtr[] lpImageBase, uint cb, out uint lpcbNeeded);
-
-    [DllImport("psapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    public static extern uint GetDeviceDriverBaseName(IntPtr ImageBase, System.Text.StringBuilder lpBaseName, uint nSize);
-
-    // WinVerifyTrust not used; use X509
+    public static string GetProcessImageNameWin32(IntPtr hProcess)
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        uint size = (uint)sb.Capacity;
+        return QueryFullProcessImageName(hProcess, 0, sb, ref size) ? sb.ToString() : "";
+    }
 }

@@ -1,12 +1,19 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Forms;
+using System.Windows.Media;
 using MemoryTool.Models;
 using MemoryTool.Services;
 using MemoryTool.ViewModels;
 using Application = System.Windows.Application;
+using TabControl = System.Windows.Controls.TabControl;
+using MessageBox = System.Windows.MessageBox;
+using Color = System.Windows.Media.Color;
+using Colors = System.Windows.Media.Colors;
 
 namespace MemoryTool.App;
 
@@ -14,30 +21,33 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
     private readonly ConfigStore _config;
-    private readonly AuditLogger _audit;
-    private readonly FeedbackStore _feedback;
     private readonly NativeMemoryCleanerService _memCleaner = new();
     private NotifyIcon? _trayIcon;
     private bool _allowClose;
-    private bool _isDarkTheme = false;
-    private System.Windows.Threading.DispatcherTimer? _autoModeTimer;
-    private System.Windows.Threading.DispatcherTimer? _autoOptimizeTimer;
+    private bool _isDarkTheme;
     private System.Windows.Threading.DispatcherTimer? _trayUpdateTimer;
-    private DateTime _lastAutoOptimize = DateTime.MinValue;
+    private MakeRoomPlan? _currentPlan;
+
+    // selection preserved across refreshes (collections are rebuilt each cycle)
+    private readonly HashSet<int> _selectedProcessPids = new();
+    private readonly HashSet<int> _selectedUnusedPids = new();
 
     public MainWindow()
     {
         InitializeComponent();
-        var dataDir = ResolveDataDir();
+        var dataDir = App.ResolveDataDir();
         _config = new ConfigStore(dataDir);
-        _audit = new AuditLogger(dataDir);
-        _feedback = new FeedbackStore(dataDir);
-        _vm = new MainViewModel(_config, _audit, _feedback);
+        var audit = new AuditLogger(dataDir);
+        var feedback = new FeedbackStore(dataDir);
+        _vm = new MainViewModel(_config, audit, feedback);
         DataContext = _vm;
 
         foreach (AppMode m in Enum.GetValues(typeof(AppMode)))
-            ModeCombo.Items.Add(m);
-        ModeCombo.SelectedItem = _vm.CurrentMode;
+        {
+            var item = new ComboBoxItem { Content = m.ToString(), Tag = m };
+            ModeCombo.Items.Add(item);
+        }
+        SelectModeCombo(_vm.CurrentMode);
 
         foreach (ProcessCategory c in Enum.GetValues(typeof(ProcessCategory)))
             FbCategory.Items.Add(c);
@@ -46,16 +56,24 @@ public partial class MainWindow : Window
         SetCpu.Text = _config.Config.UnusedCpuThresholdPercent.ToString();
         SetIdle.Text = _config.Config.UnusedIdleMinutes.ToString();
         SetRefresh.Text = _config.Config.RefreshIntervalSeconds.ToString();
+        SetMinAge.Text = _config.Config.MinProcessAgeSeconds.ToString();
+        SetObservations.Text = _config.Config.RequiredIdleObservations.ToString();
+        SetGraceful.Text = _config.Config.GracefulCloseTimeoutSeconds.ToString();
         SetEndpoint.Text = _config.Config.OnlineLookupEndpoint;
         SetApiKey.Text = _config.Config.OnlineLookupApiKey;
         SetOnlineEnabled.IsChecked = _config.Config.OnlineLookupEnabled;
+        SetAutoCleanup.IsChecked = _config.Config.AutoCleanupEnabled;
+        SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
+        SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
+        SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
+        SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
         ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
         WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
         BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
 
         foreach (var kv in _config.Config.ModeProfiles)
-            ModeList.Items.Add(kv.Value.Name + " (" + kv.Key + ")");
+            ModeList.Items.Add(new ListBoxItem { Content = $"{kv.Value.Name} ({kv.Key})", Tag = kv.Key });
 
         _trayIcon = new NotifyIcon
         {
@@ -65,13 +83,19 @@ public partial class MainWindow : Window
         };
         _trayIcon.DoubleClick += (s, e) => ShowWindow();
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Show", null, (s, e) => ShowWindow());
-        menu.Items.Add("Refresh", null, async (s, e) => await _vm.RefreshAsync());
-        menu.Items.Add("Exit", null, (s, e) => { _allowClose = true; Application.Current.Shutdown(); });
+        menu.Items.Add("显示", null, (s, e) => ShowWindow());
+        menu.Items.Add("刷新", null, async (s, e) => await _vm.RefreshAsync());
+        menu.Items.Add("退出", null, (s, e) => { _allowClose = true; Application.Current.Shutdown(); });
         _trayIcon.ContextMenuStrip = menu;
 
         Closing += MainWindow_Closing;
-        Loaded += async (s, e) => { await _vm.RefreshAsync(); StartAutoModeTimer(); StartAutoOptimizeTimer(); StartTrayUpdateTimer(); };
+        _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
+        Loaded += async (s, e) =>
+        {
+            await _vm.RefreshAsync();
+            _vm.StartEngine();          // resident engine: periodic refresh + policies
+            StartTrayUpdateTimer();
+        };
     }
 
     private void ShowWindow()
@@ -90,150 +114,318 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- selection preservation ----
+
+    private void RestoreSelection()
+    {
+        try
+        {
+            foreach (var p in _vm.FilteredProcesses.Where(p => _selectedProcessPids.Contains(p.Pid)).ToList())
+                ProcessGrid.SelectedItems.Add(p);
+            foreach (var c in _vm.UnusedCandidates.Where(c => _selectedUnusedPids.Contains(c.Process.Pid)).ToList())
+                UnusedGrid.SelectedItems.Add(c);
+        }
+        catch { }
+    }
+
+    private void ProcessGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        foreach (var p in e.RemovedItems.OfType<ProcessInfo>()) _selectedProcessPids.Remove(p.Pid);
+        foreach (var p in e.AddedItems.OfType<ProcessInfo>()) _selectedProcessPids.Add(p.Pid);
+    }
+
+    private void UnusedGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        foreach (var c in e.RemovedItems.OfType<UnusedCandidate>()) _selectedUnusedPids.Remove(c.Process.Pid);
+        foreach (var c in e.AddedItems.OfType<UnusedCandidate>()) _selectedUnusedPids.Add(c.Process.Pid);
+    }
+
+    // ---- top bar ----
+
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await _vm.RefreshAsync();
 
     private async void Optimize_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var c in _vm.UnusedCandidates.ToList())
+        var targets = _vm.UnusedCandidates.ToList();
+        if (targets.Count == 0)
         {
-            await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim);
+            MessageBox.Show("当前没有可清理候选（观察期可能未满）。", "提示");
+            return;
         }
+        foreach (var c in targets)
+            await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim);
         await _vm.RefreshAsync();
     }
 
     private void ToTray_Click(object sender, RoutedEventArgs e) => Hide();
 
+    private void SelectModeCombo(AppMode mode)
+    {
+        foreach (var i in ModeCombo.Items.OfType<ComboBoxItem>())
+            if (i.Tag is AppMode m && m == mode) ModeCombo.SelectedItem = i;
+    }
+
     private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ModeCombo.SelectedItem is AppMode m)
+        if (ModeCombo.SelectedItem is ComboBoxItem { Tag: AppMode m })
             _vm.CurrentMode = m;
     }
 
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => _vm.SearchText = SearchBox.Text;
+
+    private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _vm.SearchText = SearchBox.Text;
+        if (e.OriginalSource is not TabControl) return;
+        if (e.AddedItems.OfType<TabItem>().Any(t => t.Header?.ToString() == "线程"))
+            _vm.RebuildThreads();
     }
 
-    private async void L1_Click(object sender, RoutedEventArgs e)
+    // ---- cleanup actions ----
+
+    private UnusedCandidate? GetSelectedUnused()
     {
-        var c = GetSelectedUnused();
-        if (c != null) { await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim); await _vm.RefreshAsync(); }
-    }
-    private async void L2_Click(object sender, RoutedEventArgs e)
-    {
-        var c = GetSelectedUnused();
-        if (c != null)
-        {
-            var res = System.Windows.MessageBox.Show($"Suspend {c.Process.Name}? ", "Confirm", MessageBoxButton.YesNo);
-            if (res == MessageBoxResult.Yes)
+        if (UnusedGrid.SelectedItem is UnusedCandidate uc) return uc;
+        // context menu may target the process grid
+        if (ProcessGrid.SelectedItem is ProcessInfo pi)
+            return new UnusedCandidate
             {
-                await _vm.PerformCleanupAsync(c, CleanupActionLevel.L2Suspend);
-                await _vm.RefreshAsync();
-            }
-        }
-    }
-    private async void L4_Click(object sender, RoutedEventArgs e)
-    {
-        var c = GetSelectedUnused();
-        if (c != null)
-        {
-            var msg = $"Force kill {c.Process.Name} (PID {c.Process.Pid})?\nEst. reclaim: {c.EstimatedReclaimableBytes} bytes.\nThis cannot be undone.";
-            var res = System.Windows.MessageBox.Show(msg, "Confirm L4", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (res == MessageBoxResult.Yes)
-            {
-                var res2 = System.Windows.MessageBox.Show("Second confirmation: proceed with force kill?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (res2 == MessageBoxResult.Yes)
-                {
-                    await _vm.PerformCleanupAsync(c, CleanupActionLevel.L4ForceKill);
-                    await _vm.RefreshAsync();
-                }
-            }
-        }
+                Process = pi,
+                Reasons = new List<string> { "手动选择" },
+                EstimatedReclaimableBytes = pi.Memory.PrivateWorkingSetBytes,
+                EstimatedCommitReclaimableBytes = pi.Memory.PrivateBytes,
+                Risk = ProcessRiskLevel.Medium,
+                SuggestedLevel = CleanupActionLevel.L1Trim
+            };
+        return null;
     }
 
-    private void CtxL1_Click(object sender, RoutedEventArgs e)
-    {
-        var c = GetContextCandidate(sender);
-        if (c != null) { _ = RunCleanup(c, CleanupActionLevel.L1Trim); }
-    }
-    private void CtxL2_Click(object sender, RoutedEventArgs e)
-    {
-        var c = GetContextCandidate(sender);
-        if (c != null) { _ = RunCleanup(c, CleanupActionLevel.L2Suspend); }
-    }
-    private void CtxL4_Click(object sender, RoutedEventArgs e)
-    {
-        var c = GetContextCandidate(sender);
-        if (c != null) { _ = RunCleanup(c, CleanupActionLevel.L4ForceKill); }
-    }
-    private UnusedCandidate? GetContextCandidate(object sender)
-    {
-        if (sender is MenuItem mi && mi.Parent is ContextMenu cm && cm.PlacementTarget is DataGrid dg)
-        {
-            if (dg.SelectedItem is UnusedCandidate uc) return uc;
-            if (dg.SelectedItem is ProcessInfo pi)
-            {
-                return new UnusedCandidate { Process = pi, Reasons = new List<string> { "context menu" }, EstimatedReclaimableBytes = (long)(pi.Memory.WorkingSetBytes * 0.7), Risk = ProcessRiskLevel.Medium, SuggestedLevel = CleanupActionLevel.L1Trim };
-            }
-        }
-        return GetSelectedUnused();
-    }
     private async Task RunCleanup(UnusedCandidate c, CleanupActionLevel level)
     {
         if (level == CleanupActionLevel.L4ForceKill)
         {
-            var msg = $"Force kill {c.Process.Name} (PID {c.Process.Pid})?\nEst. reclaim: {c.EstimatedReclaimableBytes} bytes.\nThis cannot be undone.";
-            if (System.Windows.MessageBox.Show(msg, "Confirm L4", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            if (System.Windows.MessageBox.Show("Second confirmation: proceed with force kill?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            var msg = $"强制结束 {c.Process.Name} (PID {c.Process.Pid})？\n预计释放: {c.EstimatedReclaimableBytes / 1048576.0:F0} MB\n该操作不可撤销。";
+            if (MessageBox.Show(msg, "确认 L4", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show("第二次确认：确定强制结束？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
         else if (level == CleanupActionLevel.L2Suspend)
         {
-            if (System.Windows.MessageBox.Show($"Suspend {c.Process.Name}? ", "Confirm", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show($"挂起 {c.Process.Name}？挂起只冻结 CPU，不释放内存，可在“已挂起”页恢复。",
+                "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        }
+        else if (level == CleanupActionLevel.L3GracefulClose)
+        {
+            if (MessageBox.Show($"向 {c.Process.Name} (PID {c.Process.Pid}) 的窗口发送关闭消息？程序将有机会保存数据后自行退出。",
+                "确认 L3", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         }
         await _vm.PerformCleanupAsync(c, level);
         await _vm.RefreshAsync();
     }
 
+    private async void L1_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L1Trim);
+    private async void L2_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L2Suspend);
+    private async void L3_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L3GracefulClose);
+    private async void L4_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L4ForceKill);
+
+    private async Task SelectedCleanup(CleanupActionLevel level)
+    {
+        var c = GetSelectedUnused();
+        if (c == null)
+        {
+            SelectionHint.Text = "未选择任何进程 —— 不会自动回退到第一行";
+            return;
+        }
+        await RunCleanup(c, level);
+    }
+
+    private async void CtxL1_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L1Trim); }
+    private async void CtxL2_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L2Suspend); }
+    private async void CtxL3_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L3GracefulClose); }
+    private async void CtxL4_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L4ForceKill); }
+
+    // ---- new primitives: resume / memory priority / eco ----
+
+    private ProcessInfo? GetSelectedProcess() => ProcessGrid.SelectedItem as ProcessInfo;
+
+    private void CtxResumeProcess_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) { MessageBox.Show("请先在进程列表选择一行。"); return; }
+        if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { MessageBox.Show($"{p.Name} 不是本工具挂起的进程。"); return; }
+        _vm.ResumeSuspended(new SuspendRecord { Pid = p.Pid, Name = p.Name });
+    }
+
+    private void CtxMemPriorityLow_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 1); // VERY_LOW
+        MessageBox.Show(ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : $"设置失败（权限不足或进程已退出）。",
+            "降低内存优先级", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+    }
+
+    private void CtxMemPriorityNormal_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 5); // NORMAL
+        MessageBox.Show(ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : "设置失败。", "恢复内存优先级");
+    }
+
+    private void CtxEcoOn_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        bool ok = _vm.ProcessService.SetEcoMode(p.Pid, true);
+        MessageBox.Show(ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : "设置失败（需要 Win10 1709+ 且权限足够）。",
+            "EcoQoS", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+    }
+
+    private void CtxEcoOff_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        _vm.ProcessService.SetEcoMode(p.Pid, false);
+    }
+
+    // ---- feedback shortcuts from the process grid ----
+
+    private void CtxFeedbackKeep_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        SubmitFeedback(p, keep: true, clean: false, system: false);
+    }
+
+    private void CtxFeedbackClean_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) return;
+        SubmitFeedback(p, keep: false, clean: true, system: false);
+    }
+
+    private void SubmitFeedback(ProcessInfo p, bool keep, bool clean, bool system)
+    {
+        var entry = new FeedbackEntry
+        {
+            ProcessName = p.Name,
+            ExecutablePath = p.ExecutablePath,
+            Publisher = p.SignatureSubject,
+            ReportedCategory = keep ? p.Category : clean ? ProcessCategory.BackgroundService : p.Category,
+            UserNote = keep ? "右键标记：需保留" : clean ? "右键标记：可清理" : "右键标记：系统进程",
+            MarkKeep = keep,
+            MarkCleanable = clean,
+            MarkSystem = system,
+            Scope = "process"
+        };
+        _vm.AddFeedback(entry);
+        MessageBox.Show($"已记录：{p.Name} → {(keep ? "需保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。", "反馈");
+    }
+
+    // ---- suspended tab ----
+
+    private void ResumeSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (SuspendedList.SelectedItem is SuspendRecord rec)
+            _vm.ResumeSuspended(rec);
+        else MessageBox.Show("请先选择一项。");
+    }
+
+    private void ResumeAll_Click(object sender, RoutedEventArgs e) => _vm.ResumeAllSuspended();
+
+    // ---- make-room workflow ----
+
+    private async void PlanMakeRoom_Click(object sender, RoutedEventArgs e)
+    {
+        if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { MessageBox.Show("目标可用内存请填正数（GB）。"); return; }
+        double.TryParse(TargetCommitGB.Text, out var commitGB);
+        var req = new MakeRoomRequest
+        {
+            TargetAvailableGB = targetGB,
+            EnsureCommitToo = EnsureCommit.IsChecked == true,
+            TargetCommitFreeGB = commitGB <= 0 ? targetGB : commitGB,
+            AllowKill = AllowKill.IsChecked == true,
+            IncludeTrim = IncludeTrim.IsChecked == true
+        };
+        _vm.Status = "正在生成腾挪计划...";
+        var plan = await _vm.BuildMakeRoomPlanAsync(req);
+        _currentPlan = plan;
+        PlanGrid.ItemsSource = plan.Items;
+        MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : "  ⚠ 计划不足以覆盖目标，请勾选允许 L4 或降低目标。");
+        ExecutePlanBtn.IsEnabled = plan.Items.Count > 0;
+        _vm.Status = "腾挪计划已生成。";
+    }
+
+    private async void ExecuteMakeRoom_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentPlan == null || _currentPlan.Items.Count == 0) return;
+        var lines = string.Join("\n", _currentPlan.Items.Select(i =>
+            $"{i.ActionText}  {i.Process.Name} (PID {i.Process.Pid})  预计物理 {i.EstimatedPhysicalReclaimBytes / 1048576.0:F0} MB"));
+        var res = MessageBox.Show($"将执行 {_currentPlan.Items.Count} 项操作：\n\n{lines}\n\n" +
+            (_currentPlan.Items.Any(i => i.KillIfCloseFails) ? "部分 L3 项在关闭超时后会升级为强制结束。\n" : "") +
+            "继续？", "确认执行腾挪计划", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (res != MessageBoxResult.Yes) return;
+
+        ExecutePlanBtn.IsEnabled = false;
+        _vm.Status = "正在执行腾挪计划...";
+        var result = await _vm.ExecuteMakeRoomAsync(_currentPlan);
+        MakeRoomResultText.Text = result.SummaryText;
+        _vm.Status = "腾挪计划执行完毕。" + result.SummaryText;
+        _currentPlan = null;
+        PlanGrid.ItemsSource = null;
+        await _vm.RefreshAsync();
+    }
+
+    private void ClearMakeRoom_Click(object sender, RoutedEventArgs e)
+    {
+        _currentPlan = null;
+        PlanGrid.ItemsSource = null;
+        MakeRoomSummary.Text = "";
+        MakeRoomResultText.Text = "";
+        ExecutePlanBtn.IsEnabled = false;
+    }
+
+    // ---- thread tab ----
+
+    private void ThreadSearch_KeyUp(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        var q = ThreadSearchBox.Text.Trim();
+        if (string.IsNullOrEmpty(q))
+        {
+            _vm.RebuildThreads();
+            return;
+        }
+        var view = System.Windows.Data.CollectionViewSource.GetDefaultView(_vm.Threads);
+        view.Filter = o => o is ThreadInfo t &&
+            (t.OwnerPid.ToString() == q || t.Tid.ToString() == q);
+    }
+
     private void CtxSuspendThread_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is MenuItem mi && mi.Parent is ContextMenu cm && cm.PlacementTarget is DataGrid dg && dg.SelectedItem is ThreadInfo ti)
+        if (ThreadGrid.SelectedItem is ThreadInfo ti)
         {
-            try { _vm.ProcessService.SuspendThread(ti.Tid); System.Windows.MessageBox.Show($"Thread {ti.Tid} suspended.", "Done"); }
-            catch (Exception ex) { System.Windows.MessageBox.Show("Suspend failed: " + ex.Message); }
-        }
-    }
-    private void CtxResumeThread_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem mi && mi.Parent is ContextMenu cm && cm.PlacementTarget is DataGrid dg && dg.SelectedItem is ThreadInfo ti)
-        {
-            try { _vm.ProcessService.ResumeThread(ti.Tid); System.Windows.MessageBox.Show($"Thread {ti.Tid} resumed.", "Done"); }
-            catch (Exception ex) { System.Windows.MessageBox.Show("Resume failed: " + ex.Message); }
+            try { _vm.ProcessService.SuspendThread(ti.Tid); MessageBox.Show($"线程 {ti.Tid} 已挂起。", "完成"); }
+            catch (Exception ex) { MessageBox.Show("挂起失败: " + ex.Message); }
         }
     }
 
-    private UnusedCandidate? GetSelectedUnused()
+    private void CtxResumeThread_Click(object sender, RoutedEventArgs e)
     {
-        var grids = FindVisualChildren<DataGrid>(this);
-        foreach (var g in grids)
+        if (ThreadGrid.SelectedItem is ThreadInfo ti)
         {
-            if (g.ItemsSource == _vm.UnusedCandidates && g.SelectedItem is UnusedCandidate uc)
-                return uc;
+            try { _vm.ProcessService.ResumeThread(ti.Tid); MessageBox.Show($"线程 {ti.Tid} 已恢复。", "完成"); }
+            catch (Exception ex) { MessageBox.Show("恢复失败: " + ex.Message); }
         }
-        if (_vm.UnusedCandidates.Count > 0) return _vm.UnusedCandidates[0];
-        return null;
     }
+
+    // ---- mode tab ----
 
     private void ApplyMode_Click(object sender, RoutedEventArgs e)
     {
-        if (ModeList.SelectedItem is string s)
+        if (ModeList.SelectedItem is ListBoxItem { Tag: AppMode m })
         {
-            var idx = s.IndexOf('(');
-            if (idx >= 0)
-            {
-                var modeStr = s.Substring(idx + 1).TrimEnd(')');
-                if (Enum.TryParse<AppMode>(modeStr, out var m))
-                    _vm.CurrentMode = m;
-            }
+            _vm.CurrentMode = m;
+            SelectModeCombo(m);
         }
     }
 
@@ -251,17 +443,25 @@ public partial class MainWindow : Window
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        System.Windows.MessageBox.Show("Feedback recorded.");
+        MessageBox.Show("反馈已记录。");
     }
 
     private void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
         if (int.TryParse(SetCpu.Text, out var cpu)) _config.Config.UnusedCpuThresholdPercent = cpu;
         if (int.TryParse(SetIdle.Text, out var idle)) _config.Config.UnusedIdleMinutes = idle;
-        if (int.TryParse(SetRefresh.Text, out var rf)) _config.Config.RefreshIntervalSeconds = rf;
+        if (int.TryParse(SetRefresh.Text, out var rf)) _config.Config.RefreshIntervalSeconds = Math.Max(3, rf);
+        if (int.TryParse(SetMinAge.Text, out var age)) _config.Config.MinProcessAgeSeconds = age;
+        if (int.TryParse(SetObservations.Text, out var obs)) _config.Config.RequiredIdleObservations = Math.Max(1, obs);
+        if (int.TryParse(SetGraceful.Text, out var gr)) _config.Config.GracefulCloseTimeoutSeconds = Math.Max(2, gr);
         _config.Config.OnlineLookupEndpoint = SetEndpoint.Text;
         _config.Config.OnlineLookupApiKey = SetApiKey.Text;
         _config.Config.OnlineLookupEnabled = SetOnlineEnabled.IsChecked == true;
+        _config.Config.AutoCleanupEnabled = SetAutoCleanup.IsChecked == true;
+        _config.Config.AutoCloseCleanMatches = SetAutoClose.IsChecked == true;
+        _config.Config.AutoOptimizeEnabled = SetAutoOptimize.IsChecked == true;
+        _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
+        _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.ProtectedNames = ProtectedListEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
         _config.Config.Whitelist = WhitelistEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
@@ -269,36 +469,10 @@ public partial class MainWindow : Window
         _config.Save();
         _vm.UnusedDetector.Config = _config.Config;
         _vm.OnlineLookup.Config = _config.Config;
-        System.Windows.MessageBox.Show("Settings saved.");
+        MessageBox.Show("设置已保存。", "完成");
     }
 
-    private async void BatchL4_Click(object sender, RoutedEventArgs e)
-    {
-        if (_vm.UnusedCandidates.Count == 0)
-        {
-            System.Windows.MessageBox.Show("No cleanup candidates.", "Info");
-            return;
-        }
-        var lines = _vm.UnusedCandidates.Select(c => $"- {c.Process.Name} (PID {c.Process.Pid})  Est. reclaim {c.EstimatedReclaimableBytes} bytes  Risk {c.Risk}").ToList();
-        long total = _vm.UnusedCandidates.Sum(c => c.EstimatedReclaimableBytes);
-        var summary = $"Will force-kill {_vm.UnusedCandidates.Count} processes, est. reclaim {total} bytes:\n\n" + string.Join("\n", lines) +
-                      "\n\nImpact: force-kill may cause unsaved data loss and cannot be undone. System/driver/service/security/anticheat processes are excluded.";
-        var res = System.Windows.MessageBox.Show(summary, "Batch L4 Confirm (1/2)", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (res != MessageBoxResult.Yes) return;
-        var res2 = System.Windows.MessageBox.Show("Second confirmation: execute batch force-kill?", "Batch L4 Confirm (2/2)", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (res2 != MessageBoxResult.Yes) return;
-        _vm.ProgressValue = 0;
-        int done = 0; int totalN = _vm.UnusedCandidates.Count;
-        foreach (var c in _vm.UnusedCandidates.ToList())
-        {
-            await _vm.PerformCleanupAsync(c, CleanupActionLevel.L4ForceKill);
-            done++;
-            _vm.ProgressValue = (double)done / totalN * 100.0;
-        }
-        _vm.ProgressValue = 100;
-        await _vm.RefreshAsync();
-        System.Windows.MessageBox.Show("Batch cleanup completed.", "Done");
-    }
+    // ---- system memory areas ----
 
     private void CleanMemoryAreas_Click(object sender, RoutedEventArgs e)
     {
@@ -311,20 +485,25 @@ public partial class MainWindow : Window
         if (ChkStandbyListLow.IsChecked == true) areas.Add(MemoryArea.StandbyListLowPriority);
         if (ChkSystemFileCache.IsChecked == true) areas.Add(MemoryArea.SystemFileCache);
         if (ChkWorkingSet.IsChecked == true) areas.Add(MemoryArea.WorkingSet);
-        if (areas.Count == 0) { System.Windows.MessageBox.Show("Please select at least one area.", "Info"); return; }
-        if (!_memCleaner.IsAdmin()) { System.Windows.MessageBox.Show("Administrator privileges required.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        if (areas.Count == 0) { MessageBox.Show("请至少选择一个区域。", "提示"); return; }
+        if (areas.Contains(MemoryArea.StandbyList) &&
+            MessageBox.Show("完整清理备用列表会清掉文件缓存，游戏运行时会造成卡顿。确认继续？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        if (!_memCleaner.IsAdmin()) { MessageBox.Show("需要管理员权限。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         var results = _memCleaner.CleanAreas(areas);
         var sb = new System.Text.StringBuilder();
         foreach (var kv in results) sb.AppendLine($"{kv.Key}: {(kv.Value.success ? "OK" : "FAIL")} {kv.Value.message}");
         CleanResultText.Text = sb.ToString();
         _ = _vm.RefreshAsync();
     }
+
     private void SelectAllAreas_Click(object sender, RoutedEventArgs e)
     {
         ChkCombinedPageList.IsChecked = true; ChkModifiedFileCache.IsChecked = true; ChkModifiedPageList.IsChecked = true;
         ChkRegistryCache.IsChecked = true; ChkStandbyList.IsChecked = true; ChkStandbyListLow.IsChecked = true;
         ChkSystemFileCache.IsChecked = true; ChkWorkingSet.IsChecked = true;
     }
+
     private void DeselectAllAreas_Click(object sender, RoutedEventArgs e)
     {
         ChkCombinedPageList.IsChecked = false; ChkModifiedFileCache.IsChecked = false; ChkModifiedPageList.IsChecked = false;
@@ -332,71 +511,35 @@ public partial class MainWindow : Window
         ChkSystemFileCache.IsChecked = false; ChkWorkingSet.IsChecked = false;
     }
 
+    // ---- theme ----
+
     private void ToggleTheme_Click(object sender, RoutedEventArgs e)
     {
         _isDarkTheme = !_isDarkTheme;
+        var res = Application.Current.Resources;
         if (_isDarkTheme)
         {
-            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x11, 0x18, 0x27));
+            res["TextPrimary"] = new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
+            res["TextSecondary"] = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
+            res["CardBg"] = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B));
+            res["GridBg"] = new SolidColorBrush(Color.FromRgb(0x11, 0x18, 0x27));
+            res["RowAltBg"] = new SolidColorBrush(Color.FromRgb(0x17, 0x22, 0x33));
+            res["PanelBg"] = new SolidColorBrush(Color.FromRgb(0x0F, 0x17, 0x2A));
+            res["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0x33, 0x41, 0x55));
         }
         else
         {
-            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0xF4, 0xF7));
+            res["TextPrimary"] = new SolidColorBrush(Color.FromRgb(0x11, 0x18, 0x27));
+            res["TextSecondary"] = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
+            res["CardBg"] = new SolidColorBrush(Colors.White);
+            res["GridBg"] = new SolidColorBrush(Colors.White);
+            res["RowAltBg"] = new SolidColorBrush(Color.FromRgb(0xF9, 0xFA, 0xFB));
+            res["PanelBg"] = new SolidColorBrush(Color.FromRgb(0xF2, 0xF4, 0xF7));
+            res["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0xDC, 0xE1, 0xE6));
         }
     }
 
-    private void StartAutoModeTimer()
-    {
-        _autoModeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _autoModeTimer.Tick += (s, e) =>
-        {
-            if (AutoSwitchCheck.IsChecked != true) return;
-            try
-            {
-                var hwnd = GetForegroundWindow();
-                if (hwnd == IntPtr.Zero) return;
-                GetWindowThreadProcessId(hwnd, out uint pid);
-                if (pid == 0) return;
-                var proc = System.Diagnostics.Process.GetProcessById((int)pid);
-                var name = proc.ProcessName.ToLowerInvariant();
-                AppMode? target = null;
-                if (name.Contains("steam") || name.Contains("epic") || name.Contains("game")) target = AppMode.Game;
-                else if (name.Contains("devenv") || name.Contains("code") || name.Contains("rider") || name.Contains("idea")) target = AppMode.Development;
-                else if (name.Contains("comfyui") || name.Contains("automatic1111") || name.Contains("invokeai")) target = AppMode.AiGeneration;
-                if (target.HasValue && target.Value != _vm.CurrentMode)
-                    _vm.CurrentMode = target.Value;
-            }
-            catch { }
-        };
-        _autoModeTimer.Start();
-    }
-
-    private void StartAutoOptimizeTimer()
-    {
-        _autoOptimizeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-        _autoOptimizeTimer.Tick += (s, e) =>
-        {
-            if (!_vm.ConfigStore.Config.AutoOptimizeEnabled) return;
-            var mem = _vm.ProcessService.GetSystemMemory();
-            double freePct = (double)mem.AvailablePhysicalBytes / mem.TotalPhysicalBytes * 100;
-            bool shouldClean = false;
-            if (_vm.ConfigStore.Config.AutoOptimizeOnLowMemory && freePct < _vm.ConfigStore.Config.AutoOptimizeThresholdPercent)
-                shouldClean = true;
-            if (_vm.ConfigStore.Config.AutoOptimizeIntervalMinutes > 0 && (DateTime.Now - _lastAutoOptimize).TotalMinutes >= _vm.ConfigStore.Config.AutoOptimizeIntervalMinutes)
-                shouldClean = true;
-            if (shouldClean)
-            {
-                _lastAutoOptimize = DateTime.Now;
-                _ = System.Threading.Tasks.Task.Run(async () =>
-                {
-                    var areas = new List<MemoryArea> { MemoryArea.StandbyListLowPriority, MemoryArea.WorkingSet };
-                    _memCleaner.CleanAreas(areas);
-                    await Dispatcher.InvokeAsync(async () => await _vm.RefreshAsync());
-                });
-            }
-        };
-        _autoOptimizeTimer.Start();
-    }
+    // ---- tray ----
 
     private void StartTrayUpdateTimer()
     {
@@ -404,11 +547,9 @@ public partial class MainWindow : Window
         _trayUpdateTimer.Tick += (s, e) =>
         {
             if (_trayIcon == null) return;
-            if (_vm.ConfigStore.Config.ShowMemoryInTray)
+            if (_vm.ConfigStore.Config.ShowMemoryInTray && _vm.SysMem.TotalPhysicalBytes > 0)
             {
-                var mem = _vm.ProcessService.GetSystemMemory();
-                double usedPct = (1.0 - (double)mem.AvailablePhysicalBytes / mem.TotalPhysicalBytes) * 100;
-                _trayIcon.Text = $"MemoryTool - {usedPct:F0}% used";
+                _trayIcon.Text = $"MemoryTool - 可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}";
             }
             else
             {
@@ -416,47 +557,5 @@ public partial class MainWindow : Window
             }
         };
         _trayUpdateTimer.Start();
-    }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    private static string ResolveDataDir()
-    {
-        var candidates = new[]
-        {
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemoryTool"),
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemoryTool"),
-            System.IO.Path.Combine(AppContext.BaseDirectory, "data"),
-            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "MemoryTool")
-        };
-        foreach (var c in candidates)
-        {
-            try
-            {
-                System.IO.Directory.CreateDirectory(c);
-                var test = System.IO.Path.Combine(c, ".writetest");
-                System.IO.File.WriteAllText(test, "x");
-                System.IO.File.Delete(test);
-                return c;
-            }
-            catch { }
-        }
-        return candidates[candidates.Length - 1];
-    }
-
-    private static System.Collections.Generic.IEnumerable<T> FindVisualChildren<T>(DependencyObject depObj) where T : DependencyObject
-    {
-        if (depObj != null)
-        {
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(depObj); i++)
-            {
-                DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(depObj, i);
-                if (child != null && child is T t) yield return t;
-                foreach (T childOfChild in FindVisualChildren<T>(child)) yield return childOfChild;
-            }
-        }
     }
 }

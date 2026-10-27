@@ -8,8 +8,15 @@ namespace MemoryTool.Services;
 
 public class ProcessService
 {
-    private static readonly Dictionary<string, (DateTime lastWrite, string company, string product, string description, string version, bool signed, string subject, string issuer)> _sigCache = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly object _sigLock = new();
+    private readonly TrustVerifier _trust = new();
+
+    // ---- caches: scheduled tasks & startup items rarely change; do not spawn schtasks every refresh ----
+    private static (DateTime time, List<ScheduledTaskInfo> tasks)? _taskCache;
+    private static (DateTime time, List<StartupItem> items)? _startupCache;
+    private static readonly object _cacheLock = new();
+    private static readonly Dictionary<int, string> _cmdlineCache = new();
+    private static readonly object _cmdlineLock = new();
+
     public SystemMemoryInfo GetSystemMemory()
     {
         var ms = new NativeMethods.MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<NativeMethods.MEMORYSTATUSEX>() };
@@ -27,21 +34,18 @@ public class ProcessService
     public List<ProcessInfo> EnumerateProcesses()
     {
         var result = new List<ProcessInfo>();
-        var startupService = new StartupService();
-        var startupItems = startupService.Enumerate();
-        var scheduledService = new ScheduledTaskService();
-        var scheduledTasks = scheduledService.Enumerate();
+        var startupItems = GetStartupItemsCached();
+        var scheduledTasks = GetScheduledTasksCached();
         var procs = Process.GetProcesses();
-        // parent map via NtQuery
-        var parentMap = new Dictionary<int,int>();
+        var parentMap = new Dictionary<int, int>();
+        foreach (var p in procs) parentMap[p.Id] = GetParentPid(p.Id);
+        var tcpCounts = GetTcpConnectionCountsByPid();
+        var windowPids = GetVisibleWindowPids();
+        var startTimes = new Dictionary<int, DateTime>();
         foreach (var p in procs)
         {
-            parentMap[p.Id] = GetParentPid(p.Id);
+            try { startTimes[p.Id] = p.StartTime; } catch { }
         }
-        // tcp counts
-        var tcpCounts = GetTcpConnectionCountsByPid();
-        // visible windows
-        var windowPids = GetVisibleWindowPids();
 
         foreach (var p in procs)
         {
@@ -50,73 +54,52 @@ public class ProcessService
             {
                 info.ParentPid = parentMap.TryGetValue(p.Id, out var pp) ? pp : 0;
                 try { info.StartTime = p.StartTime; } catch { info.StartTime = DateTime.MinValue; info.AccessDenied = true; }
-                try { info.Memory.ThreadCount = p.Threads.Count; } catch { }
                 try { info.Memory.HandleCount = p.HandleCount; } catch { }
-                try { info.MainWindowTitle = p.MainWindowTitle; } catch { }
-                info.HasVisibleWindow = windowPids.Contains(p.Id) || !string.IsNullOrEmpty(info.MainWindowTitle);
 
-                // path & command line
-                try { info.ExecutablePath = p.MainModule?.FileName ?? ""; } catch { info.AccessDenied = true; info.AccessNote = "MainModule access denied"; }
-                info.CommandLine = GetCommandLine(p.Id);
-                info.IsStartupItem = startupService.IsStartupPath(info.ExecutablePath, startupItems);
-                info.IsScheduledTask = scheduledService.IsScheduledTaskProcess(info.ExecutablePath, scheduledTasks);
+                // path: QueryFullProcessImageName works for elevated/system processes with a limited handle
+                info.ExecutablePath = QueryImagePath(p.Id);
 
-                // version info (cached)
+                try { info.CommandLine = GetCommandLineCached(p.Id); } catch { }
+
+                // visible window + title
+                if (windowPids.TryGetValue(p.Id, out var title))
+                {
+                    info.HasVisibleWindow = true;
+                    info.MainWindowTitle = title;
+                }
+                try { if (string.IsNullOrEmpty(info.MainWindowTitle)) info.MainWindowTitle = p.MainWindowTitle ?? ""; } catch { }
+
+                info.IsStartupItem = StartupService.IsStartupPath(info.ExecutablePath, startupItems);
+                info.IsScheduledTask = ScheduledTaskService.IsScheduledTaskProcess(info.ExecutablePath, scheduledTasks);
+
+                // file metadata (fast) + trust (cached by path)
                 if (!string.IsNullOrEmpty(info.ExecutablePath) && File.Exists(info.ExecutablePath))
                 {
-                    var fi = new FileInfo(info.ExecutablePath);
-                    lock (_sigLock)
+                    try
                     {
-                        if (_sigCache.TryGetValue(info.ExecutablePath, out var cached) && cached.lastWrite == fi.LastWriteTimeUtc)
-                        {
-                            info.Company = cached.company;
-                            info.ProductName = cached.product;
-                            info.FileDescription = cached.description;
-                            info.FileVersion = cached.version;
-                            info.IsSigned = cached.signed;
-                            info.SignatureSubject = cached.subject;
-                            info.SignatureIssuer = cached.issuer;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var vi = FileVersionInfo.GetVersionInfo(info.ExecutablePath);
-                                info.Company = vi.CompanyName ?? "";
-                                info.ProductName = vi.ProductName ?? "";
-                                info.FileDescription = vi.FileDescription ?? "";
-                                info.FileVersion = vi.FileVersion ?? "";
-                            }
-                            catch { }
-                            try
-                            {
-                                var cert = System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(info.ExecutablePath);
-                                info.IsSigned = true;
-                                info.SignatureSubject = cert.Subject;
-                                info.SignatureIssuer = cert.Issuer;
-                            }
-                            catch { info.IsSigned = false; }
-                            _sigCache[info.ExecutablePath] = (fi.LastWriteTimeUtc, info.Company, info.ProductName, info.FileDescription, info.FileVersion, info.IsSigned, info.SignatureSubject, info.SignatureIssuer);
-                        }
+                        var vi = FileVersionInfo.GetVersionInfo(info.ExecutablePath);
+                        info.Company = vi.CompanyName ?? "";
+                        info.ProductName = vi.ProductName ?? "";
+                        info.FileDescription = vi.FileDescription ?? "";
+                        info.FileVersion = vi.FileVersion ?? "";
                     }
+                    catch { }
+                    var (verified, subject, issuer) = _trust.Verify(info.ExecutablePath);
+                    info.SignatureVerified = verified;
+                    info.IsSigned = verified;
+                    info.SignatureSubject = subject;
+                    info.SignatureIssuer = issuer;
                 }
 
-                // memory counters
                 CollectMemory(p, info);
-                // io counters
                 CollectIo(p.Id, info);
                 if (tcpCounts.TryGetValue(p.Id, out var tcpCount)) info.Memory.NetworkConnections = tcpCount;
-                // cpu
+                try { info.Memory.TotalCpuTime = p.TotalProcessorTime; } catch { }
+
+                // threads: enumerate only lightweight state; heavy listing is on-demand
                 try
                 {
-                    info.Memory.TotalCpuTime = p.TotalProcessorTime;
-                }
-                catch { }
-                // tcp
-                if (tcpCounts.TryGetValue(p.Id, out var tc)) { /* store in memory? add field later; use LastActivity */ }
-                // threads
-                try
-                {
+                    info.Memory.ThreadCount = p.Threads.Count;
                     foreach (ProcessThread t in p.Threads)
                     {
                         info.Threads.Add(new ThreadInfo
@@ -133,13 +116,7 @@ public class ProcessService
                 }
                 catch { }
 
-                info.ChildPids = procs.Where(x => parentMap.TryGetValue(x.Id,out var par) && par == p.Id).Select(x=>x.Id).ToList();
-
-                // idle time
-                if (info.StartTime != DateTime.MinValue)
-                {
-                    // CPU-based idle: if total cpu time small relative; approximate idle minutes since start with no cpu? We'll compute in detector. Set IdleTime to now-start as placeholder? Instead set 0.
-                }
+                info.ChildPids = procs.Where(x => parentMap.TryGetValue(x.Id, out var par) && par == p.Id).Select(x => x.Id).ToList();
                 info.Memory.LastActivityUtc = DateTime.UtcNow;
             }
             catch (Exception ex)
@@ -149,6 +126,7 @@ public class ProcessService
             }
             result.Add(info);
         }
+        TrimCmdlineCache(startTimes);
         return result;
     }
 
@@ -159,17 +137,12 @@ public class ProcessService
             var m = info.Memory;
             m.WorkingSetBytes = p.WorkingSet64;
             m.PrivateBytes = p.PrivateMemorySize64;
-            m.CommitBytes = p.PagedMemorySize64; // approx
             m.PeakWorkingSetBytes = p.PeakWorkingSet64;
-            m.PagedPoolBytes = p.PagedSystemMemorySize64;
-            m.NonPagedPoolBytes = p.NonpagedSystemMemorySize64;
             m.VirtualBytes = p.VirtualMemorySize64;
             m.PeakVirtualBytes = p.PeakVirtualMemorySize64;
-            m.ThreadCount = p.Threads.Count;
         }
         catch { info.AccessDenied = true; }
 
-        // PSAPI detailed
         try
         {
             var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, p.Id);
@@ -185,7 +158,8 @@ public class ProcessService
                         info.Memory.PeakWorkingSetBytes = (long)counters.PeakWorkingSetSize;
                         info.Memory.PrivateWorkingSetBytes = (long)counters.PrivateWorkingSetSize;
                         info.Memory.SharedCommitBytes = (long)counters.SharedCommitUsage;
-                        info.Memory.CommitBytes = (long)counters.PrivateUsage; // commit (pagefile usage)
+                        info.Memory.CommitBytes = (long)counters.PrivateUsage;
+                        info.Memory.PrivateBytes = (long)counters.PrivateUsage; // commit charge, single source of truth
                         info.Memory.PagedPoolBytes = (long)counters.QuotaPagedPoolUsage;
                         info.Memory.NonPagedPoolBytes = (long)counters.QuotaNonPagedPoolUsage;
                     }
@@ -219,6 +193,18 @@ public class ProcessService
         catch { }
     }
 
+    private static string QueryImagePath(int pid)
+    {
+        try
+        {
+            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (h == IntPtr.Zero) return "";
+            try { return NativeMethods.GetProcessImageNameWin32(h); }
+            finally { NativeMethods.CloseHandle(h); }
+        }
+        catch { return ""; }
+    }
+
     private int GetParentPid(int pid)
     {
         try
@@ -228,12 +214,8 @@ public class ProcessService
             try
             {
                 var pbi = new NativeMethods.PROCESS_BASIC_INFORMATION();
-                int ret;
-                int status = NativeMethods.NtQueryInformationProcess(h, (int)NativeMethods.PROCESSINFOCLASS.ProcessBasicInformation, ref pbi, Marshal.SizeOf<NativeMethods.PROCESS_BASIC_INFORMATION>(), out ret);
-                if (status == 0)
-                {
-                    return pbi.InheritedFromUniqueProcessId.ToInt32();
-                }
+                int status = NativeMethods.NtQueryInformationProcess(h, (int)NativeMethods.PROCESSINFOCLASS.ProcessBasicInformation, ref pbi, Marshal.SizeOf<NativeMethods.PROCESS_BASIC_INFORMATION>(), out _);
+                if (status == 0) return pbi.InheritedFromUniqueProcessId.ToInt32();
             }
             finally { NativeMethods.CloseHandle(h); }
         }
@@ -241,7 +223,21 @@ public class ProcessService
         return 0;
     }
 
-    private string GetCommandLine(int pid)
+    private static string GetCommandLineCached(int pid)
+    {
+        lock (_cmdlineLock)
+        {
+            if (_cmdlineCache.TryGetValue(pid, out var cached)) return cached;
+        }
+        string value = QueryCommandLine(pid);
+        lock (_cmdlineLock)
+        {
+            _cmdlineCache[pid] = value;
+        }
+        return value;
+    }
+
+    private static string QueryCommandLine(int pid)
     {
         try
         {
@@ -249,21 +245,25 @@ public class ProcessService
             if (h == IntPtr.Zero) return "";
             try
             {
-                // ProcessCommandLineInformation = 60, returns UNICODE_STRING
-                int bufSize = 0x10000;
+                // ProcessCommandLineInformation (60): two-call pattern, then read UNICODE_STRING
+                int bufSize = 0x1000;
                 var buf = Marshal.AllocHGlobal(bufSize);
                 try
                 {
                     int status = NativeMethods.NtQueryInformationProcess(h, 60, buf, bufSize, out int ret);
+                    if (status != 0 && ret > bufSize)
+                    {
+                        Marshal.FreeHGlobal(buf);
+                        bufSize = ret;
+                        buf = Marshal.AllocHGlobal(bufSize);
+                        status = NativeMethods.NtQueryInformationProcess(h, 60, buf, bufSize, out ret);
+                    }
                     if (status == 0 && ret >= 16)
                     {
-                        // UNICODE_STRING: Length (ushort), MaximumLength (ushort), Buffer (ptr)
                         int length = Marshal.ReadInt16(buf);
-                        IntPtr strPtr = Marshal.ReadIntPtr(buf, 8); // on 64-bit offset 8
+                        IntPtr strPtr = Marshal.ReadIntPtr(buf, 8);
                         if (strPtr != IntPtr.Zero && length > 0)
-                        {
                             return Marshal.PtrToStringUni(strPtr, length / 2) ?? "";
-                        }
                     }
                 }
                 finally { Marshal.FreeHGlobal(buf); }
@@ -274,33 +274,57 @@ public class ProcessService
         return "";
     }
 
+    private static void TrimCmdlineCache(Dictionary<int, DateTime> liveStartTimes)
+    {
+        lock (_cmdlineLock)
+        {
+            if (_cmdlineCache.Count < 4096) return;
+            var live = new HashSet<int>(liveStartTimes.Keys);
+            var dead = _cmdlineCache.Keys.Where(k => !live.Contains(k)).ToList();
+            foreach (var k in dead) _cmdlineCache.Remove(k);
+        }
+    }
+
     private DateTime SafeStartTime(ProcessThread t)
     {
         try { return t.StartTime; } catch { return DateTime.MinValue; }
     }
 
-    private HashSet<int> GetVisibleWindowPids()
+    /// <summary>PID -> main window title. Filters cloaked (UWP suspended shells), tool windows
+    /// and untitled windows so background helper windows don't count as "user is using it".</summary>
+    private Dictionary<int, string> GetVisibleWindowPids()
     {
-        var set = new HashSet<int>();
+        var map = new Dictionary<int, string>();
         try
         {
             NativeMethods.EnumWindows((hWnd, lParam) =>
             {
-                if (NativeMethods.IsWindowVisible(hWnd))
+                try
                 {
+                    if (!NativeMethods.IsWindowVisible(hWnd)) return true;
+                    int exStyle = NativeMethods.GetWindowLong(hWnd, -20 /*GWL_EXSTYLE*/);
+                    if ((exStyle & 0x80 /*WS_EX_TOOLWINDOW*/) != 0) return true;
+                    if (NativeMethods.DwmGetWindowAttribute(hWnd, 14 /*DWMWA_CLOAKED*/, out var cloaked, 4) == 0 && cloaked != 0) return true;
+                    if (NativeMethods.GetWindowTextLength(hWnd) == 0) return true;
                     NativeMethods.GetWindowThreadProcessId(hWnd, out uint pid);
-                    if (pid != 0) set.Add((int)pid);
+                    if (pid != 0 && !map.ContainsKey((int)pid))
+                    {
+                        var sb = new System.Text.StringBuilder(256);
+                        NativeMethods.GetWindowText(hWnd, sb, 256);
+                        map[(int)pid] = sb.ToString();
+                    }
                 }
+                catch { }
                 return true;
             }, IntPtr.Zero);
         }
         catch { }
-        return set;
+        return map;
     }
 
-    private Dictionary<int,int> GetTcpConnectionCountsByPid()
+    private Dictionary<int, int> GetTcpConnectionCountsByPid()
     {
-        var dict = new Dictionary<int,int>();
+        var dict = new Dictionary<int, int>();
         try
         {
             uint size = 0;
@@ -312,15 +336,13 @@ public class ProcessService
                 uint ret = NativeMethods.GetExtendedTcpTable(buf, ref size, true, NativeMethods.AF_INET, NativeMethods.TCP_TABLE_OWNER_PID_ALL, 0);
                 if (ret == 0)
                 {
-                    // first 4 bytes: numEntries
                     int num = Marshal.ReadInt32(buf);
                     int rowSize = Marshal.SizeOf<NativeMethods.MIB_TCPROW_OWNER_PID>();
                     IntPtr rowPtr = buf + 4;
                     for (int i = 0; i < num; i++)
                     {
                         var row = Marshal.PtrToStructure<NativeMethods.MIB_TCPROW_OWNER_PID>(rowPtr);
-                        if (!dict.ContainsKey((int)row.dwOwningPid)) dict[(int)row.dwOwningPid] = 0;
-                        dict[(int)row.dwOwningPid]++;
+                        dict[(int)row.dwOwningPid] = dict.TryGetValue((int)row.dwOwningPid, out var c) ? c + 1 : 1;
                         rowPtr += rowSize;
                     }
                 }
@@ -331,65 +353,161 @@ public class ProcessService
         return dict;
     }
 
+    // ---- caches for slow external data ----
+
+    public static List<ScheduledTaskInfo> GetScheduledTasksCached()
+    {
+        lock (_cacheLock)
+        {
+            if (_taskCache != null && (DateTime.UtcNow - _taskCache.Value.time).TotalMinutes < 10)
+                return _taskCache.Value.tasks;
+        }
+        var tasks = new ScheduledTaskService().Enumerate();
+        lock (_cacheLock) { _taskCache = (DateTime.UtcNow, tasks); }
+        return tasks;
+    }
+
+    public static List<StartupItem> GetStartupItemsCached()
+    {
+        lock (_cacheLock)
+        {
+            if (_startupCache != null && (DateTime.UtcNow - _startupCache.Value.time).TotalMinutes < 5)
+                return _startupCache.Value.items;
+        }
+        var items = new StartupService().Enumerate();
+        lock (_cacheLock) { _startupCache = (DateTime.UtcNow, items); }
+        return items;
+    }
+
+    // ---- action primitives ----
+
     public void TerminateProcess(int pid)
     {
         var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_TERMINATE, false, pid);
-        if (h == IntPtr.Zero) throw new Exception("OpenProcess failed");
+        if (h == IntPtr.Zero) throw new Exception("OpenProcess(PROCESS_TERMINATE) failed");
         try
         {
-            if (!NativeMethods.TerminateProcess(h, 0)) throw new Exception("TerminateProcess failed");
+            if (!NativeMethods.TerminateProcess(h, 1)) throw new Exception("TerminateProcess failed");
         }
         finally { NativeMethods.CloseHandle(h); }
     }
 
-    public void SuspendProcess(int pid, List<int> tids)
+    /// <summary>Suspend the whole process atomically (no stale-TID races).</summary>
+    public void SuspendProcess(int pid)
     {
-        foreach (var tid in tids)
+        var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_SUSPEND_RESUME, false, pid);
+        if (h == IntPtr.Zero) throw new Exception("OpenProcess(PROCESS_SUSPEND_RESUME) failed");
+        try
         {
-            var h = NativeMethods.OpenThread(NativeMethods.THREAD_SUSPEND_RESUME, false, (uint)tid);
-            if (h != IntPtr.Zero)
-            {
-                NativeMethods.SuspendThread(h);
-                NativeMethods.CloseHandle(h);
-            }
+            int status = NativeMethods.NtSuspendProcess(h);
+            if (status != 0) throw new Exception($"NtSuspendProcess 0x{status:X}");
         }
+        finally { NativeMethods.CloseHandle(h); }
     }
 
-    public void ResumeProcess(int pid, List<int> tids)
+    public void ResumeProcess(int pid)
     {
-        foreach (var tid in tids)
+        var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_SUSPEND_RESUME, false, pid);
+        if (h == IntPtr.Zero) throw new Exception("OpenProcess(PROCESS_SUSPEND_RESUME) failed");
+        try
         {
-            var h = NativeMethods.OpenThread(NativeMethods.THREAD_SUSPEND_RESUME, false, (uint)tid);
-            if (h != IntPtr.Zero)
-            {
-                NativeMethods.ResumeThread(h);
-                NativeMethods.CloseHandle(h);
-            }
+            int status = NativeMethods.NtResumeProcess(h);
+            if (status != 0) throw new Exception($"NtResumeProcess 0x{status:X}");
         }
+        finally { NativeMethods.CloseHandle(h); }
+    }
+
+    /// <summary>Top-level visible windows owned by pid (used for graceful WM_CLOSE).</summary>
+    public List<IntPtr> GetProcessWindowHandles(int pid)
+    {
+        var handles = new List<IntPtr>();
+        try
+        {
+            NativeMethods.EnumWindows((hWnd, lParam) =>
+            {
+                try
+                {
+                    NativeMethods.GetWindowThreadProcessId(hWnd, out uint wpid);
+                    if (wpid == (uint)pid && NativeMethods.IsWindowVisible(hWnd))
+                        handles.Add(hWnd);
+                }
+                catch { }
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch { }
+        return handles;
+    }
+
+    public void PostCloseToWindows(int pid)
+    {
+        foreach (var h in GetProcessWindowHandles(pid))
+            NativeMethods.PostMessage(h, 0x0010 /*WM_CLOSE*/, IntPtr.Zero, IntPtr.Zero);
     }
 
     public void TrimWorkingSet(int pid)
     {
-        // EmptyWorkingSet via psapi
         try
         {
-            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_INFORMATION | 0x0100, false, pid); // PROCESS_SET_QUOTA = 0x0100
+            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_INFORMATION | NativeMethods.PROCESS_SET_QUOTA, false, pid);
             if (h != IntPtr.Zero)
             {
                 try
                 {
-                    // EmptyWorkingSet export from psapi
                     var psapi = NativeLibrary.Load("psapi.dll");
-                    var proc = NativeLibrary.GetExport(psapi, "K32EmptyWorkingSet");
-                    var del = Marshal.GetDelegateForFunctionPointer<EmptyWsDelegate>(proc);
-                    del(h);
-                    NativeLibrary.Free(psapi);
+                    try
+                    {
+                        var proc = NativeLibrary.GetExport(psapi, "K32EmptyWorkingSet");
+                        var del = Marshal.GetDelegateForFunctionPointer<EmptyWsDelegate>(proc);
+                        del(h);
+                    }
+                    finally { NativeLibrary.Free(psapi); }
                 }
                 catch { }
                 finally { NativeMethods.CloseHandle(h); }
             }
         }
         catch { }
+    }
+
+    /// <summary>Lower memory priority (1..5, very low .. normal). Pages of this process become
+    /// first candidates for repurposing — the polite version of "clean this app's memory".</summary>
+    public bool SetMemoryPriority(int pid, uint priority)
+    {
+        try
+        {
+            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_INFORMATION | NativeMethods.PROCESS_SET_INFORMATION, false, pid);
+            if (h == IntPtr.Zero) return false;
+            try
+            {
+                var info = new NativeMethods.PROCESS_MEMORY_PRIORITY { MemoryPriority = priority };
+                return NativeMethods.SetProcessInformation(h, (int)NativeMethods.PROCESS_INFORMATION_CLASS.ProcessMemoryPriority, ref info, Marshal.SizeOf<NativeMethods.PROCESS_MEMORY_PRIORITY>());
+            }
+            finally { NativeMethods.CloseHandle(h); }
+        }
+        catch { return false; }
+    }
+
+    /// <summary>EcoQoS / power throttling: let the scheduler deprioritize this process instead of killing it.</summary>
+    public bool SetEcoMode(int pid, bool on)
+    {
+        try
+        {
+            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION | NativeMethods.PROCESS_SET_INFORMATION, false, pid);
+            if (h == IntPtr.Zero) return false;
+            try
+            {
+                var info = new NativeMethods.PROCESS_POWER_THROTTLING_STATE
+                {
+                    Version = 1,
+                    ControlMask = 0x1, // PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+                    StateMask = on ? 0x1u : 0x0u
+                };
+                return NativeMethods.SetProcessInformation(h, (int)NativeMethods.PROCESS_INFORMATION_CLASS.ProcessPowerThrottling, ref info, Marshal.SizeOf<NativeMethods.PROCESS_POWER_THROTTLING_STATE>());
+            }
+            finally { NativeMethods.CloseHandle(h); }
+        }
+        catch { return false; }
     }
 
     public void SuspendThread(int tid)

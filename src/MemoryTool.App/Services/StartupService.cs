@@ -59,7 +59,7 @@ public class StartupService
         return list;
     }
 
-    public bool IsStartupPath(string exePath, List<StartupItem> items)
+    public static bool IsStartupPath(string exePath, List<StartupItem> items)
     {
         if (string.IsNullOrEmpty(exePath)) return false;
         var name = Path.GetFileName(exePath).ToLowerInvariant();

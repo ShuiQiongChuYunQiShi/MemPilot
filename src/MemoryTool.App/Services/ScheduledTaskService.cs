@@ -52,7 +52,7 @@ public class ScheduledTaskService
         return list;
     }
 
-    public bool IsScheduledTaskProcess(string exePath, List<ScheduledTaskInfo> tasks)
+    public static bool IsScheduledTaskProcess(string exePath, List<ScheduledTaskInfo> tasks)
     {
         if (string.IsNullOrEmpty(exePath)) return false;
         var name = Path.GetFileName(exePath).ToLowerInvariant();

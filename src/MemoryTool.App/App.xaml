@@ -4,6 +4,16 @@
              xmlns:local="clr-namespace:MemoryTool.App"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <SolidColorBrush x:Key="AccentBlue" Color="#2563EB"/>
+        <SolidColorBrush x:Key="AccentRed" Color="#DC2626"/>
+        <SolidColorBrush x:Key="AccentGreen" Color="#059669"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#111827"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#6B7280"/>
+        <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="GridBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="RowAltBg" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="PanelBg" Color="#F2F4F7"/>
+        <SolidColorBrush x:Key="HeaderBg" Color="#1F2937"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#DCE1E6"/>
     </Application.Resources>
 </Application>

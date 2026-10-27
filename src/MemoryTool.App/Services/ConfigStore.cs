@@ -41,7 +41,7 @@ public class ConfigStore
                 KeepPatterns = new() { "devenv", "code", "rider", "idea", "dotnet", "node", "python", "docker", "postgres", "mysql", "mongod", "redis", "sqlservr", "wsl", "terminal", "cmd", "powershell" },
                 CleanPatterns = new() { "steam", "epicgames", "battlenet", "origin", "netflix", "spotify", "discord overlay", "overwolf" },
                 Priority = new() { [ProcessCategory.DevTool] = 10, [ProcessCategory.ContainerVm] = 9, [ProcessCategory.AiImageVideo] = 3 },
-                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3SuggestClose },
+                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3GracefulClose },
                 AutoSwitchOnForeground = true
             };
             Config.ModeProfiles[AppMode.Game] = new ModeProfile
@@ -50,7 +50,7 @@ public class ConfigStore
                 KeepPatterns = new() { "steam", "epicgames", "battlenet", "origin", "riot", "anticheat", "easyanticheat", "battleye", "discord", "nvidia", "amd", "audio", "input" },
                 CleanPatterns = new() { "devenv", "code", "rider", "dotnet build", "msbuild", "postgres", "mysql", "mongod", "redis", "ollama", "comfyui", "stable", "docker" },
                 Priority = new() { [ProcessCategory.Game] = 10, [ProcessCategory.GameLauncher] = 9, [ProcessCategory.AntiCheat] = 10, [ProcessCategory.DevTool] = 2, [ProcessCategory.AiImageVideo] = 1 },
-                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3SuggestClose },
+                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3GracefulClose },
                 AutoSwitchOnForeground = true
             };
             Config.ModeProfiles[AppMode.AiGeneration] = new ModeProfile
@@ -59,7 +59,7 @@ public class ConfigStore
                 KeepPatterns = new() { "comfyui", "automatic1111", "invokeai", "ollama", "lmstudio", "python", "cuda", "nvidia" },
                 CleanPatterns = new() { "steam", "epicgames", "chrome", "edge", "discord", "spotify", "dev", "postgres" },
                 Priority = new() { [ProcessCategory.AiImageVideo] = 10, [ProcessCategory.DevTool] = 4, [ProcessCategory.Game] = 1 },
-                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3SuggestClose, CleanupActionLevel.L4ForceKill },
+                AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3GracefulClose, CleanupActionLevel.L4ForceKill },
                 AutoSwitchOnForeground = true
             };
             Config.ModeProfiles[AppMode.Balanced] = new ModeProfile
