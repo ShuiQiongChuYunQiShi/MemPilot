@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private bool _isDarkTheme;
     private System.Windows.Threading.DispatcherTimer? _trayUpdateTimer;
     private MakeRoomPlan? _currentPlan;
+    private System.Threading.CancellationTokenSource? _planCts;
 
     // selection preserved across refreshes (collections are rebuilt each cycle)
     private readonly HashSet<int> _selectedProcessPids = new();
@@ -68,6 +69,8 @@ public partial class MainWindow : Window
         SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
+        SetAutoStart.IsChecked = StartupService.IsAutoStart();
+        SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
         ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
         WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
         BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
@@ -87,6 +90,19 @@ public partial class MainWindow : Window
         menu.Items.Add("刷新", null, async (s, e) => await _vm.RefreshAsync());
         menu.Items.Add("退出", null, (s, e) => { _allowClose = true; Application.Current.Shutdown(); });
         _trayIcon.ContextMenuStrip = menu;
+
+        // auto mode switch happens in the engine — reflect it back into the combo box
+        _vm.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.CurrentMode)) SelectModeCombo(_vm.CurrentMode);
+        };
+
+        if (_config.Config.StartMinimizedToTray)
+        {
+            WindowState = WindowState.Minimized;
+            ShowInTaskbar = false;
+            Loaded += (s2, e2) => { Hide(); ShowInTaskbar = true; };
+        }
 
         Closing += MainWindow_Closing;
         _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
@@ -366,14 +382,32 @@ public partial class MainWindow : Window
         if (res != MessageBoxResult.Yes) return;
 
         ExecutePlanBtn.IsEnabled = false;
+        CancelPlanBtn.IsEnabled = true;
         _vm.Status = "正在执行腾挪计划...";
-        var result = await _vm.ExecuteMakeRoomAsync(_currentPlan);
-        MakeRoomResultText.Text = result.SummaryText;
-        _vm.Status = "腾挪计划执行完毕。" + result.SummaryText;
-        _currentPlan = null;
-        PlanGrid.ItemsSource = null;
-        await _vm.RefreshAsync();
+        _planCts = new System.Threading.CancellationTokenSource();
+        try
+        {
+            var result = await _vm.ExecuteMakeRoomAsync(_currentPlan, _planCts.Token);
+            MakeRoomResultText.Text = result.SummaryText;
+            _vm.Status = "腾挪计划执行完毕。" + result.SummaryText;
+        }
+        catch (OperationCanceledException)
+        {
+            _vm.Status = "腾挪计划已取消（已执行的项目不可回退，剩余项目未执行）。";
+            MakeRoomResultText.Text = "已取消。";
+        }
+        finally
+        {
+            _planCts.Dispose();
+            _planCts = null;
+            CancelPlanBtn.IsEnabled = false;
+            _currentPlan = null;
+            PlanGrid.ItemsSource = null;
+            await _vm.RefreshAsync();
+        }
     }
+
+    private void CancelMakeRoom_Click(object sender, RoutedEventArgs e) => _planCts?.Cancel();
 
     private void ClearMakeRoom_Click(object sender, RoutedEventArgs e)
     {
@@ -463,6 +497,9 @@ public partial class MainWindow : Window
         _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
+        _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
+        var wantAutoStart = SetAutoStart.IsChecked == true;
+        if (wantAutoStart != StartupService.IsAutoStart()) StartupService.SetAutoStart(wantAutoStart);
         _config.Config.ProtectedNames = ProtectedListEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
         _config.Config.Whitelist = WhitelistEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
         _config.Config.Blacklist = BlacklistEditor.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();

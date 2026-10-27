@@ -8,8 +8,10 @@ public class ConfigStore
 {
     private readonly string _path;
     public AppConfig Config { get; private set; } = new();
+    public string DataDirectory { get; }
     public ConfigStore(string dataDir)
     {
+        DataDirectory = dataDir;
         Directory.CreateDirectory(dataDir);
         _path = Path.Combine(dataDir, "config.json");
         Load();

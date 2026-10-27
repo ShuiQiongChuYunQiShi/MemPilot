@@ -70,4 +70,40 @@ public class StartupService
         }
         return false;
     }
+
+    // ---- this tool's own auto-start ----
+
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "MemoryTool";
+
+    public static bool IsAutoStart()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKeyPath);
+            return key?.GetValue(RunValueName) != null;
+        }
+        catch { return false; }
+    }
+
+    public static void SetAutoStart(bool enabled)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKeyPath, true)
+                ?? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (key == null) return;
+            if (enabled)
+            {
+                var exe = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exe)) return;
+                key.SetValue(RunValueName, $"\"{exe}\"");
+            }
+            else if (key.GetValue(RunValueName) != null)
+            {
+                key.DeleteValue(RunValueName, false);
+            }
+        }
+        catch { }
+    }
 }

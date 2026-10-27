@@ -105,7 +105,7 @@ public class MainViewModel : INotifyPropertyChanged
         Classification = new ClassificationEngine(feedback);
         UnusedDetector.Config = config.Config;
         OnlineLookup.Config = config.Config;
-        Cleanup = new CleanupEngine(ProcessService, audit);
+        Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
         Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit);
         Engine.ModeChanged += (s, m) => { _currentMode = m; OnPropertyChanged(nameof(CurrentMode)); OnPropertyChanged(nameof(CurrentModeText)); };
         CurrentMode = config.Config.CurrentMode;
@@ -291,9 +291,9 @@ public class MainViewModel : INotifyPropertyChanged
         return plan;
     }
 
-    public async Task<MakeRoomResult> ExecuteMakeRoomAsync(MakeRoomPlan plan)
+    public async Task<MakeRoomResult> ExecuteMakeRoomAsync(MakeRoomPlan plan, CancellationToken ct)
     {
-        var result = await Task.Run(() => Cleanup.ExecutePlanAsync(plan, ConfigStore.Config.GracefulCloseTimeoutSeconds, CancellationToken.None)).ConfigureAwait(false);
+        var result = await Task.Run(() => Cleanup.ExecutePlanAsync(plan, ConfigStore.Config.GracefulCloseTimeoutSeconds, ct)).ConfigureAwait(false);
         ReloadAudit();
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => SysMem = ProcessService.GetSystemMemory());
         return result;

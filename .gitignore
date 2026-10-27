@@ -7,3 +7,4 @@ obj/
 test_*.txt
 src/MemoryTool.App/Data/
 *.zip
+.test-tmp/

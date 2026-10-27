@@ -5,61 +5,6 @@ using MemoryTool.Models;
 namespace MemoryTool.Services;
 
 /// <summary>
-/// Registry of processes this tool has suspended, so they can be resumed and are never
-/// forgotten (a suspended process nobody remembers is a zombie holding its memory).
-/// </summary>
-public class SuspendRegistry
-{
-    private readonly Dictionary<int, SuspendRecord> _records = new();
-    private readonly object _lock = new();
-
-    public void Add(int pid, DateTime startTime, string name, string reason)
-    {
-        lock (_lock)
-        {
-            _records[pid] = new SuspendRecord { Pid = pid, StartTime = startTime, Name = name, Reason = reason };
-        }
-    }
-
-    public bool Remove(int pid)
-    {
-        lock (_lock) { return _records.Remove(pid); }
-    }
-
-    public bool IsSuspended(int pid)
-    {
-        lock (_lock) { return _records.ContainsKey(pid); }
-    }
-
-    /// <summary>Live records; drops entries whose process died or was restarted (start time differs).</summary>
-    public List<SuspendRecord> LiveRecords()
-    {
-        var list = new List<SuspendRecord>();
-        lock (_lock)
-        {
-            var dead = new List<int>();
-            foreach (var (pid, rec) in _records)
-            {
-                try
-                {
-                    var p = Process.GetProcessById(pid);
-                    if (p.StartTime.ToUniversalTime() != rec.StartTime) { dead.Add(pid); continue; }
-                    list.Add(rec);
-                }
-                catch { dead.Add(pid); }
-            }
-            foreach (var pid in dead) _records.Remove(pid);
-        }
-        return list;
-    }
-
-    public HashSet<int> SuspendedPids()
-    {
-        return LiveRecords().Select(r => r.Pid).ToHashSet();
-    }
-}
-
-/// <summary>
 /// Executes cleanup actions (the L0-L4 ladder) and builds/executes make-room plans.
 /// Action semantics:
 ///   L1 trim: pushes private working set to standby — cheap, safe, best-effort.
@@ -71,12 +16,13 @@ public class CleanupEngine
 {
     private readonly ProcessService _procs;
     private readonly AuditLogger _audit;
-    public SuspendRegistry Suspended { get; } = new();
+    public SuspendRegistry Suspended { get; }
 
-    public CleanupEngine(ProcessService procs, AuditLogger audit)
+    public CleanupEngine(ProcessService procs, AuditLogger audit, string dataDir)
     {
         _procs = procs;
         _audit = audit;
+        Suspended = new SuspendRegistry(dataDir);
     }
 
     public record ActionResult(bool Success, string Message, bool Exited);
@@ -215,7 +161,7 @@ public class CleanupEngine
             if (p.Category is ProcessCategory.Unknown or ProcessCategory.SystemCritical
                 or ProcessCategory.SecuritySoftware or ProcessCategory.AntiCheat or ProcessCategory.Driver) continue;
             if (p.IsWhitelisted) continue;
-            if (p.Pid == foregroundPid || p.AudioActive || p.IsSuspended) continue;
+            if (p.Pid == foregroundPid || p.AudioActive || audioPids.Contains(p.Pid) || p.IsSuspended) continue;
             if (p.StartTime != DateTime.MinValue && (DateTime.Now - p.StartTime).TotalSeconds < 60) continue;
 
             bool modeClean = profile.CleanPatterns.Any(pat =>

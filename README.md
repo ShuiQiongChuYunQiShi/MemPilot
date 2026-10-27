@@ -43,9 +43,20 @@ Windows 常驻内存与进程管理工具。面向"并行开发 + 游戏 + AI �
 
 ```
 dotnet build src/MemoryTool.App -c Release
+dotnet test tests/MemoryTool.Tests
 ```
 
-零 NuGet 依赖（纯 P/Invoke），.NET 8 WPF（WindowsForms 混用仅用于托盘图标）。
+零 NuGet 依赖（纯 P/Invoke；测试项目用 xunit）。若本机安全软件对 `%TEMP%` 的批量写入拦截导致测试偶发
+UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_TEST_TMP=<目录> dotnet test`。
+
+## 测试覆盖的安全不变量
+
+- 未识别（Unknown）/受保护/前台/正在发声/最小存活期内的进程永远不会成为清理候选；
+- 未使用检测需要最小存活期 + 连续观察轮数，PID 复用会重置观察状态；
+- 黑名单只需 2 轮观察（有窗口建议 L3、无窗口建议 L4）；
+- 自签证书伪造的 "Microsoft" 签名不会被当作可信系统签名；
+- 旧版 "ea/be/vac" 子串误报（Teams/Weather/SearchHost 被判为游戏平台）有回归测试；
+- 腾挪计划的排除名单与动作选择（L3/L4/trim 回退）；挂起登记跨重启的持久化与 PID 复用校验。
 
 ## 使用
 

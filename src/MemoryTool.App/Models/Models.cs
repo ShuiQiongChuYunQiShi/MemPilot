@@ -311,6 +311,8 @@ public class AppConfig
     public bool ShowMemoryInTray { get; set; } = true;
     public bool GlobalHotkeyEnabled { get; set; } = true;
     public string GlobalHotkey { get; set; } = "CTRL+SHIFT+M";
+    public bool StartWithWindows { get; set; } = false;
+    public bool StartMinimizedToTray { get; set; } = false;
     public bool ResumeSuspendedOnModeChange { get; set; } = false;
     public Dictionary<AppMode, ModeProfile> ModeProfiles { get; set; } = new();
 }

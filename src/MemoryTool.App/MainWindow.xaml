@@ -290,6 +290,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                 <Button Content="① 生成计划" Click="PlanMakeRoom_Click" Style="{StaticResource PrimaryBtn}"/>
                                 <Button x:Name="ExecutePlanBtn" Content="② 执行计划" Click="ExecuteMakeRoom_Click" Style="{StaticResource DangerBtn}" IsEnabled="False"/>
+                                <Button x:Name="CancelPlanBtn" Content="取消执行" Click="CancelMakeRoom_Click" Style="{StaticResource PrimaryBtn}" IsEnabled="False"/>
                                 <Button Content="清空" Click="ClearMakeRoom_Click" Style="{StaticResource PrimaryBtn}"/>
                                 <TextBlock x:Name="MakeRoomSummary" Text="" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -474,6 +475,9 @@
                         <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,2"/>
                         <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,2"/>
                         <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,2"/>
+                        <TextBlock Text="驻守" FontWeight="Bold" Margin="0,10,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,2"/>
+                        <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,2"/>
                         <TextBlock Text="联网查询" FontWeight="Bold" Margin="0,10,0,4" Foreground="{DynamicResource TextPrimary}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Text="查询端点 URL" Width="240" VerticalAlignment="Center"/>
