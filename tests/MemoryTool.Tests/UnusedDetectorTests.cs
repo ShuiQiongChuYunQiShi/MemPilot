@@ -184,6 +184,24 @@ public class UnusedDetectorTests
     }
 
     [Fact]
+    public void BusyHeadlessProcess_NeverBecomesCandidate()
+    {
+        // regression: LastSeenUtc was updated before the rate computation, making dt always 0
+        // and every busy headless process (compile servers etc.) look idle.
+        var detector = new UnusedDetector { Config = Config() };
+        for (int round = 0; round < 10; round++)
+        {
+            var p = MakeProc(21, "langserver", ProcessCategory.ThirdPartyApp);
+            p.Memory.TotalCpuTime = TimeSpan.FromSeconds(10 * (round + 1)); // busy every round
+            p.Memory.IoWriteBytes = 1024L * 1024 * 1024 * (round + 1);
+            var result = Detect(detector, new List<ProcessInfo> { p });
+            if (round > 0) // first round has no baseline to diff against
+                Assert.True(p.Memory.CpuPercent > 50, $"CPU% must reflect real usage in round {round}");
+            Assert.Empty(result);
+        }
+    }
+
+    [Fact]
     public void MemoryGrowth_IsTrackedAcrossObservations()
     {
         var detector = new UnusedDetector { Config = Config() };

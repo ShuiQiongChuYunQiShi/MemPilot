@@ -42,11 +42,13 @@ public class UnusedDetector
                 st = new IdleState { FirstSeenUtc = now, LastActiveUtc = now, LastSeenUtc = now };
                 _states[key] = st;
             }
+            // compute rates against the PREVIOUS timestamp — updating LastSeenUtc first
+            // would make dt always zero and every busy headless process look idle.
+            var dt = (now - st.LastSeenUtc).TotalSeconds;
             st.LastSeenUtc = now;
 
             double cpuPct = 0;
             double ioRate = 0;
-            var dt = (now - st.LastSeenUtc).TotalSeconds;
             if (dt > 0)
             {
                 var cpuDelta = (p.Memory.TotalCpuTime - st.PrevCpu).TotalSeconds;

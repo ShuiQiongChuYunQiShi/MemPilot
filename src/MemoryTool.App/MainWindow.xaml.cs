@@ -125,6 +125,23 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    private void ProcessGrid_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if ((e.OriginalSource as DependencyObject) is not FrameworkElement) return;
+        var p = (sender as System.Windows.Controls.DataGrid)?.SelectedItem as ProcessInfo;
+        if (p == null || string.IsNullOrEmpty(p.ExecutablePath) || !System.IO.File.Exists(p.ExecutablePath)) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{p.ExecutablePath}\"",
+                UseShellExecute = true
+            });
+        }
+        catch { }
+    }
+
     private void ProcessGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         foreach (var p in e.RemovedItems.OfType<ProcessInfo>()) _selectedProcessPids.Remove(p.Pid);
@@ -683,25 +700,26 @@ public partial class MainWindow : Window
     {
         _isDarkTheme = !_isDarkTheme;
         var res = Application.Current.Resources;
+        void Set(string key, byte r, byte g, byte b) => res[key] = new SolidColorBrush(Color.FromRgb(r, g, b));
         if (_isDarkTheme)
         {
-            res["TextPrimary"] = new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
-            res["TextSecondary"] = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
-            res["CardBg"] = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B));
-            res["GridBg"] = new SolidColorBrush(Color.FromRgb(0x11, 0x18, 0x27));
-            res["RowAltBg"] = new SolidColorBrush(Color.FromRgb(0x17, 0x22, 0x33));
-            res["PanelBg"] = new SolidColorBrush(Color.FromRgb(0x0F, 0x17, 0x2A));
-            res["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0x33, 0x41, 0x55));
+            Set("TextPrimary", 0xE5, 0xE7, 0xEB); Set("TextSecondary", 0x9C, 0xA3, 0xAF);
+            Set("CardBg", 0x1E, 0x29, 0x3B); Set("GridBg", 0x11, 0x18, 0x27);
+            Set("RowAltBg", 0x17, 0x22, 0x33); Set("PanelBg", 0x0F, 0x17, 0x2A);
+            Set("BorderBrush", 0x33, 0x41, 0x55);
+            Set("InputBg", 0x1E, 0x29, 0x3B); Set("ControlBorder", 0x33, 0x41, 0x55);
+            Set("ControlFg", 0xE5, 0xE7, 0xEB); Set("TrackBg", 0x1E, 0x29, 0x3B);
+            Set("ChipBg", 0x26, 0x33, 0x4A); Set("ChipHoverBg", 0x33, 0x41, 0x55);
         }
         else
         {
-            res["TextPrimary"] = new SolidColorBrush(Color.FromRgb(0x11, 0x18, 0x27));
-            res["TextSecondary"] = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
-            res["CardBg"] = new SolidColorBrush(Colors.White);
-            res["GridBg"] = new SolidColorBrush(Colors.White);
-            res["RowAltBg"] = new SolidColorBrush(Color.FromRgb(0xF9, 0xFA, 0xFB));
-            res["PanelBg"] = new SolidColorBrush(Color.FromRgb(0xF2, 0xF4, 0xF7));
-            res["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0xDC, 0xE1, 0xE6));
+            Set("TextPrimary", 0x11, 0x18, 0x27); Set("TextSecondary", 0x6B, 0x72, 0x80);
+            Set("CardBg", 0xFF, 0xFF, 0xFF); Set("GridBg", 0xFF, 0xFF, 0xFF);
+            Set("RowAltBg", 0xF9, 0xFA, 0xFB); Set("PanelBg", 0xF2, 0xF4, 0xF7);
+            Set("BorderBrush", 0xDC, 0xE1, 0xE6);
+            Set("InputBg", 0xFF, 0xFF, 0xFF); Set("ControlBorder", 0xCB, 0xD5, 0xE1);
+            Set("ControlFg", 0x11, 0x18, 0x27); Set("TrackBg", 0xE2, 0xE8, 0xF0);
+            Set("ChipBg", 0xF1, 0xF5, 0xF9); Set("ChipHoverBg", 0xE2, 0xE8, 0xF0);
         }
     }
 

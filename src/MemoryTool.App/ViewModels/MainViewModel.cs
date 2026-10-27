@@ -64,6 +64,13 @@ public class MainViewModel : INotifyPropertyChanged
     public string UsedDetailText => $"{FormatBytes(SysMem.TotalPhysicalBytes - SysMem.AvailablePhysicalBytes)} 已用 / {TotalMemoryText}";
     public ObservableCollection<DecisionEntry> HomeDecisions { get; } = new();
 
+    private string _candidateRuleText = "";
+    public string CandidateRuleText
+    {
+        get => _candidateRuleText;
+        private set { _candidateRuleText = value; OnPropertyChanged(); }
+    }
+
     private AppMode _currentMode = AppMode.Resident;
     public AppMode CurrentMode
     {
@@ -247,6 +254,8 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
         HomeDecisions.Clear();
         foreach (var d in Decisions.Recent(5)) HomeDecisions.Add(d);
+        var cfg = ConfigStore.Config;
+        CandidateRuleText = $"候选规则：无窗口 + 低 CPU/IO + 没在发声 + 不在前台，且持续空闲 ≥ {cfg.UnusedIdleMinutes} 分钟、连续 {cfg.RequiredIdleObservations} 轮观察。工具刚启动时这里为空是正常的——观察正在累积，默认约 {cfg.UnusedIdleMinutes} 分钟后才会出现第一个候选。";
         DisposalRecords.Clear();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         ApplyFilter();
@@ -292,6 +301,8 @@ public class MainViewModel : INotifyPropertyChanged
         {
             DecisionEntries.Clear();
             foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+            HomeDecisions.Clear();
+            foreach (var d in Decisions.Recent(5)) HomeDecisions.Add(d);
         });
     }
 
@@ -379,8 +390,9 @@ public class MainViewModel : INotifyPropertyChanged
             double range = Math.Max(1, maxV - minV);
             for (int i = 0; i < _memSamples.Count; i++)
             {
-                double x = i * (300.0 / Math.Max(1, _memSamples.Count - 1));
-                double y = 80 - (_memSamples[i].avail - minV) / range * 70;
+                // canvas on the home page is 260x64 — scale to it, or the line gets clipped
+                double x = i * (260.0 / Math.Max(1, _memSamples.Count - 1));
+                double y = 60 - (_memSamples[i].avail - minV) / range * 54;
                 MemoryTrendPoints.Add(new System.Windows.Point(x, y));
             }
         }

@@ -160,14 +160,14 @@
             <Setter Property="Padding" Value="8,4"/>
         </Style>
         <Style x:Key="ModeChip" TargetType="RadioButton">
-            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="Foreground" Value="{DynamicResource ControlFg}"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="0,0,10,8"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Background="#F1F5F9" CornerRadius="10" Padding="16,9">
+                        <Border x:Name="Bd" Background="{DynamicResource ChipBg}" CornerRadius="10" Padding="16,9">
                             <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -181,7 +181,7 @@
                                     <Condition Property="IsMouseOver" Value="True"/>
                                     <Condition Property="IsChecked" Value="False"/>
                                 </MultiTrigger.Conditions>
-                                <Setter TargetName="Bd" Property="Background" Value="#E2E8F0"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChipHoverBg}"/>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -194,7 +194,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ProgressBar">
-                        <Border Background="#E2E8F0" CornerRadius="7">
+                        <Border Background="{DynamicResource TrackBg}" CornerRadius="7">
                             <Grid>
                                 <Border x:Name="PART_Track"/>
                                 <Border x:Name="PART_Indicator" Background="#2563EB" CornerRadius="7" HorizontalAlignment="Left"/>
@@ -270,7 +270,7 @@
                                     <TextBlock Text="GPU 显存" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
                                     <TextBlock Text="{Binding GpuSummaryText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,12"/>
                                     <TextBlock Text="可用内存趋势" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
-                                    <Canvas Width="260" Height="64" Background="#F8FAFC" Margin="0,4,0,0">
+                                    <Canvas Width="260" Height="64" Background="{DynamicResource TrackBg}" Margin="0,4,0,0">
                                         <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2"/>
                                     </Canvas>
                                 </StackPanel>
@@ -374,7 +374,8 @@
                         <TextBox x:Name="SearchBox" Width="280" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
                         <TextBlock Text="按名称 / 路径 / 窗口标题搜索；右键进程可挂起、关闭、降权或标记保留" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
-                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged">
+                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick">
+                        <DataGrid.ToolTip>双击某行：在资源管理器中定位该程序的文件</DataGrid.ToolTip>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="L1 回收工作集（温和）" Click="CtxL1_Click"/>
@@ -424,7 +425,10 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="这些程序长期空闲：无窗口、低 CPU/IO、没在发声、也不在前台。处置前会再次确认。" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                    <StackPanel Margin="0,0,0,8">
+                        <TextBlock Text="这些程序长期空闲：无窗口、低 CPU/IO、没在发声、也不在前台。处置前会再次确认。" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding CandidateRuleText}" Margin="0,4,0,0" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                    </StackPanel>
                     <DataGrid x:Name="UnusedGrid" Grid.Row="1" ItemsSource="{Binding UnusedCandidates}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="UnusedGrid_SelectionChanged">
                         <DataGrid.ContextMenu>
                             <ContextMenu>
@@ -692,61 +696,96 @@
 
             <!-- ============ 设置 ============ -->
             <TabItem Header="⚙️  设置" Style="{StaticResource NavTab}">
-                <ScrollViewer Margin="14,14,14,0">
-                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
-                        <TextBlock Text="阈值配置" FontSize="15" FontWeight="Bold" Margin="0,0,0,6" Foreground="{DynamicResource TextPrimary}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="未使用 CPU 阈值 (%)" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetCpu" Width="80" Padding="4"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,18,20,20" MaxWidth="820" HorizontalAlignment="Left">
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="阈值配置" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="未使用 CPU 阈值 (%)" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetCpu" Width="120" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                        <TextBlock Text="未使用空闲分钟数" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetIdle" Width="120" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                        <TextBlock Text="刷新间隔 (秒)" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetRefresh" Width="120" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="进程最小存活期 (秒，保护刚启动的进程)" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetMinAge" Width="120" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                        <TextBlock Text="连续空闲观察轮数 (候选门槛)" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetObservations" Width="120" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                        <TextBlock Text="优雅关闭超时 (秒)" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="SetGraceful" Width="120" HorizontalAlignment="Left" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="自动化" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <CheckBox x:Name="SetAutoCleanup" Content="启用模式驱动的自动清理（仅 L1 回收 / 可选 L3 优雅关闭，从不自动 L4）" Margin="0,3"/>
+                                <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,3"/>
+                                <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,3"/>
+                                <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
+                                <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,3"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,3"/>
+                                <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,3"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="联网查询" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <TextBlock Text="查询端点 URL" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBox x:Name="SetEndpoint" Width="440" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                <TextBlock Text="API 密钥（仅存本机 config.json）" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBox x:Name="SetApiKey" Width="440" HorizontalAlignment="Left" Margin="0,2,0,10"/>
+                                <CheckBox x:Name="SetOnlineEnabled" Content="启用联网查询" Margin="0,3"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="名单管理" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,10"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                        <TextBlock Text="受保护进程" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="ProtectedListEditor" Height="110" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                                        <TextBlock Text="白名单（不参与清理）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="WhitelistEditor" Height="110" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="黑名单（观察 2 轮即可候选）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBox x:Name="BlacklistEditor" Height="110" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="保存设置" Click="SaveSettings_Click" Style="{StaticResource PrimaryBtn}"/>
+                            <TextBlock Text="所有配置保存在 %APPDATA%\MemoryTool\config.json" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="未使用空闲分钟数" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetIdle" Width="80" Padding="4"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="刷新间隔 (秒)" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetRefresh" Width="80" Padding="4"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="进程最小存活期 (秒，保护刚启动的进程)" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetMinAge" Width="80" Padding="4"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="连续空闲观察轮数 (候选门槛)" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetObservations" Width="80" Padding="4"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="优雅关闭超时 (秒)" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetGraceful" Width="80" Padding="4"/>
-                        </StackPanel>
-                        <TextBlock Text="自动化" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
-                        <CheckBox x:Name="SetAutoCleanup" Content="启用模式驱动的自动清理（仅 L1 回收 / 可选 L3 优雅关闭，从不自动 L4）" Margin="0,2"/>
-                        <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,2"/>
-                        <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,2"/>
-                        <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,2"/>
-                        <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,2"/>
-                        <TextBlock Text="驻守" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
-                        <CheckBox x:Name="SetAutoStart" Content="开机自启（写入当前用户注册表 Run 项）" Margin="0,2"/>
-                        <CheckBox x:Name="SetStartMinimized" Content="启动时最小化到托盘" Margin="0,2"/>
-                        <TextBlock Text="联网查询" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="查询端点 URL" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetEndpoint" Width="400" Padding="4"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="API 密钥（仅存本机 config.json）" Width="240" VerticalAlignment="Center"/>
-                            <TextBox x:Name="SetApiKey" Width="400" Padding="4"/>
-                        </StackPanel>
-                        <CheckBox x:Name="SetOnlineEnabled" Content="启用联网查询" Margin="0,4"/>
-                        <TextBlock Text="名单管理" FontSize="15" FontWeight="Bold" Margin="0,14,0,4" Foreground="{DynamicResource TextPrimary}"/>
-                        <TextBlock Text="受保护进程（每行一个）：" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,2"/>
-                        <TextBox x:Name="ProtectedListEditor" Height="80" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6" Margin="0,0,0,8"/>
-                        <TextBlock Text="白名单（不参与清理）：" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,2"/>
-                        <TextBox x:Name="WhitelistEditor" Height="60" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6" Margin="0,0,0,8"/>
-                        <TextBlock Text="黑名单（观察 2 轮后即可成为候选）：" Foreground="{DynamicResource TextSecondary}" FontSize="11" Margin="0,0,0,2"/>
-                        <TextBox x:Name="BlacklistEditor" Height="60" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6" Margin="0,0,0,8"/>
-                        <Button Content="保存设置" Click="SaveSettings_Click" Style="{StaticResource PrimaryBtn}" Margin="0,8,0,0"/>
-                        <TextBlock Text="所有配置保存在 %APPDATA%\MemoryTool\config.json；控制台模式：MemoryTool.exe /standbylistlowpriority | /reset" Margin="0,10,0,0" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                        <TextBlock Text="控制台模式：MemoryTool.exe /standbylistlowpriority | /reset" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" FontSize="11"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
