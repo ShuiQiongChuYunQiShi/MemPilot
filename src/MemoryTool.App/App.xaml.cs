@@ -26,7 +26,8 @@ public partial class App : Application
         _singleInstance = new Mutex(true, @"Local\MemoryTool.SingleInstance", out var isNew);
         if (!isNew)
         {
-            MessageBox.Show("MemoryTool 已在运行（请检查托盘）。", "MemoryTool", MessageBoxButton.OK, MessageBoxImage.Information);
+            // quiet: bring the existing instance's window to the front instead of nagging
+            TryActivateExistingWindow();
             Shutdown();
             return;
         }
@@ -81,6 +82,29 @@ public partial class App : Application
                 Console.WriteLine($"{kv.Key}: {(kv.Value.success ? "OK" : "FAIL")} {kv.Value.message}");
         }
         Application.Current.Shutdown();
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string lpWindowName);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); // SW_RESTORE = 9
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private static void TryActivateExistingWindow()
+    {
+        try
+        {
+            var hwnd = FindWindow(null, "MemoryTool - 内存与进程管家");
+            if (hwnd != IntPtr.Zero)
+            {
+                ShowWindow(hwnd, 9);
+                SetForegroundWindow(hwnd);
+            }
+        }
+        catch { }
     }
 
     private static void TryLogCrash(Exception? ex)

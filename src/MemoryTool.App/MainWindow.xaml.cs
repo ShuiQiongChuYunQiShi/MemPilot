@@ -230,7 +230,7 @@ public partial class MainWindow : Window
         var targets = _vm.UnusedCandidates.ToList();
         if (targets.Count == 0)
         {
-            MessageBox.Show("当前没有可清理候选（观察期可能未满）。", "提示");
+            _vm.Status = "当前没有可清理候选（观察期可能未满，工具刚启动时为空是正常的）。";
             return;
         }
         long before = _vm.SysMem.AvailablePhysicalBytes;
@@ -432,8 +432,8 @@ public partial class MainWindow : Window
     private void CtxResumeProcess_Click(object sender, RoutedEventArgs e)
     {
         var p = GetSelectedProcess();
-        if (p == null) { MessageBox.Show("请先在进程列表选择一行。"); return; }
-        if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { MessageBox.Show($"{p.Name} 不是本工具挂起的进程。"); return; }
+        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { _vm.Status = $"{p.Name} 不是本工具挂起的进程。"; return; }
         _vm.ResumeSuspended(new SuspendRecord { Pid = p.Pid, Name = p.Name });
     }
 
@@ -442,8 +442,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 1); // VERY_LOW
-        MessageBox.Show(ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : $"设置失败（权限不足或进程已退出）。",
-            "降低内存优先级", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        _vm.Status = ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : $"内存优先级设置失败（权限不足或进程已退出）。";
     }
 
     private void CtxMemPriorityNormal_Click(object sender, RoutedEventArgs e)
@@ -451,7 +450,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 5); // NORMAL
-        MessageBox.Show(ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : "设置失败。", "恢复内存优先级");
+        _vm.Status = ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : "内存优先级设置失败。";
     }
 
     private void CtxEcoOn_Click(object sender, RoutedEventArgs e)
@@ -459,8 +458,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetEcoMode(p.Pid, true);
-        MessageBox.Show(ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : "设置失败（需要 Win10 1709+ 且权限足够）。",
-            "EcoQoS", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        _vm.Status = ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : "EcoQoS 设置失败（需要 Win10 1709+ 且权限足够）。";
     }
 
     private void CtxEcoOff_Click(object sender, RoutedEventArgs e)
@@ -501,7 +499,7 @@ public partial class MainWindow : Window
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        MessageBox.Show($"已记录：{p.Name} → {(keep ? "需保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。", "反馈");
+        _vm.Status = $"已记录：{p.Name} → {(keep ? "需保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。";
     }
 
     // ---- suspended tab ----
@@ -510,19 +508,22 @@ public partial class MainWindow : Window
     {
         if (SuspendedList.SelectedItem is SuspendRecord rec)
             _vm.ResumeSuspended(rec);
-        else MessageBox.Show("请先选择一项。");
+        else _vm.Status = "请先选择一项挂起记录。";
     }
 
     private void ResumeAll_Click(object sender, RoutedEventArgs e) => _vm.ResumeAllSuspended();
 
     private void RestartDisposal_Click(object sender, RoutedEventArgs e)
     {
-        if (DisposalsGrid.SelectedItem is not DisposalRecord rec) { MessageBox.Show("请先选择一条处置记录。"); return; }
+        if (DisposalsGrid == null || DisposalsGrid.SelectedItem is not DisposalRecord rec) { _vm.Status = "请先选择一条处置记录。"; return; }
         if (MessageBox.Show($"重新启动 {rec.Name}？\n{rec.ExePath}", "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         if (_vm.RestartDisposal(rec))
             _vm.Status = $"已重新启动 {rec.Name}";
         else
-            MessageBox.Show("启动失败：exe 路径不存在或已被移动。", "错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+        {
+            _vm.Status = "启动失败：exe 路径不存在或已被移动。";
+            _tray?.ShowBalloon("重启失败", "exe 路径不存在或已被移动。", warning: true);
+        }
     }
 
     // ---- make-room workflow ----
@@ -530,13 +531,13 @@ public partial class MainWindow : Window
     private async void PlanMakeRoom_Click(object sender, RoutedEventArgs e)
     {
         if (TargetAvailGB == null) return;
-        if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { MessageBox.Show("目标可用内存请填正数（GB）。"); return; }
+        if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = "目标可用内存请填正数（GB）。"; return; }
         await BuildAndShowPlanAsync(targetGB);
     }
 
     private async void HomePlan_Click(object sender, RoutedEventArgs e)
     {
-        if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { MessageBox.Show("请填写需要的内存（GB）。"); return; }
+        if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = "请先在主页填写需要的内存（GB）。"; return; }
         // home CTA keeps the same safety: build the plan, review it on the 腾内存 page before executing
         SwitchToTab("🚀"); // realize the tab's controls first
         if (TargetAvailGB != null) TargetAvailGB.Text = targetGB.ToString("0.#");
@@ -633,8 +634,8 @@ public partial class MainWindow : Window
     {
         if (ThreadGrid.SelectedItem is ThreadInfo ti)
         {
-            try { _vm.ProcessService.SuspendThread(ti.Tid); MessageBox.Show($"线程 {ti.Tid} 已挂起。", "完成"); }
-            catch (Exception ex) { MessageBox.Show("挂起失败: " + ex.Message); }
+            try { _vm.ProcessService.SuspendThread(ti.Tid); _vm.Status = $"线程 {ti.Tid} 已挂起。"; }
+            catch (Exception ex) { _vm.Status = "线程挂起失败: " + ex.Message; }
         }
     }
 
@@ -642,8 +643,8 @@ public partial class MainWindow : Window
     {
         if (ThreadGrid.SelectedItem is ThreadInfo ti)
         {
-            try { _vm.ProcessService.ResumeThread(ti.Tid); MessageBox.Show($"线程 {ti.Tid} 已恢复。", "完成"); }
-            catch (Exception ex) { MessageBox.Show("恢复失败: " + ex.Message); }
+            try { _vm.ProcessService.ResumeThread(ti.Tid); _vm.Status = $"线程 {ti.Tid} 已恢复。"; }
+            catch (Exception ex) { _vm.Status = "线程恢复失败: " + ex.Message; }
         }
     }
 
@@ -674,7 +675,7 @@ public partial class MainWindow : Window
         if (ModeList.SelectedItem is not ListBoxItem { Tag: AppMode m } ||
             !_vm.ConfigStore.Config.ModeProfiles.TryGetValue(m, out var profile))
         {
-            MessageBox.Show("请先在上方选择一个模式。");
+            _vm.Status = "请先在上方选择一个模式。";
             return;
         }
         profile.KeepPatterns = KeepPatternsEditor.Text
@@ -746,7 +747,8 @@ public partial class MainWindow : Window
             else
                 hotkeyNote = " 全局热键注册失败（格式如 CTRL+SHIFT+M，或被其他程序占用）。";
         }
-        MessageBox.Show("设置已保存。" + hotkeyNote, "完成");
+        _vm.Status = "设置已保存。" + hotkeyNote;
+        _tray?.ShowBalloon("设置已保存", string.IsNullOrWhiteSpace(hotkeyNote) ? "配置已更新。" : hotkeyNote.Trim(), warning: hotkeyNote.Contains("失败"));
     }
 
     // ---- system memory areas ----

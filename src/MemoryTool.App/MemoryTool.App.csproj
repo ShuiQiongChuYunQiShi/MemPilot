@@ -24,4 +24,9 @@
   <ItemGroup>
     <ProjectReference Include="..\MemoryTool.Core\MemoryTool.Core.csproj" />
   </ItemGroup>
+  <Target Name="SignExe" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <!-- sign both the apphost exe (what users double-click, SmartScreen checks it) and the managed dll -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\sign.ps1&quot; -TargetPath &quot;$(TargetDir)$(TargetName).exe&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\sign.ps1&quot; -TargetPath &quot;$(TargetPath)&quot;" ContinueOnError="true" />
+  </Target>
 </Project>
