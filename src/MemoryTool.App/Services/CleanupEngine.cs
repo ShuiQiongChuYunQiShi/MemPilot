@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using MemoryTool.Helpers;
 using MemoryTool.Models;
 
@@ -16,13 +16,16 @@ public class CleanupEngine
 {
     private readonly ProcessService _procs;
     private readonly AuditLogger _audit;
+    private readonly NativeMemoryCleanerService _memCleaner = new();
     public SuspendRegistry Suspended { get; }
+    public DisposalRegistry Disposals { get; }
 
     public CleanupEngine(ProcessService procs, AuditLogger audit, string dataDir)
     {
         _procs = procs;
         _audit = audit;
         Suspended = new SuspendRegistry(dataDir);
+        Disposals = new DisposalRegistry(dataDir);
     }
 
     public record ActionResult(bool Success, string Message, bool Exited);
@@ -74,6 +77,18 @@ public class CleanupEngine
             MemoryAfterBytes = after,
             Details = p.CategoryReason
         });
+        // keep a relaunchable record of close/kill attempts (the closest thing to an undo)
+        if (level is CleanupActionLevel.L3GracefulClose or CleanupActionLevel.L4ForceKill)
+        {
+            Disposals.Add(new DisposalRecord
+            {
+                Pid = p.Pid,
+                Name = p.Name,
+                ExePath = p.ExecutablePath,
+                Action = level.ToString(),
+                Exited = exited
+            });
+        }
         return new ActionResult(result.StartsWith("失败") == false, result, exited);
     }
 
@@ -229,6 +244,16 @@ public class CleanupEngine
             var r = Execute(item.Process, item.Action, gracefulTimeoutSec, escalate);
             result.Lines.Add($"{item.ActionText}  {item.Process.Name} (PID {item.Process.Pid})  →  {r.Message}");
             await Task.Delay(200, ct).ConfigureAwait(false);
+        }
+        // realize the reclaim: closed processes leave pages in the low-priority standby list
+        if (_memCleaner.IsAdmin())
+        {
+            try
+            {
+                _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+                result.Lines.Add("已清理低优先级备用列表以兑现回收");
+            }
+            catch { }
         }
         // second measurement after a settle delay — standby list does not drain instantly
         await Task.Delay(TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);

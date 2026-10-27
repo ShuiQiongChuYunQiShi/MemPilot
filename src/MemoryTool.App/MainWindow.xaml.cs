@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private readonly ConfigStore _config;
     private readonly NativeMemoryCleanerService _memCleaner = new();
     private NotifyIcon? _trayIcon;
+    private System.Drawing.Icon? _trayIconObj;
+    private IntPtr _trayHicon = IntPtr.Zero;
     private bool _allowClose;
     private bool _isDarkTheme;
     private System.Windows.Threading.DispatcherTimer? _trayUpdateTimer;
@@ -103,6 +105,11 @@ public partial class MainWindow : Window
             ShowInTaskbar = false;
             Loaded += (s2, e2) => { Hide(); ShowInTaskbar = true; };
         }
+
+        // announce automatic mode switches in the tray (background thread -> marshal)
+        _vm.Engine.ModeChanged += (s, e) =>
+            Dispatcher.InvokeAsync(() => _trayIcon?.ShowBalloonTip(3000, "模式已切换",
+                $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。", ToolTipIcon.Info));
 
         Closing += MainWindow_Closing;
         _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
@@ -348,6 +355,16 @@ public partial class MainWindow : Window
 
     private void ResumeAll_Click(object sender, RoutedEventArgs e) => _vm.ResumeAllSuspended();
 
+    private void RestartDisposal_Click(object sender, RoutedEventArgs e)
+    {
+        if (DisposalsGrid.SelectedItem is not DisposalRecord rec) { MessageBox.Show("请先选择一条处置记录。"); return; }
+        if (MessageBox.Show($"重新启动 {rec.Name}？\n{rec.ExePath}", "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        if (_vm.RestartDisposal(rec))
+            _vm.Status = $"已重新启动 {rec.Name}";
+        else
+            MessageBox.Show("启动失败：exe 路径不存在或已被移动。", "错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
     // ---- make-room workflow ----
 
     private async void PlanMakeRoom_Click(object sender, RoutedEventArgs e)
@@ -461,6 +478,36 @@ public partial class MainWindow : Window
             _vm.CurrentMode = m;
             SelectModeCombo(m);
         }
+    }
+
+    private void ModeList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ModeList.SelectedItem is ListBoxItem { Tag: AppMode m } &&
+            _vm.ConfigStore.Config.ModeProfiles.TryGetValue(m, out var profile))
+        {
+            KeepPatternsEditor.Text = string.Join("\n", profile.KeepPatterns);
+            CleanPatternsEditor.Text = string.Join("\n", profile.CleanPatterns);
+            ModeEditorHint.Text = $"正在编辑: {profile.Name}";
+        }
+    }
+
+    private void SaveModeRules_Click(object sender, RoutedEventArgs e)
+    {
+        if (ModeList.SelectedItem is not ListBoxItem { Tag: AppMode m } ||
+            !_vm.ConfigStore.Config.ModeProfiles.TryGetValue(m, out var profile))
+        {
+            MessageBox.Show("请先在上方选择一个模式。");
+            return;
+        }
+        profile.KeepPatterns = KeepPatternsEditor.Text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s.Length > 0).ToList();
+        profile.CleanPatterns = CleanPatternsEditor.Text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s.Length > 0).ToList();
+        _vm.ConfigStore.Save();
+        _vm.Engine.SampleForeground(); // no-op; rules apply on the next engine tick
+        MessageBox.Show($"已保存 {profile.Name} 的规则（下一个刷新周期生效）。", "完成");
     }
 
     private void SubmitFeedback_Click(object sender, RoutedEventArgs e)
@@ -579,6 +626,41 @@ public partial class MainWindow : Window
 
     // ---- tray ----
 
+    private void UpdateTrayIcon(int usedPercent)
+    {
+        try
+        {
+            using var bmp = new System.Drawing.Bitmap(32, 32);
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                var color = usedPercent >= 85 ? System.Drawing.Color.FromArgb(220, 38, 38)
+                          : usedPercent >= 60 ? System.Drawing.Color.FromArgb(217, 119, 6)
+                          : System.Drawing.Color.FromArgb(5, 150, 105);
+                using var brush = new System.Drawing.SolidBrush(color);
+                g.FillEllipse(brush, 1, 1, 30, 30);
+                using var font = new System.Drawing.Font("Segoe UI", usedPercent >= 100 ? 10f : 12f, System.Drawing.FontStyle.Bold);
+                var text = usedPercent.ToString();
+                var size = g.MeasureString(text, font);
+                using var white = System.Drawing.Brushes.White;
+                g.DrawString(text, font, white, (32 - size.Width) / 2f, (32 - size.Height) / 2f + 1f);
+            }
+            var hicon = bmp.GetHicon();
+            var newIcon = System.Drawing.Icon.FromHandle(hicon);
+            _trayIcon!.Icon = newIcon;
+            // free the previous icon handle (Icon.FromHandle does not take ownership)
+            if (_trayIconObj != null) { _trayIconObj.Dispose(); }
+            if (_trayHicon != IntPtr.Zero) { DestroyIcon(_trayHicon); }
+            _trayIconObj = newIcon;
+            _trayHicon = hicon;
+        }
+        catch { }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private void StartTrayUpdateTimer()
     {
         _trayUpdateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -587,7 +669,8 @@ public partial class MainWindow : Window
             if (_trayIcon == null) return;
             if (_vm.ConfigStore.Config.ShowMemoryInTray && _vm.SysMem.TotalPhysicalBytes > 0)
             {
-                _trayIcon.Text = $"MemoryTool - 可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}";
+                _trayIcon.Text = $"MemoryTool - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}";
+                UpdateTrayIcon((int)Math.Round(_vm.SysMem.MemoryLoadPercent));
             }
             else
             {

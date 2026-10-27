@@ -11,10 +11,62 @@ public class OnlineLookupService
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
     public AppConfig Config { get; set; } = new();
 
-    // per-path result cache: refreshes must not re-query the same binaries
-    private static readonly Dictionary<string, (DateTime time, OnlineLookupResult result)> _cache = new(StringComparer.OrdinalIgnoreCase);
+    // per-path result cache: refreshes must not re-query the same binaries; persisted to lookups.json
+    private class CachedLookup
+    {
+        public DateTime Time { get; set; }
+        public OnlineLookupResult Result { get; set; } = new();
+    }
+
+    private static readonly Dictionary<string, CachedLookup> _cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _cacheLock = new();
     private const int CacheDays = 7;
+    private const int CacheMaxEntries = 512;
+    private static string? _cachePath;
+
+    public static void LoadCache(string dataDir)
+    {
+        try
+        {
+            _cachePath = Path.Combine(dataDir, "lookups.json");
+            if (!File.Exists(_cachePath)) return;
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, CachedLookup>>(File.ReadAllText(_cachePath));
+            if (loaded == null) return;
+            lock (_cacheLock)
+            {
+                foreach (var kv in loaded)
+                    if ((DateTime.UtcNow - kv.Value.Time).TotalDays < CacheDays)
+                        _cache[kv.Key] = kv.Value;
+            }
+        }
+        catch { _cachePath = null; }
+    }
+
+    private static void SaveCache()
+    {
+        if (_cachePath == null) return;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                lock (_cacheLock)
+                {
+                    if (_cache.Count > CacheMaxEntries)
+                    {
+                        foreach (var dead in _cache.OrderBy(kv => kv.Value.Time).Take(_cache.Count - CacheMaxEntries).Select(kv => kv.Key).ToList())
+                            _cache.Remove(dead);
+                    }
+                    File.WriteAllText(_cachePath, JsonSerializer.Serialize(_cache, new JsonSerializerOptions { WriteIndented = false }));
+                }
+                return;
+            }
+            catch (Exception)
+            {
+                if (attempt >= 3) return;
+                System.Threading.Thread.Sleep(100 * attempt);
+            }
+        }
+    }
 
     public async Task<OnlineLookupResult> LookupAsync(ProcessInfo p)
     {
@@ -23,9 +75,9 @@ public class OnlineLookupService
         {
             lock (_cacheLock)
             {
-                if (_cache.Count > 2048) _cache.Clear();
-                _cache[p.ExecutablePath] = (DateTime.UtcNow, res);
+                _cache[p.ExecutablePath] = new CachedLookup { Time = DateTime.UtcNow, Result = res };
             }
+            SaveCache();
         }
         return res;
     }
@@ -44,8 +96,8 @@ public class OnlineLookupService
             lock (_cacheLock)
             {
                 if (_cache.TryGetValue(p.ExecutablePath, out var hit) &&
-                    (DateTime.UtcNow - hit.time).TotalDays < CacheDays)
-                    return hit.result;
+                    (DateTime.UtcNow - hit.Time).TotalDays < CacheDays)
+                    return hit.Result;
             }
         }
 

@@ -11,6 +11,7 @@
         FontFamily="Microsoft YaHei UI,Segoe UI">
     <Window.Resources>
         <helpers:ByteSizeConverter x:Key="Bytes"/>
+        <helpers:SignedBytesConverter x:Key="SignedBytes"/>
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -215,6 +216,7 @@
                             <DataGridTextColumn Header="提交" Binding="{Binding Memory.PrivateBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="CPU%" Binding="{Binding Memory.CpuPercent, StringFormat=F1}" Width="55"/>
                             <DataGridTextColumn Header="空闲(min)" Binding="{Binding IdleMinutes, StringFormat=F0}" Width="65"/>
+                            <DataGridTextColumn Header="内存增长" Binding="{Binding MemoryGrowthBytes, Converter={StaticResource SignedBytes}}" Width="85"/>
                             <DataGridTextColumn Header="线程" Binding="{Binding Memory.ThreadCount}" Width="50"/>
                             <DataGridTextColumn Header="厂商" Binding="{Binding Company}" Width="130"/>
                             <DataGridTextColumn Header="窗口标题" Binding="{Binding MainWindowTitle}" Width="150"/>
@@ -312,19 +314,51 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="已挂起">
+            <TabItem Header="挂起/处置">
                 <Grid Margin="4">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Text="被本工具挂起的进程（挂起只冻结 CPU，不释放内存；请记得恢复）" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
                     <ListBox x:Name="SuspendedList" Grid.Row="1" ItemsSource="{Binding SuspendedProcesses}"/>
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="恢复选中" Click="ResumeSelected_Click" Style="{StaticResource PrimaryBtn}"/>
-                        <Button Content="恢复全部" Click="ResumeAll_Click" Style="{StaticResource PrimaryBtn}"/>
+                    <TextBlock Grid.Row="2" Text="最近被本工具关闭/结束的程序（记录 exe 路径，可一键重新启动）" Margin="0,8,0,8" Foreground="{DynamicResource TextSecondary}"/>
+                    <DataGrid x:Name="DisposalsGrid" Grid.Row="3" ItemsSource="{Binding DisposalRecords}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="150"/>
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="170"/>
+                            <DataGridTextColumn Header="动作" Binding="{Binding Action}" Width="130"/>
+                            <DataGridTextColumn Header="已退出" Binding="{Binding Exited}" Width="60"/>
+                            <DataGridTextColumn Header="路径" Binding="{Binding ExePath}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="恢复选中挂起" Click="ResumeSelected_Click" Style="{StaticResource PrimaryBtn}"/>
+                        <Button Content="恢复全部挂起" Click="ResumeAll_Click" Style="{StaticResource PrimaryBtn}"/>
+                        <Button Content="重启选中程序" Click="RestartDisposal_Click" Style="{StaticResource PrimaryBtn}" Margin="16,0,0,0"/>
                     </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="决策日志">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="引擎的每个自动决定：为什么切换模式、执行/跳过了谁、跳过原因（自动行为可解释）" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="150"/>
+                            <DataGridTextColumn Header="类别" Binding="{Binding Kind}" Width="110"/>
+                            <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="220"/>
+                            <DataGridTextColumn Header="决定" Binding="{Binding Decision}" Width="130"/>
+                            <DataGridTextColumn Header="原因" Binding="{Binding Reason}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Grid>
             </TabItem>
 
@@ -361,10 +395,29 @@
                 <Grid Margin="4">
                     <StackPanel>
                         <TextBlock Text="场景模式" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" Foreground="{DynamicResource TextPrimary}"/>
-                        <ListBox x:Name="ModeList" Height="220" BorderBrush="{DynamicResource BorderBrush}"/>
+                        <ListBox x:Name="ModeList" Height="220" BorderBrush="{DynamicResource BorderBrush}" SelectionChanged="ModeList_SelectionChanged"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button Content="应用模式" Click="ApplyMode_Click" Style="{StaticResource PrimaryBtn}"/>
                             <CheckBox x:Name="AutoSwitchCheck" Content="按信号自动切换（全屏游戏→游戏模式 / AI进程→AI模式 / 前台IDE→开发模式）" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Text="编辑选中模式的规则（每行一个关键词，匹配进程名或路径）：" Margin="0,12,0,4" Foreground="{DynamicResource TextPrimary}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="KeepPatterns（保留，不参与自动清理）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBox x:Name="KeepPatternsEditor" Height="120" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="CleanPatterns（清理名单，自动清理的作用范围）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBox x:Name="CleanPatternsEditor" Height="120" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Padding="6"/>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="保存该模式规则" Click="SaveModeRules_Click" Style="{StaticResource PrimaryBtn}"/>
+                            <TextBlock x:Name="ModeEditorHint" Text="（选中上方模式后编辑）" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}"/>
                         </StackPanel>
                         <TextBlock Text="模式配置保存在 config.json；自动切换带滞回（连续两轮确认 + 60 秒冷却）。" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>

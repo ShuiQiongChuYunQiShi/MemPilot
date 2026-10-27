@@ -182,4 +182,24 @@ public class UnusedDetectorTests
             Assert.Empty(result);
         }
     }
+
+    [Fact]
+    public void MemoryGrowth_IsTrackedAcrossObservations()
+    {
+        var detector = new UnusedDetector { Config = Config() };
+        var start = 100L * 1024 * 1024;
+        for (int i = 0; i < 5; i++)
+        {
+            var p = MakeProc(20, "growing", ProcessCategory.ThirdPartyApp);
+            p.Memory.WorkingSetBytes = start + i * 200L * 1024 * 1024; // +200MB per round
+            p.Memory.PrivateWorkingSetBytes = p.Memory.WorkingSetBytes;
+            var result = Detect(detector, new List<ProcessInfo> { p });
+            // growth is display-only metadata; candidacy is not the point here
+            Assert.True(p.MemoryGrowthBytes >= 0);
+        }
+        var last = MakeProc(20, "growing", ProcessCategory.ThirdPartyApp);
+        last.Memory.WorkingSetBytes = start + 4 * 200L * 1024 * 1024;
+        Detect(detector, new List<ProcessInfo> { last });
+        Assert.Equal(4 * 200L * 1024 * 1024, last.MemoryGrowthBytes); // 100MB -> 900MB over window
+    }
 }

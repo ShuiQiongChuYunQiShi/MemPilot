@@ -157,7 +157,7 @@ public class ClassificationEngine
             p.Category = ProcessCategory.GameLauncher; p.CategoryReason = "launcher_name"; return;
         }
 
-        if (GamePathFragments.Any(f => path.Contains(f)))
+        if (GamePathFragments.Any(f => path.Contains(f)) || GameLibraryService.IsUnderGameLibrary(p.ExecutablePath))
         {
             p.Category = ProcessCategory.Game; p.CategoryReason = "game_path"; return;
         }

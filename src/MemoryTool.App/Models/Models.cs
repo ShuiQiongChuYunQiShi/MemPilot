@@ -98,6 +98,7 @@ public class ProcessInfo
     public bool AudioActive { get; set; }
     public bool IsSuspended { get; set; }
     public bool ModeKeep { get; set; }  // current mode's KeepPattern match: excluded from auto-actions
+    public long MemoryGrowthBytes { get; set; }  // WS growth over the tracked window (leak watch)
 
     /// <summary>Stable identity across refreshes: pid + start time defeats PID reuse.</summary>
     public (int pid, DateTime start) StateKey => (Pid, StartTime);
@@ -148,6 +149,28 @@ public class AuditEntry
     public long MemoryBeforeBytes { get; set; }
     public long MemoryAfterBytes { get; set; }
     public string Details { get; set; } = "";
+}
+
+/// <summary>One line of "why did the engine do/skip that" — makes automatic behavior explainable.</summary>
+public class DecisionEntry
+{
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+    public string Kind { get; set; } = "";      // ModeSwitch / AutoCleanup / AutoOptimize / GrowthWatch
+    public string Target { get; set; } = "";    // process "name (PID N)" or "-"
+    public string Decision { get; set; } = "";  // 执行 / 跳过 / 切换 / 提示
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>A process this tool closed or killed — kept so the user can relaunch it (the L4 undo).</summary>
+public class DisposalRecord
+{
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+    public int Pid { get; set; }
+    public string Name { get; set; } = "";
+    public string ExePath { get; set; } = "";
+    public string Action { get; set; } = "";
+    public bool Exited { get; set; }
+    public string Display => $"{Name} (PID {Pid})  {Action}  {TimestampUtc.ToLocalTime():HH:mm:ss}{(Exited ? "" : "  未确认退出")}";
 }
 
 public class FeedbackEntry

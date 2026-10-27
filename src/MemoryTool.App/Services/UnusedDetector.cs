@@ -21,6 +21,7 @@ public class UnusedDetector
         public int ConsecutiveIdleObs;
         public TimeSpan PrevCpu;
         public long PrevIo;
+        public List<(DateTime t, long ws)> WsHistory = new();  // ring buffer for growth watch
     }
 
     private readonly Dictionary<(int pid, DateTime start), IdleState> _states = new();
@@ -60,6 +61,14 @@ public class UnusedDetector
             p.Memory.CpuPercent = Math.Max(0, cpuPct);
             st.PrevCpu = p.Memory.TotalCpuTime;
             st.PrevIo = p.Memory.IoReadBytes + p.Memory.IoWriteBytes;
+
+            // working-set history for the growth watch (leak-ish behavior, display only)
+            st.WsHistory.Add((now, p.Memory.WorkingSetBytes));
+            if (st.WsHistory.Count > 60) st.WsHistory.RemoveAt(0);
+            if (st.WsHistory.Count >= 2)
+                p.MemoryGrowthBytes = st.WsHistory[^1].ws - st.WsHistory[0].ws;
+            else
+                p.MemoryGrowthBytes = 0;
 
             p.AudioActive = audioPids.Contains(p.Pid);
             p.IsSuspended = suspendedPids.Contains(p.Pid);

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -19,6 +19,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ModeManager ModeManager { get; }
     public CleanupEngine Cleanup { get; }
     public ResidentEngine Engine { get; }
+    public DecisionLog Decisions { get; }
     public ConfigStore ConfigStore { get; }
     public AuditLogger Audit { get; }
     public FeedbackStore Feedback { get; }
@@ -30,6 +31,8 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<AuditEntry> AuditEntries { get; } = new();
     public ObservableCollection<FeedbackEntry> FeedbackEntries { get; } = new();
     public ObservableCollection<SuspendRecord> SuspendedProcesses { get; } = new();
+    public ObservableCollection<DecisionEntry> DecisionEntries { get; } = new();
+    public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
     public SystemMemoryInfo SysMem
@@ -105,11 +108,21 @@ public class MainViewModel : INotifyPropertyChanged
         Classification = new ClassificationEngine(feedback);
         UnusedDetector.Config = config.Config;
         OnlineLookup.Config = config.Config;
+        Decisions = new DecisionLog(ConfigStore.DataDirectory);
         Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
-        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit);
-        Engine.ModeChanged += (s, m) => { _currentMode = m; OnPropertyChanged(nameof(CurrentMode)); OnPropertyChanged(nameof(CurrentModeText)); };
+        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions);
+        Engine.ModeChanged += (s, e) =>
+        {
+            _currentMode = e.Mode;
+            OnPropertyChanged(nameof(CurrentMode));
+            OnPropertyChanged(nameof(CurrentModeText));
+            ReloadDecisions();
+        };
+        OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
         CurrentMode = config.Config.CurrentMode;
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
+        foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
 
@@ -213,6 +226,10 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var u in unused.OrderByDescending(x => x.EstimatedReclaimableBytes)) UnusedCandidates.Add(u);
         SuspendedProcesses.Clear();
         foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
+        DecisionEntries.Clear();
+        foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        DisposalRecords.Clear();
+        foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         ApplyFilter();
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
     }
@@ -250,11 +267,25 @@ public class MainViewModel : INotifyPropertyChanged
         });
     }
 
+    public void ReloadDecisions()
+    {
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            DecisionEntries.Clear();
+            foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        });
+    }
+
     public async Task PerformCleanupAsync(UnusedCandidate cand, CleanupActionLevel level)
     {
         // graceful close may wait seconds for exit — never block the UI thread
         await Task.Run(() => Cleanup.Execute(cand.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false)).ConfigureAwait(true);
         ReloadAudit();
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            DisposalRecords.Clear();
+            foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
+        });
         await Task.Delay(600).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
@@ -273,6 +304,24 @@ public class MainViewModel : INotifyPropertyChanged
             Cleanup.Resume(rec.Pid, rec.Name);
         ReloadAudit();
         SuspendedProcesses.Clear();
+    }
+
+    /// <summary>Relaunch a previously closed/killed exe (the closest thing to an L4 undo).</summary>
+    public bool RestartDisposal(DisposalRecord rec)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(rec.ExePath) || !File.Exists(rec.ExePath)) return false;
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = rec.ExePath,
+                WorkingDirectory = Path.GetDirectoryName(rec.ExePath) ?? "",
+                UseShellExecute = true
+            };
+            System.Diagnostics.Process.Start(psi);
+            return true;
+        }
+        catch { return false; }
     }
 
     // ---- make-room workflow ----
