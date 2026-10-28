@@ -13,10 +13,20 @@ namespace MemoryTool.Tests;
 /// </summary>
 public class EnumerationIntegrationTests
 {
+    private static void Dump(Xunit.Abstractions.ITestOutputHelper output, List<ProcessInfo> procs)
+    {
+        output.WriteLine($"count={procs.Count}");
+        foreach (var p in procs.OrderByDescending(x => x.Memory.WorkingSetBytes).Take(10))
+            output.WriteLine($"  {p.Name} pid={p.Pid} ws={p.Memory.WorkingSetBytes / 1048576}MB privWs={p.Memory.PrivateWorkingSetBytes / 1048576}MB cat={p.Category} denied={p.AccessDenied} path='{p.ExecutablePath}'");
+        output.WriteLine($"categories: {string.Join(", ", procs.GroupBy(p => p.Category).Select(g => g.Key + "=" + g.Count()))}");
+        output.WriteLine($"withPath={procs.Count(p => !string.IsNullOrEmpty(p.ExecutablePath))} withWs={procs.Count(p => p.Memory.WorkingSetBytes > 1048576)} withPrivWs={procs.Count(p => p.Memory.PrivateWorkingSetBytes > 1048576)} withCommit={procs.Count(p => p.Memory.PrivateBytes > 1048576)}");
+    }
+
     [Fact]
-    public void RealEnumeration_HasSystemShape()
+    public void RealEnumeration_HasSystemShape(Xunit.Abstractions.ITestOutputHelper output)
     {
         var procs = new ProcessService().EnumerateProcesses();
+        Dump(output, procs);
 
         // restricted execution contexts (app sandboxes, some job objects) hide most of
         // the system — shape asserts would false-fail there. Real CI runners are clean.
@@ -53,12 +63,14 @@ public class EnumerationIntegrationTests
     }
 
     [Fact]
-    public void RealEnumeration_SystemProcessesAreProtected()
+    public void RealEnumeration_SystemProcessesAreProtected(Xunit.Abstractions.ITestOutputHelper output)
     {
         var procs = new ProcessService().EnumerateProcesses();
+        Dump(output, procs);
         if (procs.Count < 30) return; // restricted environment skip (see HasSystemShape)
         var system = procs.Where(p => p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware).ToList();
-        Assert.True(system.Count > 0, "no system-critical/security processes detected");
-        Assert.All(system, p => Assert.True(p.IsProtected, $"{p.Name} must be protected"));
+        var unprotected = system.Where(p => !p.IsProtected).Select(p => p.Name).ToList();
+        Assert.True(system.Count > 0, $"no system-critical/security processes detected out of {procs.Count}");
+        Assert.True(unprotected.Count == 0, $"unprotected system processes: {string.Join(", ", unprotected)}");
     }
 }
