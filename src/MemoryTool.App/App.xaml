@@ -20,6 +20,10 @@
         <SolidColorBrush x:Key="ControlFg" Color="#111827"/>
         <SolidColorBrush x:Key="TrackBg" Color="#E2E8F0"/>
         <SolidColorBrush x:Key="ChipBg" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="SystemRowBg" Color="#E8F0FE"/>
+        <SolidColorBrush x:Key="GameRowBg" Color="#E7F8EE"/>
+        <SolidColorBrush x:Key="AiRowBg" Color="#F3E8FF"/>
+        <SolidColorBrush x:Key="UnknownRowBg" Color="#FFF4E5"/>
         <SolidColorBrush x:Key="ChipHoverBg" Color="#E2E8F0"/>
 
         <!-- implicit control styling: without these, check-boxes/text-boxes keep black

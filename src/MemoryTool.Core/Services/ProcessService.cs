@@ -490,7 +490,7 @@ public class ProcessService
             {
                 try
                 {
-                    var psapi = NativeLibrary.Load("psapi.dll");
+                    var psapi = NativeLibrary.Load("kernel32.dll"); // K32* exports live here, not in psapi
                     try
                     {
                         var proc = NativeLibrary.GetExport(psapi, "K32EmptyWorkingSet");

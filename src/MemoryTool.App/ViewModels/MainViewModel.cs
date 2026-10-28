@@ -225,6 +225,21 @@ public class MainViewModel : INotifyPropertyChanged
     private string _searchText = "";
     public string SearchText { get => _searchText; set { _searchText = value; OnPropertyChanged(); ApplyFilter(); } }
 
+    private bool _treeMode;
+    /// <summary>Process page tree mode: children grouped under parents, collapsible.</summary>
+    public bool TreeMode
+    {
+        get => _treeMode;
+        set { _treeMode = value; OnPropertyChanged(); ApplyFilter(); }
+    }
+    private readonly HashSet<int> _collapsedPids = new();
+
+    public void ToggleCollapse(int pid)
+    {
+        if (!_collapsedPids.Remove(pid)) _collapsedPids.Add(pid);
+        ApplyFilter();
+    }
+
     public ObservableCollection<ProcessInfo> FilteredProcesses { get; } = new();
 
     /// <summary>Raised after the UI collections were rebuilt; the view re-applies selection.</summary>
@@ -413,6 +428,7 @@ public class MainViewModel : INotifyPropertyChanged
             var q = SearchText.ToLowerInvariant();
             src = src.Where(p => p.Name.ToLowerInvariant().Contains(q) || p.ExecutablePath.ToLowerInvariant().Contains(q) || p.MainWindowTitle.ToLowerInvariant().Contains(q));
         }
+        if (TreeMode) src = ProcessTreeBuilder.Build(src, _collapsedPids);
         foreach (var p in src) FilteredProcesses.Add(p);
     }
 

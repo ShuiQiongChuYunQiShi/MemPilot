@@ -99,6 +99,9 @@ public class ProcessInfo
     public bool IsSuspended { get; set; }
     public bool ModeKeep { get; set; }  // current mode's KeepPattern match: excluded from auto-actions
     public long MemoryGrowthBytes { get; set; }  // WS growth over the tracked window (leak watch)
+    public int TreeDepth { get; set; }          // tree view: 0 = root (runtime-only)
+    public bool HasChildren { get; set; }       // tree view: has in-set children
+    public bool Collapsed { get; set; }         // tree view: node is collapsed in the UI
 
     /// <summary>Stable identity across refreshes: pid + start time defeats PID reuse.</summary>
     public (int pid, DateTime start) StateKey => (Pid, StartTime);

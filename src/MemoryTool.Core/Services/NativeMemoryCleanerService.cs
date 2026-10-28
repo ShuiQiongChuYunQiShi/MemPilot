@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using MemoryTool.Helpers;
@@ -206,7 +206,7 @@ public class NativeMemoryCleanerService
                 {
                     try
                     {
-                        var psapi = NativeLibrary.Load("psapi.dll");
+                        var psapi = NativeLibrary.Load("kernel32.dll");
                         var procAddr = NativeLibrary.GetExport(psapi, "K32EmptyWorkingSet");
                         var del = Marshal.GetDelegateForFunctionPointer<EmptyWsDelegate>(procAddr);
                         if (del(h)) count++;

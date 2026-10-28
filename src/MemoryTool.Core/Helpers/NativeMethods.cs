@@ -57,7 +57,10 @@ public static class NativeMethods
         public ulong SharedCommitUsage;
     }
 
-    [DllImport("psapi.dll", SetLastError = true)]
+    // NOTE: the K32* exports live in kernel32.dll on Windows 7+ — psapi.dll does not
+    // export them (pointing here fails with EntryPointNotFound, silently swallowed by
+    // callers, which zeroed every PrivateWorkingSet in the app for its entire life).
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool K32GetProcessMemoryInfo(IntPtr hProcess, ref PROCESS_MEMORY_COUNTERS_EX2 ppsmemCounters, uint cb);
 
     // NtQueryInformationProcess

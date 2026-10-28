@@ -12,6 +12,9 @@
     <Window.Resources>
         <helpers:ByteSizeConverter x:Key="Bytes"/>
         <helpers:SignedBytesConverter x:Key="SignedBytes"/>
+        <helpers:IndentConverter x:Key="Indent"/>
+        <helpers:CollapsedGlyphConverter x:Key="Glyph"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- sidebar tab -->
         <Style x:Key="NavTab" TargetType="TabItem">
@@ -373,11 +376,34 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                         <TextBox x:Name="SearchBox" Width="280" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
+                        <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <TextBlock Text="按名称 / 路径 / 窗口标题搜索；右键进程可挂起、关闭、降权或标记保留" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
-                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="行配色图例：" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                        <Border Background="{DynamicResource SystemRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="系统/保护" FontSize="11"/></Border>
+                        <Border Background="{DynamicResource GameRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="游戏" FontSize="11"/></Border>
+                        <Border Background="{DynamicResource AiRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="AI 工具" FontSize="11"/></Border>
+                        <Border Background="{DynamicResource UnknownRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="未识别（谨慎处置）" FontSize="11"/></Border>
+                    </StackPanel>
+                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Category}" Value="SystemCritical"><Setter Property="Background" Value="{DynamicResource SystemRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="SystemService"><Setter Property="Background" Value="{DynamicResource SystemRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="Driver"><Setter Property="Background" Value="{DynamicResource SystemRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="SecuritySoftware"><Setter Property="Background" Value="{DynamicResource SystemRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="AntiCheat"><Setter Property="Background" Value="{DynamicResource SystemRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="Game"><Setter Property="Background" Value="{DynamicResource GameRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="GameLauncher"><Setter Property="Background" Value="{DynamicResource GameRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="AiImageVideo"><Setter Property="Background" Value="{DynamicResource AiRowBg}"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Category}" Value="Unknown"><Setter Property="Background" Value="{DynamicResource UnknownRowBg}"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.ToolTip>双击某行：在资源管理器中定位该程序的文件</DataGrid.ToolTip>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
@@ -399,7 +425,17 @@
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
-                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="150"/>
+                            <DataGridTemplateColumn Header="名称" Width="210" SortMemberPath="Name">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="{Binding TreeDepth, Converter={StaticResource Indent}}"/>
+                                            <TextBlock Text="{Binding Collapsed, Converter={StaticResource Glyph}}" Visibility="{Binding HasChildren, Converter={StaticResource BoolToVis}}" Margin="0,0,4,0" Foreground="{DynamicResource AccentBlue}" FontWeight="Bold" Cursor="Hand" MouseLeftButtonDown="TreeToggle_MouseDown" ToolTip="点击折叠/展开子进程"/>
+                                            <TextBlock Text="{Binding Name}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="分类" Binding="{Binding Category}" Width="100"/>
                             <DataGridTextColumn Header="工作集" Binding="{Binding Memory.WorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="私有WS" Binding="{Binding Memory.PrivateWorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
