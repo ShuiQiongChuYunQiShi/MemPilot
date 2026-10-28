@@ -26,6 +26,13 @@ public class EnumerationIntegrationTests
             lines.Add($"  {p.Name} pid={p.Pid} ws={p.Memory.WorkingSetBytes / 1048576}MB privWs={p.Memory.PrivateWorkingSetBytes / 1048576}MB cat={p.Category} denied={p.AccessDenied} path='{p.ExecutablePath}' verified={p.SignatureVerified}");
         lines.Add($"categories: {string.Join(", ", procs.GroupBy(p => p.Category).Select(g => g.Key + "=" + g.Count()))}");
         lines.Add($"withPath={procs.Count(p => !string.IsNullOrEmpty(p.ExecutablePath))} withWs={procs.Count(p => p.Memory.WorkingSetBytes > 1048576)} withPrivWs={procs.Count(p => p.Memory.PrivateWorkingSetBytes > 1048576)} withCommit={procs.Count(p => p.Memory.PrivateBytes > 1048576)}");
+        lines.Add($"trustLastDiag: {TrustVerifier.LastDiag}");
+        var explorer = procs.FirstOrDefault(p => p.Name == "explorer") ?? procs.FirstOrDefault(p => p.ExecutablePath.Contains("explorer", StringComparison.OrdinalIgnoreCase));
+        if (explorer != null)
+        {
+            var (v, subj, _, hr, note) = new TrustVerifier().VerifyDetailed(explorer.ExecutablePath);
+            lines.Add($"trust explorer: verified={v} hr=0x{hr:X8} note={note} subject={subj}");
+        }
         foreach (var l in lines) _output.WriteLine(l);
         // CI console sometimes swallows xUnit output on failures — mirror to a file
         // artifact so the failure scene can be read after the run

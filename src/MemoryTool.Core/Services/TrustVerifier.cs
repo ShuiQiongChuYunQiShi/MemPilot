@@ -14,6 +14,9 @@ public class TrustVerifier
     private static readonly Dictionary<string, (DateTime lastWrite, bool verified, string subject, string issuer)> _cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _lock = new();
 
+    // last raw WinVerifyTrust status + note, for environment diagnostics (CI runners etc.)
+    public static volatile string LastDiag = "none";
+
     public (bool verified, string subject, string issuer) Verify(string exePath)
     {
         try
@@ -55,6 +58,7 @@ public class TrustVerifier
                 };
                 Marshal.StructureToPtr(data, wtDataPtr, false);
                 int status = WinVerifyTrust(IntPtr.Zero, WintrustActionGenericVerifyV2, wtDataPtr);
+            LastDiag = $"hr=0x{status:X8} file={System.IO.Path.GetFileName(exePath)}";
 
                 // Read back (hWVTStateData may have been filled) and close the state.
                 data = Marshal.PtrToStructure<WINTRUST_DATA>(wtDataPtr);
@@ -91,7 +95,11 @@ public class TrustVerifier
                 Marshal.FreeHGlobal(wtDataPtr);
             }
         }
-        catch { return (false, "", ""); }
+        catch (Exception ex)
+        {
+            LastDiag = "exception: " + ex.GetType().Name + ": " + ex.Message;
+            return (false, "", "");
+        }
     }
 
     private const uint WTD_UI_NONE = 2;
