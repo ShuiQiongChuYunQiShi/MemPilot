@@ -7,6 +7,10 @@ namespace MemoryTool.Services;
 /// (which merely parses any cert blob, including self-signed ones), this validates the chain
 /// against trusted roots — a certificate with Subject "Microsoft" forged locally will fail here.
 /// Results are cached per (path, lastWriteTime).
+///
+/// NOTE: WinVerifyTrust behaves differently across environments (works from desktop sessions,
+/// may fail on CI runners) — VerifyDetailed exposes the raw status for diagnostics, and
+/// LastDiag records the most recent status for integration-test dumps.
 /// </summary>
 public class TrustVerifier
 {
@@ -14,19 +18,26 @@ public class TrustVerifier
     private static readonly Dictionary<string, (DateTime lastWrite, bool verified, string subject, string issuer)> _cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _lock = new();
 
-    // last raw WinVerifyTrust status + note, for environment diagnostics (CI runners etc.)
     public static volatile string LastDiag = "none";
 
     public (bool verified, string subject, string issuer) Verify(string exePath)
     {
+        var r = VerifyDetailed(exePath);
+        return (r.verified, r.subject, r.issuer);
+    }
+
+    public (bool verified, string subject, string issuer, int status, string note) VerifyDetailed(string exePath)
+    {
         try
         {
-            if (string.IsNullOrEmpty(exePath) || !System.IO.File.Exists(exePath)) return (false, "", "");
+            if (string.IsNullOrEmpty(exePath) || !System.IO.File.Exists(exePath))
+                return (false, "", "", -2, "file missing");
+
             var lastWrite = System.IO.File.GetLastWriteTimeUtc(exePath);
             lock (_cache)
             {
                 if (_cache.TryGetValue(exePath, out var cached) && cached.lastWrite == lastWrite)
-                    return (cached.verified, cached.subject, cached.issuer);
+                    return (cached.verified, cached.subject, cached.issuer, 0, "cache");
             }
 
             var fi = new WINTRUST_FILE_INFO
@@ -46,11 +57,11 @@ public class TrustVerifier
                     cbStruct = (uint)Marshal.SizeOf<WINTRUST_DATA>(),
                     pPolicyCallbackData = IntPtr.Zero,
                     pSIPClientData = IntPtr.Zero,
-                    dwUIChoice = WTD_UI_NONE,            // 2: never show UI
-                    fdwRevocationChecks = WTD_REVOKE_NONE, // 0: no revocation check (offline friendly)
-                    dwUnionChoice = WTD_CHOICE_FILE,      // 1
+                    dwUIChoice = WTD_UI_NONE,              // 2: never show UI
+                    fdwRevocationChecks = WTD_REVOKE_NONE, // 0: offline friendly
+                    dwUnionChoice = WTD_CHOICE_FILE,       // 1
                     pFile = fileInfoPtr,
-                    dwStateAction = WTD_STATEACTION_VERIFY, // 1
+                    dwStateAction = WTD_STATEACTION_VERIFY,
                     hWVTStateData = IntPtr.Zero,
                     pWizardData = IntPtr.Zero,
                     dwPadReserved1 = 0,
@@ -58,11 +69,9 @@ public class TrustVerifier
                 };
                 Marshal.StructureToPtr(data, wtDataPtr, false);
                 int status = WinVerifyTrust(IntPtr.Zero, WintrustActionGenericVerifyV2, wtDataPtr);
-            LastDiag = $"hr=0x{status:X8} file={System.IO.Path.GetFileName(exePath)}";
 
-                // Read back (hWVTStateData may have been filled) and close the state.
                 data = Marshal.PtrToStructure<WINTRUST_DATA>(wtDataPtr);
-                data.dwStateAction = WTD_STATEACTION_CLOSE; // 2
+                data.dwStateAction = WTD_STATEACTION_CLOSE;
                 Marshal.StructureToPtr(data, wtDataPtr, false);
                 WinVerifyTrust(IntPtr.Zero, WintrustActionGenericVerifyV2, wtDataPtr);
 
@@ -72,8 +81,6 @@ public class TrustVerifier
                 {
                     try
                     {
-                        // SYSLIB0057: X509CertificateLoader cannot extract the Authenticode
-                        // signing cert from a PE file yet; CreateFromSignedFile still does.
 #pragma warning disable SYSLIB0057
                         var cert = System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(exePath);
 #pragma warning restore SYSLIB0057
@@ -87,7 +94,7 @@ public class TrustVerifier
                     if (_cache.Count > 4096) _cache.Clear();
                     _cache[exePath] = (lastWrite, verified, subject, issuer);
                 }
-                return (verified, subject, issuer);
+                return (verified, subject, issuer, status, "wintrust");
             }
             finally
             {
@@ -98,7 +105,7 @@ public class TrustVerifier
         catch (Exception ex)
         {
             LastDiag = "exception: " + ex.GetType().Name + ": " + ex.Message;
-            return (false, "", "");
+            return (false, "", "", -1, LastDiag);
         }
     }
 
