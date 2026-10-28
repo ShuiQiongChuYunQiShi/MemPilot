@@ -14,6 +14,7 @@
         <helpers:SignedBytesConverter x:Key="SignedBytes"/>
         <helpers:IndentConverter x:Key="Indent"/>
         <helpers:CollapsedGlyphConverter x:Key="Glyph"/>
+        <helpers:CategoryTextConverter x:Key="CatText"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- sidebar tab -->
@@ -376,18 +377,23 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBox x:Name="SearchBox" Width="280" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
-                        <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBlock Text="按名称 / 路径 / 窗口标题搜索；右键进程可挂起、关闭、降权或标记保留" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBlock Text="行配色图例：" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                        <Border Background="{DynamicResource SystemRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="系统/保护" FontSize="11"/></Border>
-                        <Border Background="{DynamicResource GameRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="游戏" FontSize="11"/></Border>
-                        <Border Background="{DynamicResource AiRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="AI 工具" FontSize="11"/></Border>
-                        <Border Background="{DynamicResource UnknownRowBg}" CornerRadius="3" Padding="6,1" Margin="4,0"><TextBlock Text="未识别（谨慎处置）" FontSize="11"/></Border>
-                    </StackPanel>
+                    <DockPanel Margin="0,0,0,6">
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                            <TextBox x:Name="SearchBox" Width="240" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
+                            <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="右键 = 处置 · 双击 = 定位文件" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Ellipse Width="10" Height="10" Fill="{DynamicResource SystemRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
+                            <TextBlock Text="系统/保护" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
+                            <Ellipse Width="10" Height="10" Fill="{DynamicResource GameRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
+                            <TextBlock Text="游戏" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
+                            <Ellipse Width="10" Height="10" Fill="{DynamicResource AiRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
+                            <TextBlock Text="AI" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
+                            <Ellipse Width="10" Height="10" Fill="{DynamicResource UnknownRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
+                            <TextBlock Text="未识别" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
+                        </StackPanel>
+                    </DockPanel>
                     <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
@@ -404,7 +410,6 @@
                                 </Style.Triggers>
                             </Style>
                         </DataGrid.RowStyle>
-                        <DataGrid.ToolTip>双击某行：在资源管理器中定位该程序的文件</DataGrid.ToolTip>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="L1 回收工作集（温和）" Click="CtxL1_Click"/>
@@ -436,7 +441,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="分类" Binding="{Binding Category}" Width="100"/>
+                            <DataGridTextColumn Header="分类" Binding="{Binding Category, Converter={StaticResource CatText}}" Width="72"/>
                             <DataGridTextColumn Header="工作集" Binding="{Binding Memory.WorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="私有WS" Binding="{Binding Memory.PrivateWorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="提交" Binding="{Binding Memory.PrivateBytes, Converter={StaticResource Bytes}}" Width="90"/>

@@ -25,14 +25,35 @@ public class MainViewModel : INotifyPropertyChanged
     public AuditLogger Audit { get; }
     public FeedbackStore Feedback { get; }
 
-    public ObservableCollection<ProcessInfo> Processes { get; } = new();
+    private ObservableCollection<ProcessInfo> _processes = new();
+    public ObservableCollection<ProcessInfo> Processes
+    {
+        get => _processes;
+        private set { _processes = value; OnPropertyChanged(); }
+    }
     public ObservableCollection<ThreadInfo> Threads { get; } = new();
-    public ObservableCollection<ProcessGroup> Groups { get; } = new();
+    private ObservableCollection<ProcessGroup> _groups = new();
+    public ObservableCollection<ProcessGroup> Groups
+    {
+        get => _groups;
+        private set { _groups = value; OnPropertyChanged(); }
+    }
     public ObservableCollection<UnusedCandidate> UnusedCandidates { get; } = new();
     public ObservableCollection<AuditEntry> AuditEntries { get; } = new();
     public ObservableCollection<FeedbackEntry> FeedbackEntries { get; } = new();
     public ObservableCollection<SuspendRecord> SuspendedProcesses { get; } = new();
-    public ObservableCollection<DecisionEntry> DecisionEntries { get; } = new();
+    private ObservableCollection<DecisionEntry> _decisionEntries = new();
+    public ObservableCollection<DecisionEntry> DecisionEntries
+    {
+        get => _decisionEntries;
+        private set { _decisionEntries = value; OnPropertyChanged(); }
+    }
+    private ObservableCollection<DecisionEntry> _homeDecisions = new();
+    public ObservableCollection<DecisionEntry> HomeDecisions
+    {
+        get => _homeDecisions;
+        private set { _homeDecisions = value; OnPropertyChanged(); }
+    }
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
@@ -240,7 +261,12 @@ public class MainViewModel : INotifyPropertyChanged
         ApplyFilter();
     }
 
-    public ObservableCollection<ProcessInfo> FilteredProcesses { get; } = new();
+    private ObservableCollection<ProcessInfo> _filteredProcesses = new();
+    public ObservableCollection<ProcessInfo> FilteredProcesses
+    {
+        get => _filteredProcesses;
+        private set { _filteredProcesses = value; OnPropertyChanged(); }
+    }
 
     /// <summary>Raised after the UI collections were rebuilt; the view re-applies selection.</summary>
     public event EventHandler? CollectionsRebuilt;
@@ -376,29 +402,44 @@ public class MainViewModel : INotifyPropertyChanged
         try { Task.WaitAll(tasks.ToArray(), TimeSpan.FromSeconds(15)); } catch { }
     }
 
+    private bool _dataDiagDone;
+
     private void UpdateCollections(List<ProcessInfo> procs, SystemMemoryInfo mem, List<UnusedCandidate> unused)
     {
         SysMem = mem;
-        Processes.Clear();
-        foreach (var p in procs.OrderByDescending(x => x.Memory.WorkingSetBytes)) Processes.Add(p);
-        Groups.Clear();
+        Processes = new ObservableCollection<ProcessInfo>(procs.OrderByDescending(x => x.Memory.WorkingSetBytes));
         var grouped = procs.GroupBy(p => p.Category)
             .Select(g => new ProcessGroup { Key = g.Key.ToString(), DisplayName = CategoryText(g.Key), Category = g.Key, Processes = g.ToList() })
             .OrderByDescending(g => g.TotalWorkingSetBytes);
-        foreach (var g in grouped) Groups.Add(g);
+        Groups = new ObservableCollection<ProcessGroup>(grouped);
         UnusedCandidates.Clear();
         foreach (var u in unused.OrderByDescending(x => x.EstimatedReclaimableBytes)) UnusedCandidates.Add(u);
         SuspendedProcesses.Clear();
         foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
-        DecisionEntries.Clear();
-        foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
-        HomeDecisions.Clear();
-        foreach (var d in Decisions.Recent(5)) HomeDecisions.Add(d);
+        DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
+        HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
         var cfg = ConfigStore.Config;
         CandidateRuleText = $"候选规则：无窗口 + 低 CPU/IO + 没在发声 + 不在前台，且持续空闲 ≥ {cfg.UnusedIdleMinutes} 分钟、连续 {cfg.RequiredIdleObservations} 轮观察。工具刚启动时这里为空是正常的——观察正在累积，默认约 {cfg.UnusedIdleMinutes} 分钟后才会出现第一个候选。";
         DisposalRecords.Clear();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         ApplyFilter();
+        // data sanity: if a whole refresh came back without private working sets,
+        // the K32 path is broken again — say so loudly instead of failing silently
+        if (!_dataDiagDone && procs.Count > 50)
+        {
+            _dataDiagDone = true;
+            if (procs.All(p => p.Memory.PrivateWorkingSetBytes == 0))
+            {
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "Diag",
+                    Target = "-",
+                    Decision = "警告",
+                    Reason = "本次刷新所有进程的私有工作集均为 0 —— K32 数据通路损坏（历史性问题复现？），预计释放/腾挪规划将不可用"
+                });
+                Status = "⚠ 数据质量异常：私有工作集全为零，请查看决策日志。";
+            }
+        }
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
     }
 
@@ -421,7 +462,6 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ApplyFilter()
     {
-        FilteredProcesses.Clear();
         IEnumerable<ProcessInfo> src = Processes;
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
@@ -429,7 +469,9 @@ public class MainViewModel : INotifyPropertyChanged
             src = src.Where(p => p.Name.ToLowerInvariant().Contains(q) || p.ExecutablePath.ToLowerInvariant().Contains(q) || p.MainWindowTitle.ToLowerInvariant().Contains(q));
         }
         if (TreeMode) src = ProcessTreeBuilder.Build(src, _collapsedPids);
-        foreach (var p in src) FilteredProcesses.Add(p);
+        // swap the whole collection instead of Clear+Add: one Reset notification beats
+        // 500 Add notifications every refresh (the periodic-jank fix)
+        FilteredProcesses = new ObservableCollection<ProcessInfo>(src);
     }
 
     public void ReloadAudit()
