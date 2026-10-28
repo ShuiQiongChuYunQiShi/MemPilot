@@ -273,6 +273,23 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    private void TreeMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_vm == null || TreeModeToggle == null) return;
+        _vm.TreeMode = TreeModeToggle.IsChecked == true;
+    }
+
+    private void TreeToggle_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ProcessInfo p) _vm.ToggleCollapse(p.Pid);
+    }
+
+    private void ProcessGrid_Sorting(object sender, DataGridSortingEventArgs e)
+    {
+        // column sorting would scramble the tree order; tree mode keeps its own ordering
+        if (_vm.TreeMode) e.Handled = true;
+    }
+
     private void ProcessGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         foreach (var p in e.RemovedItems.OfType<ProcessInfo>()) _selectedProcessPids.Remove(p.Pid);
@@ -919,6 +936,8 @@ public partial class MainWindow : Window
             Set("InputBg", 0x1E, 0x29, 0x3B); Set("ControlBorder", 0x33, 0x41, 0x55);
             Set("ControlFg", 0xE5, 0xE7, 0xEB); Set("TrackBg", 0x1E, 0x29, 0x3B);
             Set("ChipBg", 0x26, 0x33, 0x4A); Set("ChipHoverBg", 0x33, 0x41, 0x55);
+            Set("SystemRowBg", 0x16, 0x23, 0x3B); Set("GameRowBg", 0x12, 0x29, 0x1E);
+            Set("AiRowBg", 0x23, 0x16, 0x33); Set("UnknownRowBg", 0x2B, 0x24, 0x15);
         }
         else
         {
@@ -929,6 +948,8 @@ public partial class MainWindow : Window
             Set("InputBg", 0xFF, 0xFF, 0xFF); Set("ControlBorder", 0xCB, 0xD5, 0xE1);
             Set("ControlFg", 0x11, 0x18, 0x27); Set("TrackBg", 0xE2, 0xE8, 0xF0);
             Set("ChipBg", 0xF1, 0xF5, 0xF9); Set("ChipHoverBg", 0xE2, 0xE8, 0xF0);
+            Set("SystemRowBg", 0xE8, 0xF0, 0xFE); Set("GameRowBg", 0xE7, 0xF8, 0xEE);
+            Set("AiRowBg", 0xF3, 0xE8, 0xFF); Set("UnknownRowBg", 0xFF, 0xF4, 0xE5);
         }
     }
 
