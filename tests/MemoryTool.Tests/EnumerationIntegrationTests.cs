@@ -107,10 +107,11 @@ public class EnumerationIntegrationTests
         var withCommit = procs.Count(p => p.Memory.PrivateBytes > 1024 * 1024);
         Assert.True(withCommit > 10, $"processes with commit>1MB: {withCommit}/{procs.Count}");
 
-        // classification asserts need full system visibility — CI runners expose only
-        // user-context processes (svchost invisible, catalog-signed system files
-        // unverifiable → everything lands Unknown). Skip there; real desktops assert.
-        var seesSystem = procs.Any(p => p.Name.Equals("svchost", StringComparison.OrdinalIgnoreCase));
+        // classification asserts need the classifier to actually SEE system processes.
+        // CI runners deny OpenProcess on system processes (AccessDenied → Unknown early
+        // return) — svchost is in the list but opaque. Gate on a real SystemCritical
+        // classification; desktops pass, runners skip.
+        var seesSystem = procs.Any(p => p.Category == ProcessCategory.SystemCritical && !p.AccessDenied);
         if (seesSystem)
         {
             var unknown = procs.Count(p => p.Category == ProcessCategory.Unknown);
@@ -136,9 +137,9 @@ public class EnumerationIntegrationTests
     {
         var procs = new ProcessService().EnumerateProcesses();
         Dump(procs);
-        // only meaningful where the system process table is fully visible (desktops);
-        // CI runners hide system processes by design — see HasSystemShape diagnostics
-        if (!procs.Any(p => p.Name.Equals("svchost", StringComparison.OrdinalIgnoreCase))) return;
+        // only meaningful where system processes are actually visible/classifiable —
+        // CI runners deny OpenProcess on them (see HasSystemShape diagnostics)
+        if (!procs.Any(p => p.Category == ProcessCategory.SystemCritical && !p.AccessDenied)) return;
         var system = procs.Where(p => p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware).ToList();
         var unprotected = system.Where(p => !p.IsProtected).Select(p => p.Name).ToList();
         Assert.True(system.Count > 0, $"no system-critical/security processes detected out of {procs.Count}");
