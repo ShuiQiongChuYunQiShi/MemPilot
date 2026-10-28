@@ -69,7 +69,7 @@ public class EnumerationIntegrationTests
     public void RealEnumeration_SystemProcessesAreProtected()
     {
         var procs = new ProcessService().EnumerateProcesses();
-        Dump(output, procs);
+        Dump(procs);
         if (procs.Count < 30) return; // restricted environment skip (see HasSystemShape)
         var system = procs.Where(p => p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware).ToList();
         var unprotected = system.Where(p => !p.IsProtected).Select(p => p.Name).ToList();
