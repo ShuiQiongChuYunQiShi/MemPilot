@@ -44,10 +44,7 @@ public class EnumerationIntegrationTests
         try
         {
             Directory.CreateDirectory(TestTmp.Dir);
-            File.AppendAllText(Path.Combine(TestTmp.Dir, "enumeration-diag.txt"), "
-=== FAILURE ===
-" + text + "
-");
+            File.AppendAllText(Path.Combine(TestTmp.Dir, "enumeration-diag.txt"), "\n=== FAILURE ===\n" + text + "\n");
         }
         catch { }
     }
