@@ -1,14 +1,14 @@
-# MemoryTool local code-signing
+# MemPilot local code-signing
 #   tools/sign.ps1 -Create           one-time: create self-signed code-signing cert,
 #                                    export public part to tools/, trust it on this machine
-#   tools/sign.ps1 [-TargetPath x]   sign the exe (default: the Release build output)
+#   tools/sign.ps1 [-TargetPath x]   sign the exe(s) (default: all exes in the Release output)
 param(
   [switch]$Create,
   [string]$TargetPath = ""
 )
 $ErrorActionPreference = 'Stop'
-$certSubject = 'CN=MemoryTool Dev Signing'
-$pubPath = Join-Path $PSScriptRoot 'MemoryToolDev.cer'
+$certSubject = 'CN=MemPilot Dev Signing'
+$pubPath = Join-Path $PSScriptRoot 'MemPilotDev.cer'
 
 if ($Create) {
   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $certSubject `
@@ -22,16 +22,18 @@ if ($Create) {
   exit 0
 }
 
+# accept either the new or the legacy cert subject (cert created before the rename)
 $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
-        Where-Object { $_.Subject -eq $certSubject } |
+        Where-Object { $_.Subject -in @('CN=MemPilot Dev Signing', 'CN=MemoryTool Dev Signing') } |
         Sort-Object NotAfter -Descending | Select-Object -First 1
 if (-not $cert) { Write-Output 'NO_CERT - run tools/sign.ps1 -Create once (elevated)'; exit 1 }
 
 if (-not $TargetPath) {
-  $TargetPath = Join-Path $PSScriptRoot '..\src\MemoryTool.App\bin\Release\net10.0-windows\MemoryTool.exe'
+  $paths = Get-ChildItem (Join-Path $PSScriptRoot '..\src\MemoryTool.App\bin\Release\net10.0-windows') -Filter *.exe -ErrorAction SilentlyContinue
+} else {
+  $paths = Get-Item $TargetPath -ErrorAction SilentlyContinue
 }
-$paths = Get-Item $TargetPath -ErrorAction SilentlyContinue
 foreach ($t in $paths) {
   $sig = Set-AuthenticodeSignature -FilePath $t.FullName -Certificate $cert -IncludeChain Signer
-  Write-Output ("signed: " + $t.FullName + " -> " + $sig.Status)
+  Write-Output ("signed: " + $t.Name + " -> " + $sig.Status)
 }

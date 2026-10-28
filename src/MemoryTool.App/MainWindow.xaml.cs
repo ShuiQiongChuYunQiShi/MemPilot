@@ -67,7 +67,7 @@ public partial class MainWindow : Window
         });
         _tray.DoubleClick += () => Dispatcher.InvokeAsync(ShowWindow);
         _tray.RightClick += () => Dispatcher.InvokeAsync(ShowTrayMenu);
-        _tray.SetTooltip("MemoryTool");
+        _tray.SetTooltip("MemPilot");
         _trayMenu = new System.Windows.Controls.ContextMenu
         {
             Items =
@@ -1024,12 +1024,12 @@ public partial class MainWindow : Window
             }
             if (_vm.ConfigStore.Config.ShowMemoryInTray && _vm.SysMem.TotalPhysicalBytes > 0)
             {
-                _tray.SetTooltip($"MemoryTool - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}");
+                _tray.SetTooltip($"MemPilot - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}");
                 UpdateTrayIcon((int)Math.Round(_vm.SysMem.MemoryLoadPercent));
             }
             else
             {
-                _tray.SetTooltip("MemoryTool");
+                _tray.SetTooltip("MemPilot");
             }
         };
         _trayUpdateTimer.Start();

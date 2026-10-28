@@ -84,7 +84,6 @@ public class MainViewModel : INotifyPropertyChanged
     public double UsedPercent => SysMem.TotalPhysicalBytes <= 0 ? 0 : SysMem.MemoryLoadPercent;
     public string UsedPercentText => $"{UsedPercent:F0}%";
     public string UsedDetailText => $"{FormatBytes(SysMem.TotalPhysicalBytes - SysMem.AvailablePhysicalBytes)} 已用 / {TotalMemoryText}";
-    public ObservableCollection<DecisionEntry> HomeDecisions { get; } = new();
 
     private string _candidateRuleText = "";
     public string CandidateRuleText
@@ -488,10 +487,8 @@ public class MainViewModel : INotifyPropertyChanged
     {
         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            DecisionEntries.Clear();
-            foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
-            HomeDecisions.Clear();
-            foreach (var d in Decisions.Recent(5)) HomeDecisions.Add(d);
+            DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
+            HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
         });
     }
 

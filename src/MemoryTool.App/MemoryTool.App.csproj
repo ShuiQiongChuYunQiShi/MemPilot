@@ -6,17 +6,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AssemblyName>MemoryTool</AssemblyName>
+    <AssemblyName>MemPilot</AssemblyName>
     <RootNamespace>MemoryTool</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.1.0</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
     <FileVersion>0.1.0.0</FileVersion>
-    <Title>MemoryTool</Title>
-    <Product>MemoryTool - 内存与进程管家</Product>
-    <Description>常驻内存与进程管理器：未使用检测、场景模式、腾挪工作流</Description>
-    <Company>MemoryTool</Company>
+    <Title>MemPilot</Title>
+    <Product>MemPilot - 内存领航员</Product>
+    <Description>MemPilot：常驻内存与进程领航员——未使用检测、场景模式、腾挪工作流</Description>
+    <Company>MemPilot</Company>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="app.ico" />

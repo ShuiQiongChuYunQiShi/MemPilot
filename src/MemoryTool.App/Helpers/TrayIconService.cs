@@ -33,7 +33,7 @@ public sealed class TrayIconService : IDisposable
 
     public TrayIconService()
     {
-        var parameters = new HwndSourceParameters("MemoryToolTrayWindow", 1, 1)
+        var parameters = new HwndSourceParameters("MemPilotTrayWindow", 1, 1)
         {
             // a real overlapped window: Win11 drops tray icons whose owner has zero styles
             WindowStyle = 0x00CF0000, // WS_OVERLAPPEDWINDOW (window is never shown)

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:helpers="clr-namespace:MemoryTool.Helpers"
         mc:Ignorable="d"
-        Title="MemoryTool - 内存与进程管家" Height="780" Width="1280" Icon="app.ico"
+        Title="MemPilot - 内存领航员" Height="780" Width="1280" Icon="app.ico"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource PanelBg}"
         FontFamily="Microsoft YaHei UI,Segoe UI">
@@ -87,8 +87,8 @@
                             <Border Grid.Column="0" Background="#0F172A">
                                 <DockPanel>
                                     <StackPanel DockPanel.Dock="Top" Margin="18,18,18,14">
-                                        <TextBlock Text="MemoryTool" Foreground="White" FontSize="20" FontWeight="Bold"/>
-                                        <TextBlock Text="内存与进程管家" Foreground="#64748B" FontSize="11" Margin="0,2,0,0"/>
+                                        <TextBlock Text="MemPilot" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                                        <TextBlock Text="内存领航员" Foreground="#64748B" FontSize="11" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <StackPanel DockPanel.Dock="Bottom" Margin="18,0,18,16">
                                         <TextBlock Text="{Binding UsedPercentText, StringFormat=内存 {0}}" Foreground="#94A3B8" FontSize="12"/>
