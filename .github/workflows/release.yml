@@ -25,6 +25,9 @@ jobs:
           "VERSION=$($env:GITHUB_REF_NAME -replace '^v','')" | Out-File -FilePath $env:GITHUB_ENV -Append
           "VERSION=$env:VERSION"
 
+      - name: Test gate (release blocked by failing tests)
+        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
+
       - name: Upload test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -33,8 +36,6 @@ jobs:
           path: .test-tmp/enumeration-diag.txt
           if-no-files-found: ignore
 
-      - name: Test gate (release blocked by failing tests)
-        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
 
       - name: Publish portable (framework-dependent, needs .NET 10 Desktop Runtime)
         run: dotnet publish src/MemoryTool.App/MemoryTool.App.csproj -c Release -o dist/portable -v q

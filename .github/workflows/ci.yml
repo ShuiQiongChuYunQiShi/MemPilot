@@ -17,6 +17,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Test
+        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
+
       - name: Upload test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -25,8 +28,6 @@ jobs:
           path: .test-tmp/enumeration-diag.txt
           if-no-files-found: ignore
 
-      - name: Test
-        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
 
       - name: Build (Release)
         run: dotnet build src/MemoryTool.App/MemoryTool.App.csproj -c Release -v q
