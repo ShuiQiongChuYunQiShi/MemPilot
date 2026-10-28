@@ -36,6 +36,24 @@ public class EnumerationIntegrationTests
         foreach (var l in lines) _output.WriteLine(l);
         // CI console sometimes swallows xUnit output on failures — mirror to a file
         // artifact so the failure scene can be read after the run
+        WriteDiag(lines);
+    }
+
+    private static void Capture(string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(TestTmp.Dir);
+            File.AppendAllText(Path.Combine(TestTmp.Dir, "enumeration-diag.txt"), "
+=== FAILURE ===
+" + text + "
+");
+        }
+        catch { }
+    }
+
+    private static void WriteDiag(List<string> lines)
+    {
         try
         {
             Directory.CreateDirectory(TestTmp.Dir);
@@ -46,6 +64,19 @@ public class EnumerationIntegrationTests
 
     [Fact]
     public void RealEnumeration_HasSystemShape()
+    {
+        try
+        {
+            HasSystemShapeInner();
+        }
+        catch (Exception ex)
+        {
+            Capture("HasSystemShape failed: " + ex);
+            throw;
+        }
+    }
+
+    private void HasSystemShapeInner()
     {
         var procs = new ProcessService().EnumerateProcesses();
         Dump(procs);
@@ -92,6 +123,19 @@ public class EnumerationIntegrationTests
 
     [Fact]
     public void RealEnumeration_SystemProcessesAreProtected()
+    {
+        try
+        {
+            SystemProcessesAreProtectedInner();
+        }
+        catch (Exception ex)
+        {
+            Capture("SystemProcessesAreProtected failed: " + ex);
+            throw;
+        }
+    }
+
+    private void SystemProcessesAreProtectedInner()
     {
         var procs = new ProcessService().EnumerateProcesses();
         Dump(procs);
