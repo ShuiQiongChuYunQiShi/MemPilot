@@ -25,6 +25,14 @@ jobs:
           "VERSION=$($env:GITHUB_REF_NAME -replace '^v','')" | Out-File -FilePath $env:GITHUB_ENV -Append
           "VERSION=$env:VERSION"
 
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-diag-${{ github.run_id }}
+          path: .test-tmp/enumeration-diag.txt
+          if-no-files-found: ignore
+
       - name: Test gate (release blocked by failing tests)
         run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
 
