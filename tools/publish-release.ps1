@@ -1,4 +1,4 @@
-# Human-gated release publisher. NOT wired into CI — tag push publishes immediately
+﻿# Human-gated release publisher. NOT wired into CI — tag push publishes immediately
 # (see .github/workflows/release.yml), so this script is the approval gate.
 param(
   [Parameter(Mandatory = $true)]
@@ -27,4 +27,6 @@ if ($confirm -ne 'yes') { Write-Output "aborted"; exit 1 }
 git tag -f $Version
 git push origin $Version
 git push
-Write-Output "release workflow triggered — monitor: gh run watch"
+# publishing is manual-gated: the workflow runs only on explicit dispatch
+gh workflow run release --ref $Version
+Write-Output "release workflow dispatched — monitor: gh run watch"

@@ -1,8 +1,12 @@
 ﻿name: release
 
+# Publishing is EXPLICITLY gated: this workflow only runs via workflow_dispatch
+# (manual trigger or `gh workflow run release --ref <tag>` from
+# tools/publish-release.ps1 after its interactive confirmation).
+# Tag pushes alone must never publish — a gate with a bypass is not a gate.
+
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
