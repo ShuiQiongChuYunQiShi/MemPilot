@@ -29,7 +29,7 @@ public class EnumerationIntegrationTests
     public void RealEnumeration_HasSystemShape()
     {
         var procs = new ProcessService().EnumerateProcesses();
-        Dump(output, procs);
+        Dump(procs);
 
         // restricted execution contexts (app sandboxes, some job objects) hide most of
         // the system — shape asserts would false-fail there. Real CI runners are clean.
