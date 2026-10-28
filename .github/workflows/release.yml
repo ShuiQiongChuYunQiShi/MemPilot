@@ -30,7 +30,7 @@ jobs:
           "VERSION=$env:VERSION"
 
       - name: Test gate (release blocked by failing tests)
-        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
+        run: dotnet test tests/MemPilot.Tests/MemPilot.Tests.csproj -v q
 
       - name: Upload test diagnostics
         if: always()
@@ -42,14 +42,14 @@ jobs:
 
 
       - name: Publish portable (framework-dependent, needs .NET 10 Desktop Runtime)
-        run: dotnet publish src/MemoryTool.App/MemoryTool.App.csproj -c Release -o dist/portable -v q
+        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -o dist/portable -v q
 
       - name: Zip portable
         shell: pwsh
         run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/MemPilot-$env:VERSION-portable.zip"
 
       - name: Publish self-contained single exe
-        run: dotnet publish src/MemoryTool.App/MemoryTool.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/single -v q
+        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/single -v q
 
       - name: Stage single exe
         shell: pwsh

@@ -1,4 +1,4 @@
-# MemPilot local code-signing
+﻿# MemPilot local code-signing
 #   tools/sign.ps1 -Create           one-time: create self-signed code-signing cert,
 #                                    export public part to tools/, trust it on this machine
 #   tools/sign.ps1 [-TargetPath x]   sign the exe(s) (default: all exes in the Release output)

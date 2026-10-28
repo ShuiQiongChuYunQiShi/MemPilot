@@ -18,7 +18,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Test
-        run: dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -v q
+        run: dotnet test tests/MemPilot.Tests/MemPilot.Tests.csproj -v q
 
       - name: Upload test diagnostics
         if: always()
@@ -30,4 +30,4 @@ jobs:
 
 
       - name: Build (Release)
-        run: dotnet build src/MemoryTool.App/MemoryTool.App.csproj -c Release -v q
+        run: dotnet build src/MemPilot.App/MemPilot.App.csproj -c Release -v q

@@ -57,8 +57,8 @@ Windows 常驻内存与进程管理工具。面向"并行开发 + 游戏 + AI �
 ## 构建
 
 ```
-dotnet build src/MemoryTool.App -c Release
-dotnet test tests/MemoryTool.Tests
+dotnet build src/MemPilot.App -c Release
+dotnet test tests/MemPilot.Tests
 ```
 
 （38 个用例）零 NuGet 依赖（纯 P/Invoke；测试项目用 xunit）。.NET 10 LTS（Core 引擎类库 + WPF 壳双项目）。
@@ -107,7 +107,7 @@ UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_T
 
 ## 配置
 
-`%APPDATA%\MemoryTool\config.json`：阈值、名单（白/黑/保护）、模式档案
+`%APPDATA%\MemPilot\config.json`：阈值、名单（白/黑/保护）、模式档案
 （KeepPatterns/CleanPatterns/AllowedActions）、自动化开关。
 黑名单进程只需 2 轮观察即可成为候选（有窗口建议 L3，无窗口建议 L4）。
 

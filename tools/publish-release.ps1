@@ -14,7 +14,7 @@ $dirty = git status --porcelain
 if ($dirty) { Write-Error "working tree is dirty — commit first (uncommitted evidence is not deployable)"; exit 1 }
 
 Write-Host "Running test gate..."
-dotnet test tests/MemoryTool.Tests/MemoryTool.Tests.csproj -c Release -v q
+dotnet test tests/MemPilot.Tests/MemPilot.Tests.csproj -c Release -v q
 if ($LASTEXITCODE -ne 0) { Write-Error "tests failed"; exit 1 }
 
 Write-Host ""
