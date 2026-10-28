@@ -18,11 +18,23 @@ public class EnumerationIntegrationTests
 
     private void Dump(List<ProcessInfo> procs)
     {
-        _output.WriteLine($"count={procs.Count}");
-        foreach (var p in procs.OrderByDescending(x => x.Memory.WorkingSetBytes).Take(10))
-            _output.WriteLine($"  {p.Name} pid={p.Pid} ws={p.Memory.WorkingSetBytes / 1048576}MB privWs={p.Memory.PrivateWorkingSetBytes / 1048576}MB cat={p.Category} denied={p.AccessDenied} path='{p.ExecutablePath}'");
-        _output.WriteLine($"categories: {string.Join(", ", procs.GroupBy(p => p.Category).Select(g => g.Key + "=" + g.Count()))}");
-        _output.WriteLine($"withPath={procs.Count(p => !string.IsNullOrEmpty(p.ExecutablePath))} withWs={procs.Count(p => p.Memory.WorkingSetBytes > 1048576)} withPrivWs={procs.Count(p => p.Memory.PrivateWorkingSetBytes > 1048576)} withCommit={procs.Count(p => p.Memory.PrivateBytes > 1048576)}");
+        var lines = new List<string>
+        {
+            $"count={procs.Count}"
+        };
+        foreach (var p in procs.OrderByDescending(x => x.Memory.WorkingSetBytes).Take(15))
+            lines.Add($"  {p.Name} pid={p.Pid} ws={p.Memory.WorkingSetBytes / 1048576}MB privWs={p.Memory.PrivateWorkingSetBytes / 1048576}MB cat={p.Category} denied={p.AccessDenied} path='{p.ExecutablePath}' verified={p.SignatureVerified}");
+        lines.Add($"categories: {string.Join(", ", procs.GroupBy(p => p.Category).Select(g => g.Key + "=" + g.Count()))}");
+        lines.Add($"withPath={procs.Count(p => !string.IsNullOrEmpty(p.ExecutablePath))} withWs={procs.Count(p => p.Memory.WorkingSetBytes > 1048576)} withPrivWs={procs.Count(p => p.Memory.PrivateWorkingSetBytes > 1048576)} withCommit={procs.Count(p => p.Memory.PrivateBytes > 1048576)}");
+        foreach (var l in lines) _output.WriteLine(l);
+        // CI console sometimes swallows xUnit output on failures — mirror to a file
+        // artifact so the failure scene can be read after the run
+        try
+        {
+            Directory.CreateDirectory(TestTmp.Dir);
+            File.WriteAllLines(Path.Combine(TestTmp.Dir, "enumeration-diag.txt"), lines);
+        }
+        catch { }
     }
 
     [Fact]
