@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MemPilot.Models;
 using MemPilot.Services;
 using Xunit;
@@ -82,5 +83,34 @@ public class UsageRecorderTests : IDisposable
         recorder.RecordSample(Mem(), Procs(), AppMode.Resident, 10);
         new UsageRecorder(_dir, retentionDays: 30); // re-init prunes nothing recent
         Assert.Single(recorder.ReadWindow(TimeSpan.FromHours(1)));
+    }
+
+    // 2026-10-29：文件必须按本地日期命名——UTC 命名会把 0–8 点的样本切进前一天文件，
+    // 按天统计的习惯画像会错位。
+    [Fact]
+    public void SampleFile_UsesLocalDateName()
+    {
+        var recorder = new UsageRecorder(_dir);
+        recorder.RecordSample(Mem(), Procs(), AppMode.Resident, 10);
+        var expected = Path.Combine(_dir, "history", $"samples-{DateTime.Now:yyyyMMdd}.jsonl");
+        Assert.True(File.Exists(expected), $"expected local-date file at {expected}");
+    }
+
+    // 睡眠/重启后的首条采样必须带 gap 语义，否则断档无法与"数据丢失"区分。
+    [Fact]
+    public void FirstSampleAfterLongGap_IsMarkedResume()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, "history"));
+        var path = Path.Combine(_dir, "history", $"samples-{DateTime.Now:yyyyMMdd}.jsonl");
+        var old = new UsageSample { T = DateTime.UtcNow.AddHours(-6), Total = 1, Avail = 1, Commit = 1, CommitLimit = 1, Procs = 1, Threads = 1 };
+        File.WriteAllText(path, JsonSerializer.Serialize(old) + Environment.NewLine);
+
+        var recorder = new UsageRecorder(_dir);
+        recorder.RecordSample(Mem(), Procs(), AppMode.Resident, 10);
+
+        var samples = recorder.ReadWindow(TimeSpan.FromHours(24));
+        var last = samples[^1];
+        Assert.True(last.GapMinutes >= 350, $"gap minutes: {last.GapMinutes}");
+        Assert.Equal("resume", last.Event);
     }
 }

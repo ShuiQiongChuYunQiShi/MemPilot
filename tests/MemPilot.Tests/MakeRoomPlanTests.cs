@@ -128,6 +128,29 @@ public class MakeRoomPlanTests : IDisposable
         Assert.Contains("模式清理名单", plan.Items[0].Rationale);
     }
 
+    // P1.5 腾挪预测：同风险档内，历史权重高的进程（反复出镜的常客）排在一次性应用之前
+    [Fact]
+    public void Plan_HistoryWeight_OrdersRecurringConsumersFirst()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            Proc(1, "oneoff", ProcessCategory.ThirdPartyApp, window: false, ws: 1L * 1024 * 1024 * 1024),
+            Proc(2, "recurring", ProcessCategory.ThirdPartyApp, window: false, ws: 1L * 1024 * 1024 * 1024)
+        };
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["recurring"] = 6.5,
+            ["oneoff"] = 0.2
+        };
+        var plan = _engine.BuildPlan(procs, _mem, Profile(allowKill: true), Request(allowKill: true),
+            0, new HashSet<int>(), weights);
+        Assert.Equal(2, plan.Items[0].Process.Pid); // recurring ranked first
+
+        var noHistory = _engine.BuildPlan(procs, _mem, Profile(allowKill: true), Request(allowKill: true),
+            0, new HashSet<int>());
+        Assert.Contains(noHistory.Items, i => i.Process.Pid == 2); // 无历史时行为不变，仍能选它
+    }
+
     [Fact]
     public void Plan_NoGap_NoItems()
     {

@@ -31,6 +31,7 @@ public class UnusedDetector
     {
         var candidates = new List<UnusedCandidate>();
         var now = DateTime.UtcNow;
+        var runningNames = new HashSet<string>(processes.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
 
         foreach (var p in processes)
         {
@@ -119,6 +120,8 @@ public class UnusedDetector
             if (!p.AudioActive) reasons.Add("无音频活动");
             if (p.IdleMinutes >= Config.UnusedIdleMinutes) reasons.Add($"空闲 {p.IdleMinutes:F0} 分钟");
             if (!hasChildren) reasons.Add("无子进程");
+            var orphanHost = ResidualDetector.FindOrphanHost(p.Name, runningNames);
+            if (orphanHost != null) reasons.Add($"残留服务（宿主 {orphanHost} 已退出）");
 
             bool regularCandidate = st.ConsecutiveIdleObs >= Config.RequiredIdleObservations &&
                                     p.IdleMinutes >= Config.UnusedIdleMinutes;

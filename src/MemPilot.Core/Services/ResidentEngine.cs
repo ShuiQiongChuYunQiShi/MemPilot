@@ -40,7 +40,13 @@ public class ResidentEngine
     private DateTime _lastAutoOptimizeUtc = DateTime.MinValue;
     private readonly Dictionary<int, DateTime> _lastAutoActionUtc = new();
     private readonly Dictionary<int, DateTime> _lastSkipLogUtc = new();
-    private readonly Dictionary<int, DateTime> _lastGrowthLogUtc = new();
+    // keyed by (pid, start time): PID reuse must not suppress a new process's first alert
+    private readonly Dictionary<(int pid, DateTime start), DateTime> _lastGrowthLogUtc = new();
+    private readonly List<(DateTime Utc, long Commit, long Avail, long Limit)> _commitWindow = new();
+    private DateTime _lastCommitWatchUtc = DateTime.MinValue;
+    private HabitProfile? _habit;
+    private DateTime _lastHabitHintUtc = DateTime.MinValue;
+    private int _lastHabitHintHour = -1;
     private int _lastForegroundPid;
 
     public int LastForegroundPid => _lastForegroundPid;
@@ -102,6 +108,8 @@ public class ResidentEngine
             AutoCleanup(procs);
         if (cfg.AutoOptimizeEnabled) AutoOptimize(mem);
         WatchMemoryGrowth(procs);
+        WatchCommitPressure(mem);
+        CheckHabitHint();
         _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds);
     }
 
@@ -388,8 +396,8 @@ public class ResidentEngine
         foreach (var p in procs)
         {
             if (p.MemoryGrowthBytes < ThresholdBytes) continue;
-            if (_lastGrowthLogUtc.TryGetValue(p.Pid, out var last) && (now - last).TotalMinutes < 30) continue;
-            _lastGrowthLogUtc[p.Pid] = now;
+            if (_lastGrowthLogUtc.TryGetValue(p.StateKey, out var last) && (now - last).TotalMinutes < 30) continue;
+            _lastGrowthLogUtc[p.StateKey] = now;
             _decisions.Log(new DecisionEntry
             {
                 Kind = "GrowthWatch",
@@ -399,5 +407,67 @@ public class ResidentEngine
             });
         }
         if (_lastGrowthLogUtc.Count > 2048) _lastGrowthLogUtc.Clear();
+    }
+
+    // ---- system commit pressure watch ----
+    // Model loading (ollama etc.) lives in commit/pagefile, not working set: on 2026-10-29
+    // commit jumped +22 GB in 10 minutes while every per-process WS stayed under the growth
+    // threshold, so GrowthWatch missed it. This watches the system-level curve instead.
+
+    private void WatchCommitPressure(SystemMemoryInfo mem)
+    {
+        var now = DateTime.UtcNow;
+        _commitWindow.Add((now, mem.TotalCommittedBytes, mem.AvailablePhysicalBytes, mem.TotalCommitLimitBytes));
+        _commitWindow.RemoveAll(x => (now - x.Utc).TotalMinutes > 10);
+        if (_commitWindow.Count < 2) return;
+        if ((now - _lastCommitWatchUtc).TotalMinutes < 30) return;
+
+        const double SurgeThresholdGb = 8;
+        double growthGb = (mem.TotalCommittedBytes - _commitWindow[0].Commit) / 1073741824.0;
+        long commitFree = mem.TotalCommitLimitBytes - mem.TotalCommittedBytes;
+        double freeGb = mem.AvailablePhysicalBytes / 1073741824.0;
+        bool surge = growthGb >= SurgeThresholdGb;
+        bool exhausted = mem.TotalCommitLimitBytes > 0 && commitFree < mem.TotalCommitLimitBytes / 10;
+        if (!surge && !exhausted) return;
+
+        _lastCommitWatchUtc = now;
+        _decisions.Log(new DecisionEntry
+        {
+            Kind = "CommitWatch",
+            Target = "-",
+            Decision = "提示",
+            Reason = surge
+                ? $"提交内存 10 分钟内增长 {growthGb:F1} GB（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
+                : $"提交内存余量低于总量 10%（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
+        });
+    }
+
+    // ---- habit profile hint (data-driven, advisory only) ----
+
+    private void CheckHabitHint()
+    {
+        try
+        {
+            var nowLocal = DateTime.Now;
+            _habit ??= HabitProfile.Build(_usage.ReadWindow(TimeSpan.FromDays(14)), nowLocal);
+            if (_habit.Hours.Count == 0) return;
+            if (nowLocal.Minute < 30) return;   // hint 30 minutes ahead of the tight window
+
+            int nextHour = (nowLocal.Hour + 1) % 24;
+            var hp = _habit.ForHour(nextHour);
+            if (hp == null || hp.Level is not (PressureLevel.Tight or PressureLevel.Critical)) return;
+            if (_lastHabitHintHour == nextHour && (nowLocal - _lastHabitHintUtc).TotalHours < 6) return;
+
+            _lastHabitHintHour = nextHour;
+            _lastHabitHintUtc = nowLocal;
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "HabitHint",
+                Target = $"{nextHour:00}:00-{(nextHour + 1) % 24:00}:00",
+                Decision = "提示",
+                Reason = $"历史画像：该时段可用内存常态偏低（P25 {hp.P25AvailGb:F1} GB，{hp.SampleCount} 条样本），可提前腾内存（仅提示，不自动处置）"
+            });
+        }
+        catch { }
     }
 }

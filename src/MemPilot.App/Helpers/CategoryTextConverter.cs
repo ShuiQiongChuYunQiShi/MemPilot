@@ -21,6 +21,7 @@ public class CategoryTextConverter : IValueConverter
             ProcessCategory.AiImageVideo => "AI",
             ProcessCategory.ContainerVm => "容器",
             ProcessCategory.BackgroundService => "后台",
+            ProcessCategory.Bloatware => "垃圾",
             ProcessCategory.ThirdPartyApp => "三方",
             _ => "未识别"
         } : "";

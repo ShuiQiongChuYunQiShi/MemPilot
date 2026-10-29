@@ -154,7 +154,8 @@ public class CleanupEngine
     // ---- make-room workflow ----
 
     public MakeRoomPlan BuildPlan(List<ProcessInfo> processes, SystemMemoryInfo mem, ModeProfile profile,
-        MakeRoomRequest req, int foregroundPid, HashSet<int> audioPids)
+        MakeRoomRequest req, int foregroundPid, HashSet<int> audioPids,
+        IReadOnlyDictionary<string, double>? historyWeights = null)
     {
         const long GB = 1024L * 1024 * 1024;
         var plan = new MakeRoomPlan
@@ -186,17 +187,18 @@ public class CleanupEngine
             bool idle = p.IdleMinutes > 0;
 
             string childNote = p.ChildPids.Count > 0 ? $"（含 {p.ChildPids.Count} 个子进程，关闭将连带影响它们）" : "";
+            bool junk = p.Category == ProcessCategory.Bloatware;
             if (p.HasVisibleWindow)
             {
                 pool.Add((p, CleanupActionLevel.L3GracefulClose, p.Memory.PrivateWorkingSetBytes, p.Memory.PrivateBytes,
-                    (modeClean ? "模式清理名单 + 有窗口 → 优雅关闭" : idle ? "空闲且有窗口 → 优雅关闭" : "有窗口 → 优雅关闭（会先尝试正常退出）") + childNote,
-                    modeClean ? 0 : idle ? 1 : 2, p.ChildPids.Count));
+                    (junk ? "垃圾常驻，" : "") + (modeClean ? "模式清理名单 + 有窗口 → 优雅关闭" : idle ? "空闲且有窗口 → 优雅关闭" : "有窗口 → 优雅关闭（会先尝试正常退出）") + childNote,
+                    junk || modeClean ? 0 : idle ? 1 : 2, p.ChildPids.Count));
             }
             else if (allowKill)
             {
                 pool.Add((p, CleanupActionLevel.L4ForceKill, p.Memory.PrivateWorkingSetBytes, p.Memory.PrivateBytes,
-                    (modeClean ? "模式清理名单 + 无窗口 → 直接结束" : "无窗口无音频 → 结束") + childNote,
-                    modeClean ? 0 : 2, p.ChildPids.Count));
+                    (junk ? "垃圾常驻，" : "") + (modeClean ? "模式清理名单 + 无窗口 → 直接结束" : "无窗口无音频 → 结束") + childNote,
+                    junk || modeClean ? 0 : 2, p.ChildPids.Count));
             }
             else if (req.IncludeTrim && p.Memory.PrivateWorkingSetBytes > 64 * 1024 * 1024)
             {
@@ -205,11 +207,14 @@ public class CleanupEngine
             }
         }
 
-        // rank: mode-relevant & low risk first, bigger honest reclaim first
+        // rank: mode-relevant & low risk first, then historical weight (recurring consumers
+        // before one-off apps — the "usual sacrifice" ordering), then bigger honest reclaim.
+        double Hist(ProcessInfo p) => historyWeights != null && historyWeights.TryGetValue(p.Name, out var w) ? w : 0;
         var chosen = new List<MakeRoomPlanItem>();
         long needPhys = plan.PhysicalGapBytes;
         long needCommit = plan.CommitGapBytes;
         foreach (var c in pool.OrderByDescending(c => c.risk == 0).ThenBy(c => c.risk)
+                              .ThenByDescending(c => Hist(c.p))
                               .ThenByDescending(c => Math.Max(c.phys, c.commit / 2)))
         {
             bool stillNeeded = needPhys > 0 || needCommit > 0;

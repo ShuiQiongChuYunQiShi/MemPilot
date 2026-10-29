@@ -119,6 +119,39 @@ public class EnumerationIntegrationTests
         }
     }
 
+    // 2026-10-29 实测：ACE-Helper / SGuardUpdate64 住在 F:\WeGameApps\...\AntiCheatExpert\
+    // 游戏目录里。若游戏路径规则先命中，反作弊会被当"游戏"放进清理池——杀反作弊可能触发
+    // 游戏封号，这条真实数据守卫比任何合成测试都重要。
+    [Fact]
+    public void RealEnumeration_AntiCheatPathsAreNeverGame()
+    {
+        try
+        {
+            AntiCheatPathsNeverGameInner();
+        }
+        catch (Exception ex)
+        {
+            Capture("AntiCheatPathsNeverGame failed: " + ex);
+            throw;
+        }
+    }
+
+    private void AntiCheatPathsNeverGameInner()
+    {
+        var procs = new ProcessService().EnumerateProcesses();
+        Dump(procs);
+        var ac = procs.Where(p => !string.IsNullOrEmpty(p.ExecutablePath) &&
+            (p.ExecutablePath.Contains("anticheat", StringComparison.OrdinalIgnoreCase) ||
+             p.ExecutablePath.Contains("anti-cheat", StringComparison.OrdinalIgnoreCase))).ToList();
+        if (ac.Count == 0) return; // no anti-cheat running right now: vacuous pass
+
+        foreach (var p in ac)
+        {
+            Assert.Equal(ProcessCategory.AntiCheat, p.Category);
+            Assert.True(p.IsProtected, $"{p.Name} under anti-cheat path but not protected: {p.ExecutablePath}");
+        }
+    }
+
     [Fact]
     public void RealEnumeration_SystemProcessesAreProtected()
     {

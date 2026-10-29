@@ -25,30 +25,54 @@ public class UsageSample
     public int Threads { get; set; }
     public string Mode { get; set; } = "";
     public int Interval { get; set; }       // engine tick seconds at sampling time
+    public int GapMinutes { get; set; }     // minutes since the previous sample (0 = first ever)
+    public string Event { get; set; } = ""; // "resume" when the gap means sleep/restart, not observation
     public List<UsageTopProc> Top { get; set; } = new();
 }
 
 /// <summary>
-/// Persists usage habits as JSONL (one line per sample, one file per day, 5-minute
-/// cadence — ~288 lines/day, tiny). Retention prunes files older than the configured
-/// number of days. This data is the foundation for future AI features: habit-driven
-/// make-room predictions and anomaly detection.
+/// Persists usage habits as JSONL (one line per sample, one file per LOCAL day, 5-minute
+/// cadence — ~288 lines/day, tiny). Local-date naming matters: UTC naming split 00:00–08:00
+/// local samples into the previous day's file and made per-day habit stats lie.
+/// Retention prunes files older than the configured number of days.
 /// </summary>
 public class UsageRecorder
 {
     private readonly string _dir;
     private readonly int _retentionDays;
     private DateTime _lastWriteUtc = DateTime.MinValue;
+    private DateTime _lastSampleUtc = DateTime.MinValue;
 
     public UsageRecorder(string dataDir, int retentionDays = 30)
     {
         _dir = Path.Combine(dataDir, "history");
         _retentionDays = retentionDays;
         try { Directory.CreateDirectory(_dir); } catch { }
+        _lastSampleUtc = LoadLastSampleUtc();
         Prune();
     }
 
-    private static string FilePath(DateTime utc) => Path.Combine("history", $"samples-{utc:yyyyMMdd}.jsonl");
+    private string PathFor(DateTime localDate) => Path.Combine(_dir, $"samples-{localDate:yyyyMMdd}.jsonl");
+
+    /// <summary>Seed the gap baseline from the newest persisted sample so restarts and
+    /// sleep/wake windows are distinguishable in the history.</summary>
+    private DateTime LoadLastSampleUtc()
+    {
+        try
+        {
+            for (int i = 0; i <= 1; i++)
+            {
+                var path = PathFor(DateTime.Now.AddDays(-i));
+                if (!File.Exists(path)) continue;
+                var line = File.ReadLines(path).LastOrDefault(l => !string.IsNullOrWhiteSpace(l));
+                if (line == null) continue;
+                var s = JsonSerializer.Deserialize<UsageSample>(line);
+                if (s != null) return s.T.ToUniversalTime();
+            }
+        }
+        catch { }
+        return DateTime.MinValue;
+    }
 
     /// <summary>Called every engine tick; writes at most one sample per 5 minutes.</summary>
     public void RecordSample(SystemMemoryInfo mem, List<ProcessInfo> procs, AppMode mode, int intervalSeconds)
@@ -60,6 +84,9 @@ public class UsageRecorder
         try
         {
             Directory.CreateDirectory(_dir);
+            int gapMinutes = _lastSampleUtc == DateTime.MinValue
+                ? 0
+                : Math.Max(0, (int)Math.Round((now - _lastSampleUtc).TotalMinutes));
             var sample = new UsageSample
             {
                 T = now,
@@ -71,7 +98,11 @@ public class UsageRecorder
                 Threads = procs.Sum(p => p.Memory.ThreadCount),
                 Mode = mode.ToString(),
                 Interval = intervalSeconds,
-                Top = procs.Where(p => p.Memory.PrivateWorkingSetBytes > 64L * 1024 * 1024)
+                GapMinutes = gapMinutes,
+                Event = gapMinutes >= 10 ? "resume" : "",
+                // 32MB 门槛（原 64MB）：实测残留服务多为 50–110MB（QQLiveService 110MB、
+                // vivo/ASUS 小组件 50–80MB），64MB 门槛把它们挡在历史外，习惯画像看不见。
+                Top = procs.Where(p => p.Memory.PrivateWorkingSetBytes > 32L * 1024 * 1024)
                            .OrderByDescending(p => p.Memory.PrivateWorkingSetBytes)
                            .Take(10)
                            .Select(p => new UsageTopProc
@@ -82,8 +113,9 @@ public class UsageRecorder
                                T = p.Memory.ThreadCount
                            }).ToList()
             };
-            File.AppendAllText(Path.Combine(_dir, $"samples-{now:yyyyMMdd}.jsonl"),
+            File.AppendAllText(PathFor(DateTime.Now),
                 JsonSerializer.Serialize(sample) + Environment.NewLine);
+            _lastSampleUtc = now;
         }
         catch { }
     }
@@ -97,7 +129,7 @@ public class UsageRecorder
             var days = (int)window.TotalDays + 1;
             for (int i = 0; i <= days; i++)
             {
-                var path = Path.Combine(_dir, $"samples-{DateTime.UtcNow.AddDays(-i):yyyyMMdd}.jsonl");
+                var path = PathFor(DateTime.Now.AddDays(-i));
                 if (!File.Exists(path)) continue;
                 foreach (var line in File.ReadLines(path))
                 {
@@ -118,11 +150,11 @@ public class UsageRecorder
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddDays(-_retentionDays);
+            var cutoff = DateTime.Now.Date.AddDays(-_retentionDays);
             foreach (var file in Directory.GetFiles(_dir, "samples-*.jsonl"))
             {
                 var name = Path.GetFileNameWithoutExtension(file); // samples-20261028
-                if (name.Length >= 15 && DateTime.TryParseExact(name[^8..], "yyyyMMdd", null, System.Globalization.DateTimeStyles.AssumeUniversal, out var day) && day < cutoff)
+                if (name.Length >= 15 && DateTime.TryParseExact(name[^8..], "yyyyMMdd", null, System.Globalization.DateTimeStyles.AssumeLocal, out var day) && day.Date < cutoff)
                     File.Delete(file);
             }
         }

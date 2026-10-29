@@ -209,9 +209,15 @@ public class MainViewModel : INotifyPropertyChanged
                                .GroupBy(a => a.Action).OrderByDescending(g => g.Count());
             foreach (var g in actions)
                 ActionUsageItems.Add(new ActionUsageRow { Action = g.Key, Count = g.Count() });
-            HistorySummary = day.Count == 0
+            var habit = HabitProfile.Build(week);
+            int maxGapMin = 0;
+            for (int i = 1; i < day.Count; i++)
+                maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
+            HistorySummary = (day.Count == 0
                 ? "（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）"
-                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}";
+                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}")
+                + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
+                + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");
         });
     }
 
@@ -412,7 +418,10 @@ public class MainViewModel : INotifyPropertyChanged
             .OrderByDescending(g => g.TotalWorkingSetBytes);
         Groups = new ObservableCollection<ProcessGroup>(grouped);
         UnusedCandidates.Clear();
-        foreach (var u in unused.OrderByDescending(x => x.EstimatedReclaimableBytes)) UnusedCandidates.Add(u);
+        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序
+        foreach (var u in unused.OrderByDescending(x => x.Process.Category == ProcessCategory.Bloatware)
+                                .ThenByDescending(x => x.EstimatedReclaimableBytes))
+            UnusedCandidates.Add(u);
         SuspendedProcesses.Clear();
         foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
         DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
@@ -551,7 +560,9 @@ public class MainViewModel : INotifyPropertyChanged
         var profile = ConfigStore.Config.ModeProfiles.TryGetValue(ConfigStore.Config.CurrentMode, out var pr)
             ? pr
             : new ModeProfile { Mode = ConfigStore.Config.CurrentMode, Name = ConfigStore.Config.CurrentMode.ToString() };
-        var plan = Cleanup.BuildPlan(_lastProcs, mem, profile, req, Engine.LastForegroundPid, audio);
+        // 历史权重（近 7 天出镜率 × 峰值 P90）：只影响排序，不动资格
+        var weights = UsageAnalytics.ComputeProcessWeights(Usage.ReadWindow(TimeSpan.FromDays(7)));
+        var plan = Cleanup.BuildPlan(_lastProcs, mem, profile, req, Engine.LastForegroundPid, audio, weights);
         ReloadAudit();
         return plan;
     }
@@ -613,6 +624,7 @@ public class MainViewModel : INotifyPropertyChanged
         ProcessCategory.AiImageVideo => "AI 生图/视频",
         ProcessCategory.ContainerVm => "容器/虚拟机",
         ProcessCategory.BackgroundService => "后台服务",
+        ProcessCategory.Bloatware => "垃圾常驻",
         ProcessCategory.SecuritySoftware => "安全软件",
         _ => c.ToString()
     };

@@ -14,6 +14,7 @@ public enum ProcessCategory
     AiImageVideo,
     ContainerVm,
     BackgroundService,
+    Bloatware,
     SecuritySoftware
 }
 
