@@ -21,6 +21,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ResidentEngine Engine { get; }
     public DecisionLog Decisions { get; }
     public UsageRecorder Usage { get; }
+    public BehaviorLedger Behaviors { get; }
     public ConfigStore ConfigStore { get; }
     public AuditLogger Audit { get; }
     public FeedbackStore Feedback { get; }
@@ -296,7 +297,8 @@ public class MainViewModel : INotifyPropertyChanged
         Decisions = new DecisionLog(ConfigStore.DataDirectory);
         Usage = new UsageRecorder(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
         Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
-        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage);
+        Behaviors = BehaviorLedger.Load(Path.Combine(ConfigStore.DataDirectory, "behavior.json"));
+        Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage, Behaviors);
         Engine.ModeChanged += (s, e) =>
         {
             _currentMode = e.Mode;
@@ -418,10 +420,13 @@ public class MainViewModel : INotifyPropertyChanged
             .OrderByDescending(g => g.TotalWorkingSetBytes);
         Groups = new ObservableCollection<ProcessGroup>(grouped);
         UnusedCandidates.Clear();
-        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序
+        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序；并附上驻留分
         foreach (var u in unused.OrderByDescending(x => x.Process.Category == ProcessCategory.Bloatware)
                                 .ThenByDescending(x => x.EstimatedReclaimableBytes))
+        {
+            u.JunkScore = Behaviors.JunkScore(u.Process.Name);
             UnusedCandidates.Add(u);
+        }
         SuspendedProcesses.Clear();
         foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
         DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
@@ -514,6 +519,85 @@ public class MainViewModel : INotifyPropertyChanged
         await Task.Delay(600).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
+    }
+
+    /// <summary>一键压缩全部可触及进程的工作集（只压缩、不结束任何进程）。</summary>
+    public async Task<string> TrimAllWorkingSetsAsync()
+    {
+        var procs = _lastProcs.ToList();
+        var r = await Task.Run(() => Cleanup.TrimWorkingSets(procs)).ConfigureAwait(true);
+        ReloadAudit();
+        await Task.Delay(400).ConfigureAwait(true);
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            SysMem = ProcessService.GetSystemMemory());
+        var msg = $"已压缩 {r.Trimmed} 个进程的工作集（{r.Failed} 个失败），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
+        Status = msg;
+        return msg;
+    }
+
+    /// <summary>垃圾驻守清扫计划（Bloatware + 宿主已退出的孤儿残留，硬安全边界见 JunkSweeper）。</summary>
+    public List<JunkSweepItem> BuildJunkSweepPlan()
+    {
+        var procs = _lastProcs.ToList();
+        var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+        return JunkSweeper.BuildPlan(procs, Engine.LastForegroundPid, audio,
+            ConfigStore.Config.Whitelist, ConfigStore.Config.MinProcessAgeSeconds);
+    }
+
+    /// <summary>执行垃圾驻守清扫计划，返回摘要。</summary>
+    public async Task<string> ExecuteJunkSweepAsync(List<JunkSweepItem> plan)
+    {
+        int kills = 0, trims = 0, failed = 0;
+        if (plan.Count > 0)
+        {
+            await Task.Run(() =>
+            {
+                foreach (var item in plan)
+                {
+                    var r = Cleanup.Execute(item.Process, item.Action, ConfigStore.Config.GracefulCloseTimeoutSeconds);
+                    if (!r.Success) failed++;
+                    else if (item.Action == CleanupActionLevel.L4ForceKill) kills++;
+                    else trims++;
+                }
+            }).ConfigureAwait(true);
+        }
+        ReloadAudit();
+        await Task.Delay(400).ConfigureAwait(true);
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            SysMem = ProcessService.GetSystemMemory());
+        var summary = plan.Count == 0
+            ? "没有发现可清扫的垃圾驻守进程"
+            : $"垃圾驻守清扫：结束 {kills} 个，回收工作集 {trims} 个，失败 {failed} 个";
+        Status = summary;
+        return summary;
+    }
+
+    /// <summary>批量处置候选：levelOverride 为 null 时按各自建议级别执行。</summary>
+    public async Task<(int done, int failed, string summary)> BatchCleanupAsync(
+        IReadOnlyList<UnusedCandidate> cands, CleanupActionLevel? levelOverride = null)
+    {
+        int done = 0, failed = 0;
+        await Task.Run(() =>
+        {
+            foreach (var c in cands)
+            {
+                var level = levelOverride ?? c.SuggestedLevel;
+                var r = Cleanup.Execute(c.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false);
+                if (r.Success) done++; else failed++;
+            }
+        }).ConfigureAwait(true);
+        ReloadAudit();
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            DisposalRecords.Clear();
+            foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
+        });
+        await Task.Delay(600).ConfigureAwait(true);
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            SysMem = ProcessService.GetSystemMemory());
+        var summary = $"批量处置完成：成功 {done} 个，失败 {failed} 个";
+        Status = summary;
+        return (done, failed, summary);
     }
 
     public void ResumeSuspended(SuspendRecord rec)

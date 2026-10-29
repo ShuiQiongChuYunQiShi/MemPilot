@@ -30,6 +30,46 @@ public class CleanupEngine
 
     public record ActionResult(bool Success, string Message, bool Exited);
 
+    public record BatchTrimResult(int Trimmed, int Failed, long FreedBytes);
+
+    /// <summary>WMC 式"压缩而不杀"的选择规则：受保护/系统/安全/反作弊/驱动/自身一律跳过；
+    /// 正在干活的进程（CPU 忙）也跳过——压了只会立刻缺页回填，造成明显抖动。</summary>
+    public static bool IsTrimmableSelection(ProcessInfo p, int selfPid)
+    {
+        if (p.Pid == selfPid) return false;
+        if (p.IsProtected || p.IsSystemProcess) return false;
+        if (p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware
+            or ProcessCategory.AntiCheat or ProcessCategory.Driver) return false;
+        if (p.Memory.CpuPercent >= 5) return false;
+        return true;
+    }
+
+    /// <summary>一键压缩全部可触及进程的工作集（EmptyWorkingSet）。只压缩、不结束任何进程，
+    /// 活跃应用可能短暂缺页卡顿但会自行回填。</summary>
+    public BatchTrimResult TrimWorkingSets(List<ProcessInfo> procs)
+    {
+        long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
+        int ok = 0, fail = 0;
+        foreach (var p in procs)
+        {
+            if (!IsTrimmableSelection(p, Environment.ProcessId)) continue;
+            try { _procs.TrimWorkingSet(p.Pid); ok++; }
+            catch { fail++; }
+        }
+        long after = _procs.GetSystemMemory().AvailablePhysicalBytes;
+        long freed = Math.Max(0, after - before);
+        _audit.Log(new AuditEntry
+        {
+            Action = "L1TrimAll",
+            Target = "-",
+            Level = "L1Trim",
+            Result = $"压缩 {ok} 个进程工作集（失败 {fail}），可用内存 +{freed / 1048576.0:F0} MB",
+            MemoryBeforeBytes = before,
+            MemoryAfterBytes = after
+        });
+        return new BatchTrimResult(ok, fail, freed);
+    }
+
     public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec, bool escalateToKill = false)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;

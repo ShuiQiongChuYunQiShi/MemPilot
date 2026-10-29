@@ -141,6 +141,8 @@ public class UnusedCandidate
     public long EstimatedCommitReclaimableBytes { get; set; }
     public ProcessRiskLevel Risk { get; set; }
     public CleanupActionLevel SuggestedLevel { get; set; }
+    /// <summary>驻留分 0..10（行为台账）：解释排序用，不构成处置依据。</summary>
+    public double JunkScore { get; set; }
 }
 
 public class AuditEntry
@@ -329,6 +331,8 @@ public class AppConfig
     public int MaxCpuPercentForResident { get; set; } = 5;
     // Auto optimization (system-level memory lists)
     public bool AutoOptimizeEnabled { get; set; } = false;
+    // 垃圾驻守清扫：自动结束无窗口/无音频/低负载的 Bloatware 与孤儿残留（默认关闭）
+    public bool AutoJunkSweepEnabled { get; set; } = false;
     public bool AutoOptimizeIntervalEnabled { get; set; } = false;
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
     public int AutoOptimizeThresholdPercent { get; set; } = 15; // clean when free RAM below this %

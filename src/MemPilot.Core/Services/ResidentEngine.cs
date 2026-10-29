@@ -29,6 +29,7 @@ public class ResidentEngine
     private readonly AuditLogger _audit;
     private readonly DecisionLog _decisions;
     private readonly UsageRecorder _usage;
+    private readonly BehaviorLedger? _behaviors;
     private int _intervalSeconds;
 
     private System.Threading.Timer? _timer;
@@ -42,6 +43,7 @@ public class ResidentEngine
     private readonly Dictionary<int, DateTime> _lastSkipLogUtc = new();
     // keyed by (pid, start time): PID reuse must not suppress a new process's first alert
     private readonly Dictionary<(int pid, DateTime start), DateTime> _lastGrowthLogUtc = new();
+    private readonly Dictionary<(int pid, DateTime start), DateTime> _lastJunkSweepUtc = new();
     private readonly List<(DateTime Utc, long Commit, long Avail, long Limit)> _commitWindow = new();
     private DateTime _lastCommitWatchUtc = DateTime.MinValue;
     private HabitProfile? _habit;
@@ -54,7 +56,7 @@ public class ResidentEngine
     public string ForegroundProcessName { get; private set; } = "";
 
     public ResidentEngine(ConfigStore config, CleanupEngine cleanup, NativeMemoryCleanerService memCleaner,
-        AuditLogger audit, DecisionLog decisions, UsageRecorder usage)
+        AuditLogger audit, DecisionLog decisions, UsageRecorder usage, BehaviorLedger? behaviors = null)
     {
         _config = config;
         _cleanup = cleanup;
@@ -62,6 +64,7 @@ public class ResidentEngine
         _audit = audit;
         _decisions = decisions;
         _usage = usage;
+        _behaviors = behaviors;
         _intervalSeconds = Math.Max(3, config.Config.RefreshIntervalSeconds);
     }
 
@@ -110,6 +113,8 @@ public class ResidentEngine
         WatchMemoryGrowth(procs);
         WatchCommitPressure(mem);
         CheckHabitHint();
+        _behaviors?.Observe(procs);
+        if (cfg.AutoJunkSweepEnabled) AutoJunkSweep(procs);
         _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds);
     }
 
@@ -440,6 +445,36 @@ public class ResidentEngine
                 ? $"提交内存 10 分钟内增长 {growthGb:F1} GB（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
                 : $"提交内存余量低于总量 10%（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
         });
+    }
+
+    // ---- junk resident sweep (auto mode, opt-in) ----
+
+    private void AutoJunkSweep(List<ProcessInfo> procs)
+    {
+        try
+        {
+            if (ForegroundFullscreen) return; // 游戏/全屏时不动作，与 AutoOptimize 一致
+            var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+            var plan = JunkSweeper.BuildPlan(procs, _lastForegroundPid, audio,
+                _config.Config.Whitelist, _config.Config.MinProcessAgeSeconds);
+            var now = DateTime.UtcNow;
+            foreach (var item in plan)
+            {
+                var key = item.Process.StateKey;
+                if (_lastJunkSweepUtc.TryGetValue(key, out var last) && (now - last).TotalMinutes < 30) continue;
+                _lastJunkSweepUtc[key] = now;
+                var r = _cleanup.Execute(item.Process, item.Action, _config.Config.GracefulCloseTimeoutSeconds);
+                _decisions.Log(new DecisionEntry
+                {
+                    Kind = "JunkSweep",
+                    Target = $"{item.Process.Name} (PID {item.Process.Pid})",
+                    Decision = r.Success ? "已处置" : "失败",
+                    Reason = $"[证据:{item.Evidence}] {item.Reason} → {item.Action}: {r.Message}"
+                });
+            }
+            if (_lastJunkSweepUtc.Count > 2048) _lastJunkSweepUtc.Clear();
+        }
+        catch { }
     }
 
     // ---- habit profile hint (data-driven, advisory only) ----

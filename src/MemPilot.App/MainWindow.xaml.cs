@@ -461,6 +461,7 @@ public partial class MainWindow : Window
         SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
         SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
         SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
+        SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetAutoStart.IsChecked = StartupService.IsAutoStart();
         SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
@@ -531,6 +532,67 @@ public partial class MainWindow : Window
             return;
         }
         await RunCleanup(c, level);
+    }
+
+    // ---- 批量处置（一键压缩 / 全部候选 L1 / 全部候选按建议级别） ----
+
+    private async void SweepJunk_Click(object sender, RoutedEventArgs e)
+    {
+        var plan = _vm.BuildJunkSweepPlan();
+        if (plan.Count == 0) { SelectionHint.Text = "没有发现可清扫的垃圾驻守进程"; return; }
+        int kills = plan.Count(i => i.Action == CleanupActionLevel.L4ForceKill);
+        int trims = plan.Count - kills;
+        var names = string.Join("、", plan.Take(10).Select(i => $"{i.Process.Name}(PID {i.Process.Pid})"));
+        var more = plan.Count > 10 ? $" 等 {plan.Count} 个" : "";
+        var msg = $"垃圾驻守清扫计划：\n  直接结束 {kills} 个、回收工作集 {trims} 个\n\n{names}{more}\n\n继续？";
+        if (MessageBox.Show(msg, "确认清扫", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        SelectionHint.Text = "正在清扫…";
+        var summary = await _vm.ExecuteJunkSweepAsync(plan);
+        SelectionHint.Text = summary;
+        await _vm.RefreshAsync();
+    }
+
+    private async void TrimAllWs_Click(object sender, RoutedEventArgs e)
+    {
+        SelectionHint.Text = "正在压缩全部可触及进程的工作集…";
+        try
+        {
+            var msg = await _vm.TrimAllWorkingSetsAsync();
+            SelectionHint.Text = msg;
+            await _vm.RefreshAsync();
+        }
+        catch (Exception ex) { SelectionHint.Text = "压缩失败: " + ex.Message; }
+    }
+
+    private async void BatchL1_Click(object sender, RoutedEventArgs e)
+    {
+        var cands = _vm.UnusedCandidates.ToList();
+        if (cands.Count == 0) { SelectionHint.Text = "当前没有可清理候选"; return; }
+        SelectionHint.Text = $"正在回收 {cands.Count} 个候选的工作集…";
+        var (_, _, summary) = await _vm.BatchCleanupAsync(cands, CleanupActionLevel.L1Trim);
+        SelectionHint.Text = summary;
+        await _vm.RefreshAsync();
+    }
+
+    private async void BatchSuggested_Click(object sender, RoutedEventArgs e)
+    {
+        var cands = _vm.UnusedCandidates.ToList();
+        if (cands.Count == 0) { SelectionHint.Text = "当前没有可清理候选"; return; }
+        int l4 = cands.Count(c => c.SuggestedLevel == CleanupActionLevel.L4ForceKill);
+        int l3 = cands.Count(c => c.SuggestedLevel == CleanupActionLevel.L3GracefulClose);
+        int l2 = cands.Count(c => c.SuggestedLevel == CleanupActionLevel.L2Suspend);
+        if (l3 + l4 + l2 > 0)
+        {
+            var destructive = cands.Where(c => c.SuggestedLevel >= CleanupActionLevel.L3GracefulClose)
+                                   .Select(c => $"{c.Process.Name}(PID {c.Process.Pid})").ToList();
+            var names = string.Join("、", destructive.Take(8)) + (destructive.Count > 8 ? $" 等 {destructive.Count} 个" : "");
+            var msg = $"将批量处置 {cands.Count} 个候选：优雅关闭 {l3} 个、强制结束 {l4} 个、挂起 {l2} 个。\n涉及：{names}\n\n继续？";
+            if (MessageBox.Show(msg, "确认批量清理", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        }
+        SelectionHint.Text = $"正在批量处置 {cands.Count} 个候选…";
+        var (_, _, summary) = await _vm.BatchCleanupAsync(cands);
+        SelectionHint.Text = summary;
+        await _vm.RefreshAsync();
     }
 
     private async void CtxL1_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L1Trim); }
@@ -835,6 +897,7 @@ public partial class MainWindow : Window
         _config.Config.AutoCloseCleanMatches = SetAutoClose.IsChecked == true;
         _config.Config.AutoOptimizeEnabled = SetAutoOptimize.IsChecked == true;
         _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
+        _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;

@@ -492,6 +492,7 @@
                             <DataGridTextColumn Header="预计释放(提交)" Binding="{Binding EstimatedCommitReclaimableBytes, Converter={StaticResource Bytes}}" Width="110"/>
                             <DataGridTextColumn Header="空闲" Binding="{Binding Process.IdleMinutes, StringFormat=F0}" Width="55"/>
                             <DataGridTextColumn Header="风险" Binding="{Binding Risk}" Width="70"/>
+                            <DataGridTextColumn Header="驻留分" Binding="{Binding JunkScore, StringFormat=F1}" Width="55"/>
                             <DataGridTextColumn Header="建议级别" Binding="{Binding SuggestedLevel}" Width="110"/>
                             <DataGridTextColumn Header="原因" Binding="{Binding ReasonsText}" Width="220"/>
                         </DataGrid.Columns>
@@ -501,7 +502,11 @@
                         <Button Content="L2 挂起进程" Click="L2_Click" Style="{StaticResource PrimaryBtn}"/>
                         <Button Content="L3 优雅关闭" Click="L3_Click" Style="{StaticResource PrimaryBtn}"/>
                         <Button Content="L4 强制结束（需确认）" Click="L4_Click" Style="{StaticResource DangerBtn}"/>
-                        <TextBlock x:Name="SelectionHint" Text="请先选择一行" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}"/>
+                        <Button Content="清扫垃圾驻守（自动识别）" Click="SweepJunk_Click" Style="{StaticResource DangerBtn}" Margin="18,0,0,0" ToolTip="自动识别 Bloatware 与宿主已退出的孤儿残留：无窗口的直接结束，有窗口的只回收工作集；服务与受保护进程永不触碰"/>
+                        <Button Content="一键压缩全部进程工作集" Click="TrimAllWs_Click" Style="{StaticResource PrimaryBtn}"/>
+                        <Button Content="全部候选 L1 回收" Click="BatchL1_Click" Style="{StaticResource PrimaryBtn}" ToolTip="对当前全部候选逐条回收工作集（温和，不结束进程）"/>
+                        <Button Content="一键清理全部候选" Click="BatchSuggested_Click" Style="{StaticResource DangerBtn}" ToolTip="按每个候选的建议级别批量处置；涉及关闭/结束时只弹一次确认"/>
+                        <TextBlock x:Name="SelectionHint" Text="单条处置请先选择一行" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
@@ -794,7 +799,7 @@
                         <CheckBox x:Name="ChkStandbyList" Content="Standby List（备用列表 - 完整，游戏运行时慎用）" Margin="0,4"/>
                         <CheckBox x:Name="ChkStandbyListLow" Content="Standby List (Low Priority)（低优先级备用列表 - 推荐）" Margin="0,4"/>
                         <CheckBox x:Name="ChkSystemFileCache" Content="System File Cache（系统文件缓存）" Margin="0,4"/>
-                        <CheckBox x:Name="ChkWorkingSet" Content="Working Set（工作集 - 所有进程）" Margin="0,4"/>
+                        <CheckBox x:Name="ChkWorkingSet" Content="Working Set（工作集 - 所有进程，逐进程压缩，无需管理员）" Margin="0,4"/>
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button Content="清理选中区域" Click="CleanMemoryAreas_Click" Style="{StaticResource DangerBtn}"/>
                             <Button Content="全选" Click="SelectAllAreas_Click" Style="{StaticResource PrimaryBtn}" Margin="8,0,0,0"/>
@@ -844,6 +849,7 @@
                                 <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
+                                <CheckBox x:Name="SetAutoJunkSweep" Content="自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；Windows 服务、受保护进程永不触碰）" Margin="0,3"/>
                                 <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,3"/>
                                 <CheckBox x:Name="SetEventLog" Content="审计同步写入 Windows 事件日志（来源注册需要一次管理员运行）" Margin="0,3"/>
                             </StackPanel>
