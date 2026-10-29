@@ -43,8 +43,8 @@
 - [x] **P2.8 历史页标注采样缺口** ✅ 2026-10-29（摘要追加「最长 N 分钟未运行（睡眠/退出）」）
 - [x] **P2.9 GrowthWatch 冷却键改 StateKey** ✅ 2026-10-29（(PID, 启动时间) 键，PID 复用不再误冷却）
 - [x] **P2.10 Top 门槛 64MB→32MB** ✅ 2026-10-29（残留服务 50–110MB 段不再被历史遗漏）
-- [ ] **P2.11 wharf 证据链**（工作树脏只跑测试不留证据；**提交后** `wharf test` 留 EV——等提交决策）
-- [ ] **P2.12 v0.1.4 发布**（规则库 + Bloatware + 三件套 v1 + 测试 81；走 `tools/publish-release.ps1`，人工门禁）
+- [x] **P2.11 wharf 证据链** ✅ 2026-10-29（干净树提交后 `wharf test` 留 EV）
+- [x] **P2.12 v0.1.4 发布** ✅ 2026-10-29（commit 23f5805 / tag v0.1.4；release workflow 成功，资产：portable zip + win-x64 exe + SHA256SUMS）
 
 ## 建议顺序
 
