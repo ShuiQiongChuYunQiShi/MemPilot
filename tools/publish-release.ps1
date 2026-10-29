@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
 if ($Version -notmatch '^v\d+\.\d+\.\d+$') { Write-Error "Version must look like v0.2.0"; exit 1 }
-if (-not (Test-Path (Join-Path $PSScriptRoot '..', 'wharf.project.json'))) { Write-Error "run from the repo"; exit 1 }
+if (-not (Test-Path (Join-Path (Join-Path $PSScriptRoot '..') 'wharf.project.json'))) { Write-Error "run from the repo"; exit 1 }
 
 $dirty = git status --porcelain
 if ($dirty) { Write-Error "working tree is dirty — commit first (uncommitted evidence is not deployable)"; exit 1 }
