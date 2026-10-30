@@ -62,3 +62,68 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] **P3.6 垃圾证据分** ✅ 2026-10-29（`BehaviorLedger.JunkScore`＝无窗口占比×0.4+空闲占比×0.3+在场频率×0.3+孤儿证据 1 分；可清理页新增"驻留分"列，可解释排序）
 
 安全不变式（硬编码，任何配置不可放宽）：受保护/系统关键/安全软件/反作弊/驱动/未识别永不清扫；Windows 服务不清扫（需手动禁用）；前台/有声/存活不足/白名单永不动作。
+
+## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
+
+### v0.1.6 — 性能与交互（当前最痛，优先做）
+
+**根因（代码+数据双重定位）**
+1. 每次刷新（10s）在 UI 线程重建 3 个 ObservableCollection（Processes/Groups/FilteredProcesses）+ ApplyFilter + DataGrid 全量重绑：进程页 17 列 × ~550 行、可清理页 11 列。今天内存压力峰值（00:39 可用 0.1GB、16 点小时均值 4.5GB）下 WPF 布局渲染被放大到秒级——用户点页签撞上重建周期，体感就是"卡 4-5 秒"。
+2. 后台线程每轮对 ~550 个进程逐个调用 WinVerifyTrust（`ProcessService.cs:113`，无缓存）——CPU 长期高位（今天进程数 221~841），进一步加剧 UI 卡顿。
+3. 历史页 LoadHistory 在页签切换时同步读 7 天采样并构建图表点集（可清理页无此问题，但同类隐患）。
+4. 可清理页底部 8 个按钮 + 提示文字单行横排：1280 宽窗口放不全（已确认），窄窗更糟。
+
+**修复项**
+- [x] ~~P5.1 WinVerifyTrust 缓存~~ **核实结果：TrustVerifier 早已有 (path, lastWrite) 缓存，此项不存在**（如实修正之前判断）。真正的大头在 UI 线程重建与刷新管道阻塞，见 P5.2/P5.6。
+- [x] P5.2 页签感知的 UI 更新：只重建当前可见页签的集合（📋 进程全量/🧹 候选/⏸ 挂起/🧠 决策/主页轻量），可见页最短 4s 节流；切页签时由 `OnTabActivated` 强制重建。
+- [x] P5.3 列精简：可清理页 11→9 列（去掉 预计释放(提交)、风险）；DataGrid 加 `VirtualizationMode=Recycling` + `ScrollUnit=Pixel`。
+- [x] P5.4 按钮区重构：单条动作（L1-L4）一行、「批量 ▾」菜单收纳全部候选 L1 / 一键清理全部 / 清扫垃圾驻守；「一键压缩全部进程工作集」移到系统内存清理页；WrapPanel 自适应窄窗。
+- [x] P5.5 LoadHistory 异步化：读盘与聚合放后台线程，UI 只落点集；10s 内复用结果。
+- [x] P5.6 刷新耗时自诊断：状态栏显示「枚举 Xms · 分类 Yms」。
+- [x] 附带修复：LookupUnknowns 等待上限 15s→3s（刷新管道阻塞源）。
+- 验收：待发布安装后真机复测（页签切换 p95 < 200ms；状态栏耗时数字肉眼可查）。
+
+### v0.1.8 — 棱镜审查 P0（2026-10-30，prism 评审后追加）
+
+- [x] **告警触达**：`ResidentEngine.Alert` 事件 → 托盘气泡（`TrayIconService.ShowBalloon`）+ 主页横幅（`HasAlert`/`AlertBannerTitle/Text`）；CommitWatch 与 HabitHint 双通道触达；设置页「重要提示触达」开关（默认开，取消=仅写决策日志）。依据：prism ux/high——15 次 CommitWatch + 13 次 HabitHint 两天全部只进日志，含 00:39 可用 0.1GB 事件。
+- [x] **低风险自动档 + 一键腾挪**：设置页「应用低风险自动档」按钮（自动优化 + 自动清扫孤儿残留，清理仍只 L1）；主页告警横幅带「立即低风险腾挪（只压缩/清扫，不结束进程）」按钮（`QuickReliefAsync` = 全机工作集压缩 + 孤儿残留清扫）。依据：prism product/high——默认观察模式与真实工作场景（0.1GB 濒危）存在鸿沟。
+- 其余 11 条 prism findings 待排期：`~/.wharf/projects/memorytool/prism/current.json`（含锁文件、覆盖率、静默 catch、god class、未签名等，见 rounds 存档）；下一轮 `cap run prism -- diff` 复核。
+
+### v0.1.7 — 识别打磨 + 驻留分修正
+
+- [x] P3.6b 驻留分加体量因子（对数，峰值 ≥2GB 记满分权重）——修正 1~25MB 系统服务与 400MB 更新器同拿 10.0 分的缺陷（今日台账实证）。
+- [x] P3.3 Unknown 复核队列（可清理页可折叠区：高占用×高频未识别进程 Top15 + 标记为垃圾/标记保留/联网核实，写入反馈库）。
+- [x] P3.5 反馈驱动晋升（近 30 天手动结束 ≥3 次且不在规则中的进程 → 决策日志提议收录，Kind=PromoteRule；永不自动扩大规则）。
+- [x] P3.4 规则卫生审计（每周一次 RuleHygiene 周报写决策日志：命中规则/死规则候选/用户保留覆盖/晋升建议；只报告不修改）。
+- [x] 低风险自动清扫选项：`AutoJunkSweepOrphansOnly`（自动清扫只清宿主已退出的孤儿残留）——设置页开关。
+
+### v0.2.0 — P4 M1 租约 API（视频生成接入）
+
+- 本地 HTTP + token：`/memory`、`/habit/pressure`、`/plan`（干跑）、`/lease`、`/lease/{id}`、`/sweep`；soft/balanced/aggressive 策略
+- 首个接入样例：python 视频生成脚本（今日 00:34–01:20 峰值 17.4GB、00:39 可用 0.1GB/提交 99.5% 即需求论据）
+- 验收：脚本开跑前调用 lease，CommitWatch 不再出现"余量 <10%"事件
+
+### v0.2.1 — M2 硬租约 + 码头注册；M3 NativeAOT 拆分（远期）
+
+## P4 — 展望：API 调用能力与租借式内存腾挪（等功能稳定后启动）
+
+**核心语义**：把"腾内存"从人工界面动作升级为可被程序调用的服务——大内存任务（视频生成等）开跑前申请"内存租约"，MemPilot 腾出并让渡，任务结束归还恢复；最终注册为码头外置能力，wharf 管辖的任何项目可调用。
+
+**租约模型**（照搬 wharf `res lease --ttl --mode exclusive` 语义）：
+- 申请(目标GB, policy, TTL, requesterPid, 理由) → 返回租约句柄 + **实测达成量**（非承诺量）；凑不够返回 409+缺口明细
+- 占用期 CommitWatch 反向守护（让渡被侵蚀→告警）；归还=恢复挂起+重启被停服务+审计；调用方死亡→TTL 自动恢复（挂起登记簿兜底）
+- 单活跃租约模型；干跑接口 `POST /plan`（零风险预览）
+
+**政策（用户已拍板，2026-10-29）**：除 系统级进程、MemPilot 自身及关联、调用方自己及其进程树、白名单 外，**所有第三方均可处置（L1→L4 全梯队）**——需求本质是"给工作让路"。两个读法都按安全方式落地：requesterPid 及其子树进硬不变式。策略预设 `soft`（清扫+L1+备用列表）/ `balanced`（+L2 挂起）/ `aggressive`（+服务停止+L3+L4，工作场景默认档）；`includeForeground`/`includeAudio` 为参数位默认关。执行顺序代价从小到大，凑够目标即停手。
+
+**新动作级别（服务形态的可逆硬腾挪）**：Windows 服务不走 TerminateProcess（SCM 会复活），走 SCM 停止 + 租约归还时可重启——记录停过哪些服务。
+
+**API 面（M1）**：`GET /memory`、`GET /habit/pressure`、`POST /plan`（干跑）、`POST /lease`、`GET /lease/{id}`、`DELETE /lease/{id}`、`POST /sweep`；仅 localhost + Bearer token（照搬 wharf UI --rotate-token）；单活跃租约。
+
+**架构路线**：M1 = HTTP 监听进 WPF 常驻进程（成本最低）；M2 = 挂起式硬租约 + TTL 自动恢复 + 前台/模式门控 + 码头 cap 注册（mem-lease 能力）；M3 = NativeAOT 服务拆分（路线图 #3 地基）+ 多调用方策略 + 习惯学习联动（"预约腾挪"：建议把大任务排到低压力时段）。
+
+**复用映射**：BuildPlan/ExecutePlanAsync（计划与执行）、SuspendRegistry（恢复）、CommitWatch（占用期守护）、HabitProfile（时机建议）、JunkSweeper（软腾挪前置）、DecisionLog/Audit/采样 Event（全程留痕，回头分析腾挪是否真的帮到视频生成）。
+
+**风险与对策**：软承诺被当硬承诺用（返回实测达成量+显式级别声明；硬需求走挂起式租约）；用户在场冲突（前台/有声参数位+白名单优先）；调用方死亡（TTL+登记簿）；360/权限（备用列表需管理员，API 不提权时该子动作诚实返回跳过）。
+
+**待拍板**：首个真实调用方及其内存需求模板（决定 lease 默认档位）；触发模式（轮询 vs 回调 URL）；mem-lease 进码头的具体注册形态。

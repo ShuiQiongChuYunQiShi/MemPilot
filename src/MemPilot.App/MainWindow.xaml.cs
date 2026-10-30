@@ -47,6 +47,9 @@ public partial class MainWindow : Window
         var feedback = new FeedbackStore(dataDir);
         _vm = new MainViewModel(_config, audit, feedback);
         DataContext = _vm;
+        // 告警触达：引擎的 Alert 事件 → 托盘气泡（主页横幅由 VM 内部处理）
+        _vm.AlertRaised += (title, message, warning) =>
+            Dispatcher.InvokeAsync(() => _tray?.ShowBalloon(title, message, warning));
 
         SyncModeRadios(_vm.CurrentMode);
 
@@ -419,6 +422,10 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is not TabControl) return;
         var header = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Header?.ToString()?.Replace(" ", "") ?? "";
+        // 页签感知：VM 只重建当前可见页签的集合（性能优化，见 UpdateCollections 注释）
+        var key = header.StartsWith("🏠") ? "🏠" : header.StartsWith("📋") ? "📋" : header.StartsWith("🧹") ? "🧹"
+                : header.StartsWith("⏸") ? "⏸" : header.StartsWith("🧠") ? "🧠" : "other";
+        _vm.OnTabActivated(key);
         if (header.StartsWith("🧵")) _vm.RebuildThreads();
         else if (header.StartsWith("🎚")) InitModeTab();
         else if (header.StartsWith("💬")) InitFeedbackTab();
@@ -462,6 +469,8 @@ public partial class MainWindow : Window
         SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
         SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
+        SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
+        SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetAutoStart.IsChecked = StartupService.IsAutoStart();
         SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
@@ -534,6 +543,79 @@ public partial class MainWindow : Window
         await RunCleanup(c, level);
     }
 
+    // ---- 告警触达（v0.1.8）：主页横幅 + 托盘气泡 ----
+
+    private async void QuickRelief_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.Status = "正在低风险腾挪（压缩工作集 + 清孤儿残留）…";
+        try
+        {
+            var msg = await _vm.QuickReliefAsync();
+            _vm.Status = msg;
+        }
+        catch (Exception ex) { _vm.Status = "腾挪失败: " + ex.Message; }
+    }
+
+    private void DismissAlert_Click(object sender, RoutedEventArgs e) => _vm.DismissAlert();
+
+    private void ApplyLowRiskPreset_Click(object sender, RoutedEventArgs e)
+    {
+        SetAutoOptimize.IsChecked = true;
+        SetAutoJunkSweep.IsChecked = true;
+        SetAutoJunkSweepOrphansOnly.IsChecked = true;
+        SaveSettings_Click(sender, e); // 复用保存路径：落盘并重启引擎
+        _vm.Status = "已应用低风险自动档：自动优化 + 仅清孤儿残留（清理仍只 L1，不会结束进程）。";
+    }
+
+    // ---- 未识别复核队列（P3.3）：人工核实后写入反馈库，分类器下一轮生效 ----
+
+    private ProcessInfo? GetSelectedReview() => ReviewGrid?.SelectedItem as ProcessInfo;
+
+    private async void ReviewMarkClean_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedReview();
+        if (p == null) { SelectionHint.Text = "请先在复核队列里选择一行"; return; }
+        _vm.Feedback.Add(new FeedbackEntry
+        {
+            ProcessName = p.Name,
+            ExecutablePath = p.ExecutablePath,
+            ReportedCategory = ProcessCategory.Bloatware,
+            MarkCleanable = true
+        });
+        SelectionHint.Text = $"已记录：{p.Name} 标记为可清理（下次刷新生效，可在反馈页撤销）";
+        await _vm.RefreshAsync();
+    }
+
+    private async void ReviewMarkKeep_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedReview();
+        if (p == null) { SelectionHint.Text = "请先在复核队列里选择一行"; return; }
+        _vm.Feedback.Add(new FeedbackEntry
+        {
+            ProcessName = p.Name,
+            ExecutablePath = p.ExecutablePath,
+            ReportedCategory = ProcessCategory.ThirdPartyApp,
+            MarkKeep = true
+        });
+        SelectionHint.Text = $"已记录：{p.Name} 标记为保留（白名单，后续不再提示）";
+        await _vm.RefreshAsync();
+    }
+
+    private async void ReviewLookup_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedReview();
+        if (p == null) { SelectionHint.Text = "请先在复核队列里选择一行"; return; }
+        SelectionHint.Text = $"正在联网核实 {p.Name} …";
+        try
+        {
+            var r = await _vm.OnlineLookup.LookupAsync(p);
+            _vm.Classification.ApplyOnlineResult(p, r);
+            SelectionHint.Text = $"核实结果（{p.Name}）：{r.Status} — {r.Summary}";
+            await _vm.RefreshAsync();
+        }
+        catch (Exception ex) { SelectionHint.Text = "核实失败: " + ex.Message; }
+    }
+
     // ---- 批量处置（一键压缩 / 全部候选 L1 / 全部候选按建议级别） ----
 
     private async void SweepJunk_Click(object sender, RoutedEventArgs e)
@@ -559,6 +641,7 @@ public partial class MainWindow : Window
         {
             var msg = await _vm.TrimAllWorkingSetsAsync();
             SelectionHint.Text = msg;
+            if (CleanResultText != null) CleanResultText.Text = msg; // 系统内存清理页也显示结果
             await _vm.RefreshAsync();
         }
         catch (Exception ex) { SelectionHint.Text = "压缩失败: " + ex.Message; }
@@ -898,6 +981,8 @@ public partial class MainWindow : Window
         _config.Config.AutoOptimizeEnabled = SetAutoOptimize.IsChecked == true;
         _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
+        _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
+        _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;

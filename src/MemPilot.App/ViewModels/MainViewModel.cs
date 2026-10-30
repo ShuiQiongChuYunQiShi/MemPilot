@@ -150,12 +150,29 @@ public class MainViewModel : INotifyPropertyChanged
         public int Count { get; set; }
     }
 
+    private DateTime _lastHistoryLoadUtc = DateTime.MinValue;
+
     public void LoadHistory()
     {
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        // 页签切换不能读盘算图：数据读取放后台、10s 内复用上次结果，UI 只做点集/行的落位
+        if ((DateTime.UtcNow - _lastHistoryLoadUtc).TotalSeconds < 10) return;
+        _lastHistoryLoadUtc = DateTime.UtcNow;
+        Task.Run(() =>
         {
-            // 24h available-memory curve
             var day = Usage.ReadWindow(TimeSpan.FromHours(24));
+            var week = Usage.ReadWindow(TimeSpan.FromDays(7));
+            var habit = HabitProfile.Build(week);
+            var since = DateTime.UtcNow - TimeSpan.FromDays(7);
+            var actions = Audit.Recent(2000).Where(a => a.TimestampUtc >= since)
+                               .GroupBy(a => a.Action).OrderByDescending(g => g.Count())
+                               .Select(g => new ActionUsageRow { Action = g.Key, Count = g.Count() }).ToList();
+            return (day, week, habit, actions);
+        }).ContinueWith(t =>
+        {
+            if (t.IsFaulted || t.Result.day == null) return;
+            var (day, week, habit, actions) = t.Result;
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
             HistoryPoints.Clear();
             if (day.Count > 1 && day[0].Total > 0)
             {
@@ -203,14 +220,9 @@ public class MainViewModel : INotifyPropertyChanged
                     Seen = v.n
                 });
             }
-            // action counts over 7 days from the audit trail
+            // action counts over 7 days from the audit trail (read off-thread in LoadHistory)
             ActionUsageItems.Clear();
-            var since = DateTime.UtcNow - TimeSpan.FromDays(7);
-            var actions = Audit.Recent(2000).Where(a => a.TimestampUtc >= since)
-                               .GroupBy(a => a.Action).OrderByDescending(g => g.Count());
-            foreach (var g in actions)
-                ActionUsageItems.Add(new ActionUsageRow { Action = g.Key, Count = g.Count() });
-            var habit = HabitProfile.Build(week);
+            foreach (var a in actions) ActionUsageItems.Add(a);
             int maxGapMin = 0;
             for (int i = 1; i < day.Count; i++)
                 maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
@@ -219,6 +231,7 @@ public class MainViewModel : INotifyPropertyChanged
                 : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}")
                 + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
                 + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");
+            });
         });
     }
 
@@ -299,6 +312,11 @@ public class MainViewModel : INotifyPropertyChanged
         Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
         Behaviors = BehaviorLedger.Load(Path.Combine(ConfigStore.DataDirectory, "behavior.json"));
         Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage, Behaviors);
+        Engine.Alert += (title, message, warning) =>
+        {
+            RaiseAlert(title, message);            // 主页横幅（引擎线程 → SetUi 内部 marshal）
+            AlertRaised?.Invoke(title, message, warning); // 托盘气泡（由 MainWindow 订阅）
+        };
         Engine.ModeChanged += (s, e) =>
         {
             _currentMode = e.Mode;
@@ -327,6 +345,7 @@ public class MainViewModel : INotifyPropertyChanged
             Status = "正在枚举进程...";
             IsBusy = true;
 
+            long enumMs = 0, classifyMs = 0;
             var data = await Task.Run(() =>
             {
                 Engine.SampleForeground();
@@ -334,8 +353,11 @@ public class MainViewModel : INotifyPropertyChanged
                 var suspended = Cleanup.Suspended.SuspendedPids();
                 var services = ServiceService.EnumerateServices();
                 var svcByPid = ServiceService.MapByPid(services);
+                var swE = System.Diagnostics.Stopwatch.StartNew();
                 var procs = ProcessService.EnumerateProcesses();
+                enumMs = swE.ElapsedMilliseconds;
 
+                var swC = System.Diagnostics.Stopwatch.StartNew();
                 var protectedNames = new HashSet<string>(ConfigStore.Config.ProtectedNames, StringComparer.OrdinalIgnoreCase);
                 foreach (var p in procs)
                 {
@@ -343,8 +365,10 @@ public class MainViewModel : INotifyPropertyChanged
                     // a mode KeepPattern pins the process from auto-actions, not from manual ones
                     p.ModeKeep = ModeManager.ShouldKeep(p);
                 }
+                classifyMs = swC.ElapsedMilliseconds;
 
                 LookupUnknowns(procs, ct);
+                MaybeSuggestPromotions();
 
                 var mem = ProcessService.GetSystemMemory();
                 var unused = UnusedDetector.Detect(procs, mem, Engine.LastForegroundPid, audio, suspended);
@@ -371,7 +395,7 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     SysMem = memOut; // tray tooltip still needs fresh numbers
                 }
-                Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选。";
+                Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。";
             });
 
             Engine.AfterRefresh(_lastProcs, memOut);
@@ -386,6 +410,58 @@ public class MainViewModel : INotifyPropertyChanged
             IsBusy = false;
             _refreshGate.Release();
         }
+    }
+
+    private DateTime _lastPromotionScanUtc = DateTime.MinValue;
+    private readonly HashSet<string> _promotionSuggested = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>反馈驱动晋升（P3.5）：近 30 天你手动结束 ≥3 次、且当前不在垃圾规则里的进程，
+    /// 在决策日志里提议收录为规则。永不自动扩大规则库，只给建议。</summary>
+    private void MaybeSuggestPromotions()
+    {
+        if ((DateTime.UtcNow - _lastPromotionScanUtc).TotalMinutes < 10) return;
+        _lastPromotionScanUtc = DateTime.UtcNow;
+        try
+        {
+            var since = DateTime.UtcNow - TimeSpan.FromDays(30);
+            var counts = Audit.Recent(2000)
+                .Where(a => a.Action == "L4ForceKill" && a.TimestampUtc >= since)
+                .Select(a => a.Target.Split(" (PID")[0])
+                .GroupBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() >= 3)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in counts)
+            {
+                if (_promotionSuggested.Contains(kv.Key)) continue;
+                _promotionSuggested.Add(kv.Key);
+                var p = _lastProcs.FirstOrDefault(x => x.Name.Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
+                if (p == null || p.Category == ProcessCategory.Bloatware) continue; // 已在垃圾规则里，无需建议
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "PromoteRule",
+                    Target = kv.Key,
+                    Decision = "建议",
+                    Reason = $"近 30 天你手动结束了它 {kv.Value} 次（当前分类 {p.Category}）——要把「{kv.Key}」收录为垃圾规则吗？可在反馈页提交，规则库永不自动扩大"
+                });
+            }
+            MaybeRunRuleAudit();
+        }
+        catch { }
+    }
+
+    /// <summary>规则卫生周报（P3.4）：每 7 天一次，写决策日志（Kind=RuleAudit）。只报告不修改规则。</summary>
+    private void MaybeRunRuleAudit()
+    {
+        var recent = Decisions.Recent(300);
+        if (recent.Any(d => d.Kind == "RuleAudit" && (DateTime.UtcNow - d.TimestampUtc).TotalDays < 7)) return;
+        var report = RuleHygiene.Build(Decisions.Recent(2000), Feedback.All(), Behaviors, DateTime.UtcNow.AddDays(-7));
+        Decisions.Log(new DecisionEntry
+        {
+            Kind = "RuleAudit",
+            Target = "-",
+            Decision = "周报",
+            Reason = report.Text
+        });
     }
 
     private void LookupUnknowns(List<ProcessInfo> procs, CancellationToken ct)
@@ -406,36 +482,31 @@ public class MainViewModel : INotifyPropertyChanged
             catch { }
             finally { gate.Release(); }
         });
-        try { Task.WaitAll(tasks.ToArray(), TimeSpan.FromSeconds(15)); } catch { }
+        // 未知进程查询必须有界：旧版等 15s 会把刷新管道拖死（实测刷新周期被拉长到远超 10s）
+        try { Task.WaitAll(tasks.ToArray(), TimeSpan.FromSeconds(3)); } catch { }
     }
 
     private bool _dataDiagDone;
 
+    private List<UnusedCandidate> _lastUnused = new();
+    private DateTime _lastUiRebuildUtc = DateTime.MinValue;
+    /// <summary>当前可见页签（由 MainWindow.TabControl_SelectionChanged 写入）。</summary>
+    public string ActiveTabKey { get; set; } = "🏠";
+
+    /// <summary>页签切换时立即重建该页签的集合（不走节流），避免切换后看到旧数据。</summary>
+    public void OnTabActivated(string key)
+    {
+        ActiveTabKey = key;
+        if (_lastProcs.Count > 0) RebuildActiveTab();
+    }
+
     private void UpdateCollections(List<ProcessInfo> procs, SystemMemoryInfo mem, List<UnusedCandidate> unused)
     {
         SysMem = mem;
-        Processes = new ObservableCollection<ProcessInfo>(procs.OrderByDescending(x => x.Memory.WorkingSetBytes));
-        var grouped = procs.GroupBy(p => p.Category)
-            .Select(g => new ProcessGroup { Key = g.Key.ToString(), DisplayName = CategoryText(g.Key), Category = g.Key, Processes = g.ToList() })
-            .OrderByDescending(g => g.TotalWorkingSetBytes);
-        Groups = new ObservableCollection<ProcessGroup>(grouped);
-        UnusedCandidates.Clear();
-        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序；并附上驻留分
-        foreach (var u in unused.OrderByDescending(x => x.Process.Category == ProcessCategory.Bloatware)
-                                .ThenByDescending(x => x.EstimatedReclaimableBytes))
-        {
-            u.JunkScore = Behaviors.JunkScore(u.Process.Name);
-            UnusedCandidates.Add(u);
-        }
-        SuspendedProcesses.Clear();
-        foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
-        DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
-        HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
+        _lastProcs = procs;
+        _lastUnused = unused;
         var cfg = ConfigStore.Config;
         CandidateRuleText = $"候选规则：无窗口 + 低 CPU/IO + 没在发声 + 不在前台，且持续空闲 ≥ {cfg.UnusedIdleMinutes} 分钟、连续 {cfg.RequiredIdleObservations} 轮观察。工具刚启动时这里为空是正常的——观察正在累积，默认约 {cfg.UnusedIdleMinutes} 分钟后才会出现第一个候选。";
-        DisposalRecords.Clear();
-        foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
-        ApplyFilter();
         // data sanity: if a whole refresh came back without private working sets,
         // the K32 path is broken again — say so loudly instead of failing silently
         if (!_dataDiagDone && procs.Count > 50)
@@ -453,7 +524,76 @@ public class MainViewModel : INotifyPropertyChanged
                 Status = "⚠ 数据质量异常：私有工作集全为零，请查看决策日志。";
             }
         }
+        // 页签感知重建：只重建当前可见页签的集合；可见页最短 4s 节流（切页签由 OnTabActivated 强制）。
+        // 之前每 10s 全量重建进程列表(17列×~550行) + 可清理候选，在内存压力下 UI 线程被拖到秒级。
+        if ((DateTime.UtcNow - _lastUiRebuildUtc).TotalSeconds < 4) return;
+        RebuildActiveTab();
+    }
+
+    private void RebuildActiveTab()
+    {
+        _lastUiRebuildUtc = DateTime.UtcNow;
+        switch (ActiveTabKey)
+        {
+            case "📋": // 进程页：唯一需要全量排序+分组+过滤的页面
+                Processes = new ObservableCollection<ProcessInfo>(_lastProcs.OrderByDescending(x => x.Memory.WorkingSetBytes));
+                var grouped = _lastProcs.GroupBy(p => p.Category)
+                    .Select(g => new ProcessGroup { Key = g.Key.ToString(), DisplayName = CategoryText(g.Key), Category = g.Key, Processes = g.ToList() })
+                    .OrderByDescending(g => g.TotalWorkingSetBytes);
+                Groups = new ObservableCollection<ProcessGroup>(grouped);
+                ApplyFilter();
+                break;
+            case "🧹":
+                RebuildUnused();
+                break;
+            case "⏸":
+                SuspendedProcesses.Clear();
+                foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
+                DisposalRecords.Clear();
+                foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
+                break;
+            case "🧠":
+                DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
+                break;
+            default: // 主页等轻页面：候选计数与首页决策
+                RebuildUnused();
+                SuspendedProcesses.Clear();
+                foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
+                HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
+                break;
+        }
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RebuildUnused()
+    {
+        UnusedCandidates.Clear();
+        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序；并附上驻留分
+        foreach (var u in _lastUnused.OrderByDescending(x => x.Process.Category == ProcessCategory.Bloatware)
+                                     .ThenByDescending(x => x.EstimatedReclaimableBytes))
+        {
+            u.JunkScore = Behaviors.JunkScore(u.Process.Name);
+            UnusedCandidates.Add(u);
+        }
+        RebuildReviewQueue();
+    }
+
+    /// <summary>未识别复核队列（P3.3）：高占用×高频的 Unknown 进程，供人工核实/投票。</summary>
+    public System.Collections.ObjectModel.ObservableCollection<ProcessInfo> ReviewQueue { get; } = new();
+    private string _reviewQueueHeader = "未识别复核队列";
+    public string ReviewQueueHeader { get => _reviewQueueHeader; private set { _reviewQueueHeader = value; OnPropertyChanged(); } }
+
+    private void RebuildReviewQueue()
+    {
+        ReviewQueue.Clear();
+        foreach (var p in _lastProcs.Where(p => p.Category == ProcessCategory.Unknown && !p.AccessDenied)
+                                    .OrderByDescending(p => p.Memory.WorkingSetBytes)
+                                    .ThenByDescending(p => Behaviors.JunkScore(p.Name))
+                                    .Take(15))
+            ReviewQueue.Add(p);
+        ReviewQueueHeader = ReviewQueue.Count == 0
+            ? "未识别复核队列（空）"
+            : $"未识别复核队列（{ReviewQueue.Count} 个 · 高占用未识别进程，人工核实后可收录为规则）";
     }
 
     /// <summary>Thread rows are built on demand (thread tab) — one syscall per thread makes
@@ -536,12 +676,12 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>垃圾驻守清扫计划（Bloatware + 宿主已退出的孤儿残留，硬安全边界见 JunkSweeper）。</summary>
-    public List<JunkSweepItem> BuildJunkSweepPlan()
+    public List<JunkSweepItem> BuildJunkSweepPlan(bool orphansOnly = false)
     {
         var procs = _lastProcs.ToList();
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
         return JunkSweeper.BuildPlan(procs, Engine.LastForegroundPid, audio,
-            ConfigStore.Config.Whitelist, ConfigStore.Config.MinProcessAgeSeconds);
+            ConfigStore.Config.Whitelist, ConfigStore.Config.MinProcessAgeSeconds, orphansOnly);
     }
 
     /// <summary>执行垃圾驻守清扫计划，返回摘要。</summary>
@@ -570,6 +710,32 @@ public class MainViewModel : INotifyPropertyChanged
             : $"垃圾驻守清扫：结束 {kills} 个，回收工作集 {trims} 个，失败 {failed} 个";
         Status = summary;
         return summary;
+    }
+
+    // ---- 告警触达（v0.1.8）：主页横幅 + 托盘气泡双通道 ----
+
+    public event Action<string, string, bool>? AlertRaised;
+
+    private string _alertBannerTitle = "";
+    public string AlertBannerTitle { get => _alertBannerTitle; private set { _alertBannerTitle = value; OnPropertyChanged(); } }
+    private string _alertBannerText = "";
+    public string AlertBannerText { get => _alertBannerText; private set { _alertBannerText = value; OnPropertyChanged(); } }
+    private bool _hasAlert;
+    public bool HasAlert { get => _hasAlert; private set { _hasAlert = value; OnPropertyChanged(); } }
+
+    public void RaiseAlert(string title, string message)
+        => SetUi(() => { AlertBannerTitle = title; AlertBannerText = message; HasAlert = true; });
+
+    public void DismissAlert() => SetUi(() => HasAlert = false);
+
+    /// <summary>一键低风险腾挪：全机工作集压缩 + 孤儿残留清扫（不含 L3/L4）。</summary>
+    public async Task<string> QuickReliefAsync()
+    {
+        var trimMsg = await TrimAllWorkingSetsAsync();
+        var plan = BuildJunkSweepPlan(orphansOnly: true);
+        var sweepMsg = await ExecuteJunkSweepAsync(plan);
+        DismissAlert();
+        return $"{trimMsg}；{sweepMsg}";
     }
 
     /// <summary>批量处置候选：levelOverride 为 null 时按各自建议级别执行。</summary>

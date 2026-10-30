@@ -17,7 +17,7 @@ public static class JunkSweeper
 {
     public static List<JunkSweepItem> BuildPlan(
         List<ProcessInfo> procs, int foregroundPid, HashSet<int> audioPids,
-        IReadOnlyCollection<string> whitelist, int minAgeSeconds)
+        IReadOnlyCollection<string> whitelist, int minAgeSeconds, bool orphansOnly = false)
     {
         var runningNames = new HashSet<string>(procs.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
         var plan = new List<JunkSweepItem>();
@@ -39,6 +39,7 @@ public static class JunkSweeper
             string evidence;
             if (p.Category == ProcessCategory.Bloatware)
             {
+                if (orphansOnly) continue; // 低风险模式：只清宿主已退出的孤儿残留
                 reason = "垃圾常驻";
                 // P3.1 证据分级：junk_vendor（可信签名厂商）> junk_name（精确名名单）
                 evidence = p.CategoryReason == "junk_vendor" ? "vendor-signature" : "exact-name";

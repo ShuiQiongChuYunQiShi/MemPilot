@@ -117,6 +117,20 @@ public class JunkSweeperTests
     }
 
     [Fact]
+    public void OrphansOnly_LowRiskMode_SkipsBloatware_KeepsOrphans()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "wetype_update", ProcessCategory.Bloatware),          // 常驻垃圾：低风险模式跳过
+            P(2, "QQLiveService", ProcessCategory.ThirdPartyApp),      // 孤儿残留：保留
+        };
+        var plan = JunkSweeper.BuildPlan(procs, 0, new HashSet<int>(), Array.Empty<string>(),
+            minAgeSeconds: 120, orphansOnly: true);
+        var item = Assert.Single(plan);
+        Assert.Equal("QQLiveService", item.Process.Name);
+    }
+
+    [Fact]
     public void ForegroundAudioYoungWhitelisted_AreExcluded()
     {
         var procs = new List<ProcessInfo>

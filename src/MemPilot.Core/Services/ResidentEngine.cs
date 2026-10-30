@@ -55,6 +55,9 @@ public class ResidentEngine
     public bool ForegroundFullscreen { get; private set; }
     public string ForegroundProcessName { get; private set; } = "";
 
+    /// <summary>重要提示触达（托盘气泡/主页横幅）。参数：标题、内容、是否警告级。</summary>
+    public event Action<string, string, bool>? Alert;
+
     public ResidentEngine(ConfigStore config, CleanupEngine cleanup, NativeMemoryCleanerService memCleaner,
         AuditLogger audit, DecisionLog decisions, UsageRecorder usage, BehaviorLedger? behaviors = null)
     {
@@ -445,6 +448,19 @@ public class ResidentEngine
                 ? $"提交内存 10 分钟内增长 {growthGb:F1} GB（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
                 : $"提交内存余量低于总量 10%（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
         });
+        // 触达层：真正会把人叫醒的通道（决策日志之外的托盘气泡/主页横幅）
+        if (_config.Config.ShowAlerts)
+        {
+            try
+            {
+                Alert?.Invoke("内存告急",
+                    surge
+                        ? $"提交内存 10 分钟增长 {growthGb:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。"
+                        : $"提交余量仅 {commitFree / 1073741824.0:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。",
+                    true);
+            }
+            catch { }
+        }
     }
 
     // ---- junk resident sweep (auto mode, opt-in) ----
@@ -456,7 +472,8 @@ public class ResidentEngine
             if (ForegroundFullscreen) return; // 游戏/全屏时不动作，与 AutoOptimize 一致
             var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
             var plan = JunkSweeper.BuildPlan(procs, _lastForegroundPid, audio,
-                _config.Config.Whitelist, _config.Config.MinProcessAgeSeconds);
+                _config.Config.Whitelist, _config.Config.MinProcessAgeSeconds,
+                _config.Config.AutoJunkSweepOrphansOnly);
             var now = DateTime.UtcNow;
             foreach (var item in plan)
             {
@@ -502,6 +519,16 @@ public class ResidentEngine
                 Decision = "提示",
                 Reason = $"历史画像：该时段可用内存常态偏低（P25 {hp.P25AvailGb:F1} GB，{hp.SampleCount} 条样本），可提前腾内存（仅提示，不自动处置）"
             });
+            if (_config.Config.ShowAlerts)
+            {
+                try
+                {
+                    Alert?.Invoke("时段提醒",
+                        $"历史画像：{nextHour:00}-{(nextHour + 1) % 24:00} 点可用内存常态偏低（P25 {hp.P25AvailGb:F1} GB），可提前腾内存。",
+                        false);
+                }
+                catch { }
+            }
         }
         catch { }
     }

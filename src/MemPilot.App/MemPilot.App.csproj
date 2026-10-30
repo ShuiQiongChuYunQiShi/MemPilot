@@ -10,9 +10,9 @@
     <RootNamespace>MemPilot</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.5</Version>
-    <AssemblyVersion>0.1.5.0</AssemblyVersion>
-    <FileVersion>0.1.5.0</FileVersion>
+    <Version>0.1.8</Version>
+    <AssemblyVersion>0.1.8.0</AssemblyVersion>
+    <FileVersion>0.1.8.0</FileVersion>
     <Title>MemPilot</Title>
     <Product>MemPilot - 内存领航员</Product>
     <Description>MemPilot：常驻内存与进程领航员——未使用检测、场景模式、腾挪工作流</Description>
@@ -30,5 +30,6 @@
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\sign.ps1&quot; -TargetPath &quot;$(TargetPath)&quot;" ContinueOnError="true" />
   </Target>
 </Project>
+
 
 

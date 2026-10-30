@@ -333,6 +333,10 @@ public class AppConfig
     public bool AutoOptimizeEnabled { get; set; } = false;
     // 垃圾驻守清扫：自动结束无窗口/无音频/低负载的 Bloatware 与孤儿残留（默认关闭）
     public bool AutoJunkSweepEnabled { get; set; } = false;
+    // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
+    public bool AutoJunkSweepOrphansOnly { get; set; } = false;
+    // 重要提示触达（托盘气泡 + 主页横幅）；false = 仅写决策日志
+    public bool ShowAlerts { get; set; } = true;
     public bool AutoOptimizeIntervalEnabled { get; set; } = false;
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
     public int AutoOptimizeThresholdPercent { get; set; } = 15; // clean when free RAM below this %

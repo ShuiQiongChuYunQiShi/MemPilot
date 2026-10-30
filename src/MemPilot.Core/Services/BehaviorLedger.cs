@@ -76,15 +76,19 @@ public class BehaviorLedger
         if (++_dirty >= 60) { Save(); _dirty = 0; }
     }
 
-    /// <summary>驻留分 0..10＝无窗口占比×0.4 + 空闲占比×0.3 + 在场频率×0.3；孤儿证据 +1（封顶 10）。
-    /// 仅用于排序与解释，不构成处置依据。</summary>
+    /// <summary>驻留分 0..10＝(无窗口占比×0.4 + 空闲占比×0.3 + 在场频率×0.3) × 体量因子；
+    /// 体量因子对数缩放（峰值 ≥2GB 记满权重）——修正 1MB 系统服务与 400MB 更新器同分的缺陷；
+    /// 孤儿证据 +1（封顶 10）。仅用于排序与解释，不构成处置依据。</summary>
     public double JunkScore(string name)
     {
         if (!Entries.TryGetValue(name, out var b) || b.Observations == 0) return 0;
         double noWindow = (double)b.NoWindowObs / b.Observations;
         double idle = (double)b.IdleObs / b.Observations;
         double presence = _cycles <= 0 ? 0 : Math.Min(1.0, (double)b.Observations / _cycles);
-        double score = 10 * (0.4 * noWindow + 0.3 * idle + 0.3 * presence);
+        double baseScore = 0.4 * noWindow + 0.3 * idle + 0.3 * presence;
+        double peakMb = Math.Max(1, b.PeakPrivateWsBytes / 1048576.0);
+        double sizeFactor = Math.Min(1.0, Math.Log10(peakMb) / Math.Log10(2048)); // 1MB≈0 → 2GB+=1
+        double score = 10 * baseScore * sizeFactor;
         if (b.OrphanObs > 0) score = Math.Min(10, score + 1);
         return Math.Round(score, 1);
     }

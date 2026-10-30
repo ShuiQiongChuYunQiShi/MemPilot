@@ -32,12 +32,28 @@ public class BehaviorLedgerTests : IDisposable
     {
         var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
         for (int i = 0; i < 10; i++)
-            ledger.Observe(new List<ProcessInfo> { P("junkhelper", window: false, idleMin: 5), P("editor", window: true) });
+            ledger.Observe(new List<ProcessInfo> { P("junkhelper", window: false, idleMin: 5, ws: 400L * 1024 * 1024), P("editor", window: true) });
 
         var junk = ledger.JunkScore("junkhelper");
         var editor = ledger.JunkScore("editor");
-        Assert.True(junk > 7, $"headless idle score too low: {junk}");
-        Assert.True(editor <= 3.5, $"windowed active score too high: {editor}");
+        Assert.True(junk > 5, $"headless idle score too low: {junk}");
+        Assert.True(editor <= 2.5, $"windowed active score too high: {editor}");
+    }
+
+    // 体量因子：同样的行为模式下，400MB 的垃圾组件必须显著高于 1MB 系统服务
+    [Fact]
+    public void SizeFactor_DiscriminatesTinyServicesFromRealJunk()
+    {
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        for (int i = 0; i < 10; i++)
+            ledger.Observe(new List<ProcessInfo>
+            {
+                P("tinyhelper", ws: 1L * 1024 * 1024),
+                P("bigjunk", ws: 400L * 1024 * 1024),
+            });
+        var tiny = ledger.JunkScore("tinyhelper");
+        var big = ledger.JunkScore("bigjunk");
+        Assert.True(big > tiny * 2, $"size factor too weak: big={big}, tiny={tiny}");
     }
 
     [Fact]

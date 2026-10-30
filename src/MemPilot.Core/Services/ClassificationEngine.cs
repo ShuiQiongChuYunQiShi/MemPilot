@@ -80,6 +80,9 @@ public class ClassificationEngine
     { "wpscenter", "wpscloudsvr", "wpscloudlaunch", "wpsupdate", "wpsnotify", "wpsdeskmatting", "promecefpluginhost",
       "alibabaprotect", "alipaladin", "alipaladin64", "wetype_update", "lghub_updater" };
 
+    /// <summary>垃圾名规则清单（只读，供规则卫生审计 P3.4 使用）。</summary>
+    public static IReadOnlyCollection<string> JunkRuleNames => JunkNames;
+
     private static readonly string[] JunkVendors = { "kingsoft office" };
 
     // 按需后台：OEM/厂商配套服务，用户偶发使用（vivo 办公套件、Armoury Crate 等）。
