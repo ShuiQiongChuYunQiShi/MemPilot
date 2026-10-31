@@ -65,6 +65,15 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.0 — 程序清单（2026-10-31，已发布安装）
+
+- [x] `ProgramCatalogService` 三源采集：注册表 Uninstall（HKLM64/HKLM32/HKCU 双视图、SystemComponent 过滤、DisplayIcon/UninstallString 反推 exe）→ 开始菜单 .lnk（IShellLinkW+IPersistFile COM，注册/所有用户）→ 常见安装根按需扫描（Program Files/(x86)/%LOCALAPPDATA%\Programs/非系统盘同名根，深度 2，跳过 reparse point；**不做全盘递归**）。
+- [x] 索引与持久化：exe 路径字典（O(1)）+ 安装目录最长前缀（边界校验）；`programs.json`（SchemaVersion+24h TTL、原子写盘、后台构建）。真机实测 328 条/238 目录索引/1.27s。
+- [x] 分类接入：`ClassificationEngine.Catalog` 可选依赖——填 `ProgramDisplayName/ProgramPublisher`；签名不可用时用清单发布者匹配 `PublisherRules`（Docker Inc→ContainerVm）；规则全不中但属于已安装程序 → ThirdPartyApp（不再 Unknown）。**清单只作证据、不构成处置依据**。
+- [x] UI：进程页『所属程序』列；设置页『程序清单』卡片（信息 + 重建按钮）。
+- [x] `FeedbackStore.Find` 去掉按发布者泛匹配（一条"腾讯=游戏"曾误伤全部腾讯应用）；software 级反馈按安装目录前缀匹配。
+- 测试 128→136。
+
 ### v0.2.3 — 缺陷修复（2026-10-31，已发布安装）
 
 - [x] **GPU 链路**：`_gpu` 赋值移出 `uiActive` 门控（StartMinimizedToTray 下首刷隐藏 → 永远不可用）+ `ShowWindow` 后立即刷新；`DXGI_ADAPTER_DESC1.LuidLowPart` 由 `long` 改 `uint`（LUID 4+4，修正 `Flags` 错位）；GDI 兜底去掉 `ATTACHED_TO_DESKTOP` 过滤（远程/虚拟会话全滤），改排除镜像驱动与 Basic Render；**修复 v0.2.2 兜底死代码**（DXGI 工厂创建失败时直接 return 绕过兜底）；空结果不再缓存 60s；GDI 无用量时显示「（用量不可用）」不再假 0%；新增 `LastDiag` 诊断。实测原 DXGI 失败上下文现返回 `NVIDIA GeForce RTX 5060 Ti 15.93GB`。
