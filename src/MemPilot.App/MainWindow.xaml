@@ -124,7 +124,7 @@
             <Setter Property="Margin" Value="0,0,0,14"/>
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect Color="{DynamicResource ShadowColor}" Opacity="0.035" BlurRadius="10" ShadowDepth="1"/>
+                    <DropShadowEffect Color="#17172B" Opacity="0.035" BlurRadius="10" ShadowDepth="1"/>
                 </Setter.Value>
             </Setter>
         </Style>
