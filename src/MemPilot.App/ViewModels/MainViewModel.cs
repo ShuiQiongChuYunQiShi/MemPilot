@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -7,7 +7,7 @@ using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
 
-public class MainViewModel : INotifyPropertyChanged
+public partial class MainViewModel : INotifyPropertyChanged
 {
     public ProcessService ProcessService { get; } = new();
     public ServiceService ServiceService { get; } = new();
@@ -27,18 +27,6 @@ public class MainViewModel : INotifyPropertyChanged
     public FeedbackStore Feedback { get; }
 
     private ObservableCollection<ProcessInfo> _processes = new();
-    public ObservableCollection<ProcessInfo> Processes
-    {
-        get => _processes;
-        private set { _processes = value; OnPropertyChanged(); }
-    }
-    public ObservableCollection<ThreadInfo> Threads { get; } = new();
-    private ObservableCollection<ProcessGroup> _groups = new();
-    public ObservableCollection<ProcessGroup> Groups
-    {
-        get => _groups;
-        private set { _groups = value; OnPropertyChanged(); }
-    }
     public ObservableCollection<UnusedCandidate> UnusedCandidates { get; } = new();
     public ObservableCollection<AuditEntry> AuditEntries { get; } = new();
     public ObservableCollection<FeedbackEntry> FeedbackEntries { get; } = new();
@@ -131,119 +119,6 @@ public class MainViewModel : INotifyPropertyChanged
     public string CurrentModeText => ModeManager.Profile.Name;
     public string AppVersionText => "v" + (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "?");
 
-    // ---- usage history (历史统计) ----
-    public ObservableCollection<ModeUsageRow> ModeUsageItems { get; } = new();
-    public ObservableCollection<TopUsageRow> TopUsageItems { get; } = new();
-    public ObservableCollection<ActionUsageRow> ActionUsageItems { get; } = new();
-    private string _historySummary = "";
-    public string HistorySummary { get => _historySummary; private set { _historySummary = value; OnPropertyChanged(); } }
-
-    public sealed class ModeUsageRow
-    {
-        public string Mode { get; set; } = "";
-        public double Hours { get; set; }
-        public string Display => $"{Mode}    {Hours:F1} 小时";
-    }
-    public sealed class TopUsageRow
-    {
-        public string Name { get; set; } = "";
-        public double AvgWsMb { get; set; }
-        public double MaxWsMb { get; set; }
-        public double AvgCpu { get; set; }
-        public double Threads { get; set; }
-        public int Seen { get; set; }
-    }
-    public sealed class ActionUsageRow
-    {
-        public string Action { get; set; } = "";
-        public int Count { get; set; }
-    }
-
-    private DateTime _lastHistoryLoadUtc = DateTime.MinValue;
-
-    public void LoadHistory()
-    {
-        // 页签切换不能读盘算图：数据读取放后台、10s 内复用上次结果，UI 只做点集/行的落位
-        if ((DateTime.UtcNow - _lastHistoryLoadUtc).TotalSeconds < 10) return;
-        _lastHistoryLoadUtc = DateTime.UtcNow;
-        Task.Run(() =>
-        {
-            var day = Usage.ReadWindow(TimeSpan.FromHours(24));
-            var week = Usage.ReadWindow(TimeSpan.FromDays(7));
-            var habit = HabitProfile.Build(week);
-            var since = DateTime.UtcNow - TimeSpan.FromDays(7);
-            var actions = Audit.Recent(2000).Where(a => a.TimestampUtc >= since)
-                               .GroupBy(a => a.Action).OrderByDescending(g => g.Count())
-                               .Select(g => new ActionUsageRow { Action = g.Key, Count = g.Count() }).ToList();
-            return (day, week, habit, actions);
-        }).ContinueWith(t =>
-        {
-            if (t.IsFaulted || t.Result.day == null) return;
-            var (day, week, habit, actions) = t.Result;
-            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            HistoryPoints.Clear();
-            if (day.Count > 1 && day[0].Total > 0)
-            {
-                HistoryAreaPoints.Clear();
-                for (int i = 0; i < day.Count; i++)
-                {
-                    double frac = (double)day[i].Avail / day[i].Total; // 0..1 available
-                    double x = i * (640.0 / Math.Max(1, day.Count - 1));
-                    double y = 150 - frac * 140;
-                    HistoryPoints.Add(new System.Windows.Point(x, y));
-                    HistoryAreaPoints.Add(new System.Windows.Point(x, y));
-                }
-                if (HistoryPoints.Count > 1)
-                {
-                    HistoryAreaPoints.Add(new System.Windows.Point(640, 160));
-                    HistoryAreaPoints.Add(new System.Windows.Point(0, 160));
-                }
-            }
-            // mode usage over 7 days
-            var week = Usage.ReadWindow(TimeSpan.FromDays(7));
-            ModeUsageItems.Clear();
-            foreach (var g in week.GroupBy(s => s.Mode).OrderByDescending(g => g.Sum(s => (double)s.Interval)))
-            {
-                ModeUsageItems.Add(new ModeUsageRow { Mode = g.Key, Hours = g.Sum(s => (double)s.Interval) / 3600.0 });
-            }
-            // top processes over 24h
-            TopUsageItems.Clear();
-            var byName = new Dictionary<string, (long sumWs, long maxWs, double sumCpu, long sumThreads, int n)>();
-            foreach (var s in day)
-                foreach (var tp in s.Top)
-                {
-                    var cur = byName.TryGetValue(tp.N, out var v) ? v : (0, 0, 0.0, 0L, 0);
-                    byName[tp.N] = (cur.sumWs + tp.W, Math.Max(cur.maxWs, tp.W), cur.sumCpu + tp.C, cur.sumThreads + tp.T, cur.n + 1);
-                }
-            foreach (var kv in byName.OrderByDescending(kv => kv.Value.sumWs).Take(12))
-            {
-                var v = kv.Value;
-                TopUsageItems.Add(new TopUsageRow
-                {
-                    Name = kv.Key,
-                    AvgWsMb = v.sumWs / v.n / 1048576.0,
-                    MaxWsMb = v.maxWs / 1048576.0,
-                    AvgCpu = Math.Round(v.sumCpu / v.n, 1),
-                    Threads = Math.Round((double)v.sumThreads / v.n, 0),
-                    Seen = v.n
-                });
-            }
-            // action counts over 7 days from the audit trail (read off-thread in LoadHistory)
-            ActionUsageItems.Clear();
-            foreach (var a in actions) ActionUsageItems.Add(a);
-            int maxGapMin = 0;
-            for (int i = 1; i < day.Count; i++)
-                maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
-            HistorySummary = (day.Count == 0
-                ? "（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）"
-                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}")
-                + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
-                + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");
-            });
-        });
-    }
-
     public string ModeDescription => CurrentMode switch
     {
         AppMode.Resident => "安静驻守：只观察和记录，不主动动任何进程。",
@@ -264,54 +139,6 @@ public class MainViewModel : INotifyPropertyChanged
         set => SetUi(() => { _isBusy = value; OnPropertyChanged(nameof(BusyText)); });
     }
     public string BusyText => IsBusy ? "⟳ 刷新中" : "空闲";
-
-    public System.Windows.Media.PointCollection MemoryTrendPoints { get; } = new();
-    public System.Windows.Media.PointCollection MemoryTrendAreaPoints { get; } = new();
-    public System.Windows.Media.PointCollection HistoryPoints { get; } = new();
-    public System.Windows.Media.PointCollection HistoryAreaPoints { get; } = new();
-    private readonly List<(DateTime t, long avail)> _memSamples = new();
-
-    private string _searchText = "";
-    public string SearchText { get => _searchText; set { _searchText = value; OnPropertyChanged(); ApplyFilter(); } }
-
-    private bool _treeMode;
-    /// <summary>Process page tree mode: children grouped under parents, collapsible.</summary>
-    public bool TreeMode
-    {
-        get => _treeMode;
-        set { _treeMode = value; OnPropertyChanged(); ApplyFilter(); }
-    }
-    private readonly HashSet<int> _collapsedPids = new();
-
-    private string _workloadFilter = "";
-    /// <summary>用途筛选（"" = 全部）。取值来自 WorkloadClassifier.DisplayName：工作/娱乐/AI/系统/其他/未知。</summary>
-    public string WorkloadFilter
-    {
-        get => _workloadFilter;
-        set
-        {
-            var v = value ?? "";
-            if (_workloadFilter == v) return;
-            _workloadFilter = v;
-            OnPropertyChanged();
-            ConfigStore.Config.WorkloadFilter = v;
-            ConfigStore.Save();
-            ApplyFilter();
-        }
-    }
-
-    public void ToggleCollapse(int pid)
-    {
-        if (!_collapsedPids.Remove(pid)) _collapsedPids.Add(pid);
-        ApplyFilter();
-    }
-
-    private ObservableCollection<ProcessInfo> _filteredProcesses = new();
-    public ObservableCollection<ProcessInfo> FilteredProcesses
-    {
-        get => _filteredProcesses;
-        private set { _filteredProcesses = value; OnPropertyChanged(); }
-    }
 
     /// <summary>Raised after the UI collections were rebuilt; the view re-applies selection.</summary>
     public event EventHandler? CollectionsRebuilt;
@@ -574,17 +401,18 @@ public class MainViewModel : INotifyPropertyChanged
             }
         }
         // 页签感知重建：只重建当前可见页签的集合；可见页最短 4s 节流（切页签由 OnTabActivated 强制）。
-        // 之前每 10s 全量重建进程列表(17列×~550行) + 可清理候选，在内存压力下 UI 线程被拖到秒级。
-        if ((DateTime.UtcNow - _lastUiRebuildUtc).TotalSeconds < 4) return;
+        // 之前每 10s 全量重建进程列表(19列×~550行) + 可清理候选，在内存压力下 UI 线程被拖到秒级。
+        // 判断本身在 TabRebuildPolicy（Core 纯函数，有测试守着，防止重构退回「每 tick 全量重建」）。
+        if (!TabRebuildPolicy.ShouldRebuild(_lastUiRebuildUtc, DateTime.UtcNow)) return;
         RebuildActiveTab();
     }
 
     private void RebuildActiveTab()
     {
         _lastUiRebuildUtc = DateTime.UtcNow;
-        switch (ActiveTabKey)
+        switch (TabRebuildPolicy.Parse(ActiveTabKey))
         {
-            case "📋": // 进程页：唯一需要全量排序+分组+过滤的页面
+            case TabPage.Process: // 进程页：唯一需要全量排序+分组+过滤的页面
                 Processes = new ObservableCollection<ProcessInfo>(_lastProcs.OrderByDescending(x => x.Memory.WorkingSetBytes));
                 var grouped = _lastProcs.GroupBy(p => p.Category)
                     .Select(g => new ProcessGroup { Key = g.Key.ToString(), DisplayName = CategoryText(g.Key), Category = g.Key, Processes = g.ToList() })
@@ -592,16 +420,16 @@ public class MainViewModel : INotifyPropertyChanged
                 Groups = new ObservableCollection<ProcessGroup>(grouped);
                 ApplyFilter();
                 break;
-            case "🧹":
+            case TabPage.Cleanup:
                 RebuildUnused();
                 break;
-            case "⏸":
+            case TabPage.Suspended:
                 SuspendedProcesses.Clear();
                 foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
                 DisposalRecords.Clear();
                 foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
                 break;
-            case "🧠":
+            case TabPage.Decisions:
                 DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
                 break;
             default: // 主页等轻页面：候选计数与首页决策
@@ -612,150 +440,6 @@ public class MainViewModel : INotifyPropertyChanged
                 break;
         }
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
-    }
-
-    // ---- 程序清单（v0.3.0）----
-
-    public ProgramCatalogService ProgramCatalog { get; private set; }
-
-    private string _programCatalogInfo = "";
-    public string ProgramCatalogInfo
-    {
-        get => _programCatalogInfo;
-        private set { _programCatalogInfo = value; OnPropertyChanged(); }
-    }
-
-    // ---- 场景影子校准（v0.3.2）：影子只写不读 → 这里给出结算，设置页可见 ----
-
-    private string _shadowCalibrationText = "尚未统计（打开设置页或点「刷新校准数据」）。";
-    public string ShadowCalibrationText
-    {
-        get => _shadowCalibrationText;
-        private set { _shadowCalibrationText = value; OnPropertyChanged(); }
-    }
-
-    /// <summary>重算近 7 天影子结算文本。失败要说出来，不能静默留旧值。</summary>
-    public void RefreshShadowCalibration(int days = 7)
-    {
-        try
-        {
-            var report = SceneShadowReport.Build(Decisions.Recent(1000), Audit.Recent(500), DateTime.UtcNow, days);
-            ShadowCalibrationText = report.Text;
-        }
-        catch (Exception ex)
-        {
-            ShadowCalibrationText = "影子校准统计失败：" + ex.Message;
-        }
-    }
-
-    // ---- 持久化诊断（v0.3.2）：JsonFileStore 的失败计数，设置页可见 ----
-
-    private string _storeDiagnosticsText = "";
-    public string StoreDiagnosticsText
-    {
-        get => _storeDiagnosticsText;
-        private set { _storeDiagnosticsText = value; OnPropertyChanged(); }
-    }
-
-    public void RefreshDiagnostics()
-    {
-        var summary = MemPilot.Helpers.StoreDiagnostics.Summary();
-        var recent = MemPilot.Helpers.StoreDiagnostics.Recent().FirstOrDefault();
-        StoreDiagnosticsText = recent == null ? summary : summary + "\n最近：" + recent;
-    }
-
-    private void BuildProgramCatalogInBackground()
-    {
-        try
-        {
-            var built = ProgramCatalogService.Build(msg => SetUi(() => Status = msg));
-            built.Save(ConfigStore.DataDirectory);
-            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                ProgramCatalog = built;
-                Classification.Catalog = built;
-                ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
-            });
-        }
-        catch { }
-    }
-
-    /// <summary>手动重建程序清单（设置页按钮）：注册表 + 开始菜单 + 安装根。</summary>
-    public async Task<string> RebuildProgramCatalogAsync()
-    {
-        Status = "正在重建程序清单（注册表 + 开始菜单 + 安装根）…";
-        var built = await Task.Run(() => ProgramCatalogService.Build(msg => SetUi(() => Status = msg))).ConfigureAwait(true);
-        built.Save(ConfigStore.DataDirectory);
-        ProgramCatalog = built;
-        Classification.Catalog = built;
-        ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
-        Status = $"程序清单已重建：{built.Count} 条（目录索引 {built.DirectoryIndexCount}）";
-        return Status;
-    }
-
-    private void RebuildUnused()
-    {
-        UnusedCandidates.Clear();
-        // 垃圾常驻置顶（Bloatware 在候选里优先展示），其余按可回收量降序；并附上驻留分
-        foreach (var u in _lastUnused.OrderByDescending(x => x.Process.Category == ProcessCategory.Bloatware)
-                                     .ThenByDescending(x => x.EstimatedReclaimableBytes))
-        {
-            u.JunkScore = Behaviors.JunkScore(u.Process.Name);
-            UnusedCandidates.Add(u);
-        }
-        RebuildReviewQueue();
-    }
-
-    /// <summary>未识别复核队列（P3.3）：高占用×高频的 Unknown 进程，供人工核实/投票。</summary>
-    public System.Collections.ObjectModel.ObservableCollection<ProcessInfo> ReviewQueue { get; } = new();
-    private string _reviewQueueHeader = "未识别复核队列";
-    public string ReviewQueueHeader { get => _reviewQueueHeader; private set { _reviewQueueHeader = value; OnPropertyChanged(); } }
-
-    private void RebuildReviewQueue()
-    {
-        ReviewQueue.Clear();
-        foreach (var p in _lastProcs.Where(p => p.Category == ProcessCategory.Unknown && !p.AccessDenied)
-                                    .OrderByDescending(p => p.Memory.WorkingSetBytes)
-                                    .ThenByDescending(p => Behaviors.JunkScore(p.Name))
-                                    .Take(15))
-            ReviewQueue.Add(p);
-        ReviewQueueHeader = ReviewQueue.Count == 0
-            ? "未识别复核队列（空）"
-            : $"未识别复核队列（{ReviewQueue.Count} 个 · 高占用未识别进程，人工核实后可收录为规则）";
-    }
-
-    /// <summary>Thread rows are built on demand (thread tab) — one syscall per thread makes
-    /// this far too expensive to run inside the refresh loop.</summary>
-    public void RebuildThreads()
-    {
-        var snapshot = _lastProcs;
-        Task.Run(() => ProcessService.EnumerateAllThreads(snapshot))
-            .ContinueWith(t =>
-            {
-                var list = t.Exception == null ? t.Result : new List<ThreadInfo>();
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    Threads.Clear();
-                    foreach (var th in list) Threads.Add(th);
-                });
-            });
-    }
-
-    private void ApplyFilter()
-    {
-        IEnumerable<ProcessInfo> src = Processes;
-        if (!string.IsNullOrWhiteSpace(SearchText))
-        {
-            var q = SearchText.ToLowerInvariant();
-            src = src.Where(p => p.Name.ToLowerInvariant().Contains(q) || p.ExecutablePath.ToLowerInvariant().Contains(q) || p.MainWindowTitle.ToLowerInvariant().Contains(q));
-        }
-        // 用途筛选先于树构建：树里只留命中的节点，避免"筛了工作却还看到游戏父节点"
-        if (!string.IsNullOrEmpty(_workloadFilter))
-            src = src.Where(p => WorkloadClassifier.DisplayName(p.Workload) == _workloadFilter);
-        if (TreeMode) src = ProcessTreeBuilder.Build(src, _collapsedPids);
-        // swap the whole collection instead of Clear+Add: one Reset notification beats
-        // 500 Add notifications every refresh (the periodic-jank fix)
-        FilteredProcesses = new ObservableCollection<ProcessInfo>(src);
     }
 
     public void ReloadAudit()
@@ -775,72 +459,6 @@ public class MainViewModel : INotifyPropertyChanged
             DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
             HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
         });
-    }
-
-    public async Task PerformCleanupAsync(UnusedCandidate cand, CleanupActionLevel level)
-    {
-        // graceful close may wait seconds for exit — never block the UI thread
-        await Task.Run(() => Cleanup.Execute(cand.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false)).ConfigureAwait(true);
-        ReloadAudit();
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            DisposalRecords.Clear();
-            foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
-        });
-        await Task.Delay(600).ConfigureAwait(true);
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            SysMem = ProcessService.GetSystemMemory());
-    }
-
-    /// <summary>一键压缩全部可触及进程的工作集（只压缩、不结束任何进程）。</summary>
-    public async Task<string> TrimAllWorkingSetsAsync()
-    {
-        var procs = _lastProcs.ToList();
-        var r = await Task.Run(() => Cleanup.TrimWorkingSets(procs)).ConfigureAwait(true);
-        ReloadAudit();
-        await Task.Delay(400).ConfigureAwait(true);
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            SysMem = ProcessService.GetSystemMemory());
-        var msg = $"已压缩 {r.Trimmed} 个进程的工作集（{r.Failed} 个失败），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
-        Status = msg;
-        return msg;
-    }
-
-    /// <summary>垃圾驻守清扫计划（Bloatware + 宿主已退出的孤儿残留，硬安全边界见 JunkSweeper）。</summary>
-    public List<JunkSweepItem> BuildJunkSweepPlan(bool orphansOnly = false)
-    {
-        var procs = _lastProcs.ToList();
-        var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
-        return JunkSweeper.BuildPlan(procs, Engine.LastForegroundPid, audio,
-            ConfigStore.Config.Whitelist, ConfigStore.Config.MinProcessAgeSeconds, orphansOnly);
-    }
-
-    /// <summary>执行垃圾驻守清扫计划，返回摘要。</summary>
-    public async Task<string> ExecuteJunkSweepAsync(List<JunkSweepItem> plan)
-    {
-        int kills = 0, trims = 0, failed = 0;
-        if (plan.Count > 0)
-        {
-            await Task.Run(() =>
-            {
-                foreach (var item in plan)
-                {
-                    var r = Cleanup.Execute(item.Process, item.Action, ConfigStore.Config.GracefulCloseTimeoutSeconds);
-                    if (!r.Success) failed++;
-                    else if (item.Action == CleanupActionLevel.L4ForceKill) kills++;
-                    else trims++;
-                }
-            }).ConfigureAwait(true);
-        }
-        ReloadAudit();
-        await Task.Delay(400).ConfigureAwait(true);
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            SysMem = ProcessService.GetSystemMemory());
-        var summary = plan.Count == 0
-            ? "没有发现可清扫的垃圾驻守进程"
-            : $"垃圾驻守清扫：结束 {kills} 个，回收工作集 {trims} 个，失败 {failed} 个";
-        Status = summary;
-        return summary;
     }
 
     // ---- 告警触达（v0.1.8）：主页横幅 + 托盘气泡双通道 ----
@@ -882,67 +500,6 @@ public class MainViewModel : INotifyPropertyChanged
         return $"{trimMsg}；{sweepMsg}";
     }
 
-    /// <summary>批量处置候选：levelOverride 为 null 时按各自建议级别执行。</summary>
-    public async Task<(int done, int failed, string summary)> BatchCleanupAsync(
-        IReadOnlyList<UnusedCandidate> cands, CleanupActionLevel? levelOverride = null)
-    {
-        int done = 0, failed = 0;
-        await Task.Run(() =>
-        {
-            foreach (var c in cands)
-            {
-                var level = levelOverride ?? c.SuggestedLevel;
-                var r = Cleanup.Execute(c.Process, level, ConfigStore.Config.GracefulCloseTimeoutSeconds, escalateToKill: false);
-                if (r.Success) done++; else failed++;
-            }
-        }).ConfigureAwait(true);
-        ReloadAudit();
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            DisposalRecords.Clear();
-            foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
-        });
-        await Task.Delay(600).ConfigureAwait(true);
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            SysMem = ProcessService.GetSystemMemory());
-        var summary = $"批量处置完成：成功 {done} 个，失败 {failed} 个";
-        Status = summary;
-        return (done, failed, summary);
-    }
-
-    public void ResumeSuspended(SuspendRecord rec)
-    {
-        Cleanup.Resume(rec.Pid, rec.Name);
-        ReloadAudit();
-        SuspendedProcesses.Remove(rec);
-    }
-
-    public void ResumeAllSuspended()
-    {
-        foreach (var rec in Cleanup.Suspended.LiveRecords())
-            Cleanup.Resume(rec.Pid, rec.Name);
-        ReloadAudit();
-        SuspendedProcesses.Clear();
-    }
-
-    /// <summary>Relaunch a previously closed/killed exe (the closest thing to an L4 undo).</summary>
-    public bool RestartDisposal(DisposalRecord rec)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(rec.ExePath) || !File.Exists(rec.ExePath)) return false;
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = rec.ExePath,
-                WorkingDirectory = Path.GetDirectoryName(rec.ExePath) ?? "",
-                UseShellExecute = true
-            };
-            System.Diagnostics.Process.Start(psi);
-            return true;
-        }
-        catch { return false; }
-    }
-
     // ---- make-room workflow ----
 
     public async Task<MakeRoomPlan> BuildMakeRoomPlanAsync(MakeRoomRequest req)
@@ -967,33 +524,6 @@ public class MainViewModel : INotifyPropertyChanged
         ReloadAudit();
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => SysMem = ProcessService.GetSystemMemory());
         return result;
-    }
-
-    private void UpdateTrend(SystemMemoryInfo mem)
-    {
-        _memSamples.Add((DateTime.UtcNow, mem.AvailablePhysicalBytes));
-        if (_memSamples.Count > 60) _memSamples.RemoveAt(0);
-        MemoryTrendPoints.Clear();
-        if (_memSamples.Count > 1)
-        {
-            long maxV = _memSamples.Max(s => s.avail);
-            long minV = _memSamples.Min(s => s.avail);
-            double range = Math.Max(1, maxV - minV);
-            MemoryTrendAreaPoints.Clear();
-            for (int i = 0; i < _memSamples.Count; i++)
-            {
-                // canvas on the home page is 260x64 — scale to it, or the line gets clipped
-                double x = i * (260.0 / Math.Max(1, _memSamples.Count - 1));
-                double y = 60 - (_memSamples[i].avail - minV) / range * 54;
-                MemoryTrendPoints.Add(new System.Windows.Point(x, y));
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(x, y));
-            }
-            if (MemoryTrendPoints.Count > 1)
-            {
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(260, 64));
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(0, 64));
-            }
-        }
     }
 
     public void AddFeedback(FeedbackEntry e)

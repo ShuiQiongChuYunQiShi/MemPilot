@@ -152,3 +152,12 @@ UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_T
 转公开或分发他人前需要：① 补 LICENSE（MIT / Apache-2.0 由作者决定）+ NOTICE 汇总依赖许可；
 ② 发布产物签名入 CI（现在只有本地自签，官方产物未签名，360 会拦截）。
 在此之前请勿直接再分发构建产物。
+
+### 启用发布签名（可选，三步）
+
+1. 把自签证书导出为 pfx，转 base64：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`；
+2. 仓库 Secrets 增加 `SIGN_PFX_BASE64`、`SIGN_PFX_PASSWORD`；仓库 Variables 增加 `SIGN_ENABLED=true`；
+3. 下次发布时 release.yml 会在打包后、算 SHA256SUMS 前签名；缺密钥只告警不阻断。
+
+注意：自签证书只有在目标机器把该证书装入「受信任的根证书颁发机构」后才会改善 SmartScreen/360 观感；
+仓库转公开积累云查杀信誉仍是主要手段。

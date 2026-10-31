@@ -65,6 +65,14 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.3 — god-class 拆分 + UI 回归守卫（2026-10-31，待发布）
+
+- [x] **MainWindow 按页签拆 partial**：`MainWindow.xaml.cs` 1198 → 335 行；新增 `ProcessPage`(24 成员)/`CleanupPage`(23)/`MakeRoomPage`(9)/`SettingsPage`(10)/`Tabs`(23) 五个 partial。机械拆分，只动文件边界不动逻辑，靠编译器与后续真机启动验证兜底。
+- [x] **MainViewModel 拆 partial**：988 → 577 行；新增 `ProcessPage`/`CleanupPage`/`HistoryPage`/`SettingsPage` 四个 partial（跨页编排如 `QuickReliefAsync` 留在核心）。`MainViewModel.cs` 现为 `public partial class`。
+- [x] **页签重建回归守卫**（prism test/ui-regression）：新增 `TabRebuildPolicy`（Core 纯函数）——页签键解析、4s 节流、只有进程页重建进程集合；VM 的 `UpdateCollections`/`RebuildActiveTab` 改为经策略判断。7 条测试：策略语义 + 源码静态扫描（进程集合只允许在 Process 分支重建一次、`UpdateCollections` 不得碰集合、必须调用策略）。
+- [x] 发布签名启用说明写进 README（三步：pfx→base64 入 secrets、设 `SIGN_ENABLED`、打包后签名）。
+- 测试 171→188。真机：Release 构建起活、crash.log 零增量、引擎刷新写入 decisions.json 正常。
+
 ### v0.3.2 — 棱镜第二轮整改（2026-10-31，待发布）
 
 第二轮棱镜（证据包 ev-22be20dd7790，HEAD 3d573d4）：19 条 findings，新增 6 / 已解决 4 / 仍活跃 9；两个历史 P0 全部认账关闭。本轮先做成本最低、收益最直接的一批：
