@@ -65,6 +65,13 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.1 — 用途维度（2026-10-31，已发布安装）
+
+- [x] `WorkloadKind`（娱乐/工作/AI/系统/其他/未知）+ `WorkloadClassifier`：身份（Category）之上派生用途；强类别优先（游戏/AI/系统/开发容器），名称/清单显示名/清单发布者关键词补充；歧义进程（浏览器/聊天）归"其他"不硬猜；Bloatware 不参与用途判定。用途仅展示/排序，**不构成处置依据**。
+- [x] 进程页新增『用途』列（WorkloadTextConverter）；刷新循环逐进程派生。真机分布：系统 255 / 工作 135 / 其他 120 / 未知 6 / AI 2 / 娱乐 1。
+- [x] 修复真机暴露的短名子串误伤：`et`（WPS 表格）把 wetype/SocketServer 误判"工作"——短名改精确匹配（wps/et/wpp/code/cmd/project），回归测试锁死。
+- 测试 136→152。
+
 ### v0.3.0 — 程序清单（2026-10-31，已发布安装）
 
 - [x] `ProgramCatalogService` 三源采集：注册表 Uninstall（HKLM64/HKLM32/HKCU 双视图、SystemComponent 过滤、DisplayIcon/UninstallString 反推 exe）→ 开始菜单 .lnk（IShellLinkW+IPersistFile COM，注册/所有用户）→ 常见安装根按需扫描（Program Files/(x86)/%LOCALAPPDATA%\Programs/非系统盘同名根，深度 2，跳过 reparse point；**不做全盘递归**）。
