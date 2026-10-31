@@ -10,3 +10,4 @@ src/MemoryTool.App/Data/
 .test-tmp/
 _patch*.py
 .workbuddy/
+.zcode/
