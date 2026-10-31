@@ -300,10 +300,12 @@
                                         <TextBlock Text="GPU 显存" Style="{StaticResource CaptionText}"/>
                                         <TextBlock Text="{Binding GpuSummaryText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,10"/>
                                         <TextBlock Text="可用内存趋势" Style="{StaticResource CaptionText}"/>
-                                        <Canvas Width="232" Height="56" Background="{DynamicResource TrackBg}" Margin="0,4,0,0">
-                                            <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="#334F46E5"/>
-                                            <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2" StrokeLineJoin="Round"/>
-                                        </Canvas>
+                                        <Viewbox Height="56" Stretch="Fill" HorizontalAlignment="Stretch" Margin="0,4,0,0">
+                                            <Canvas Width="260" Height="64" Background="{DynamicResource TrackBg}" ClipToBounds="True">
+                                                <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="#334F46E5"/>
+                                                <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2" StrokeLineJoin="Round"/>
+                                            </Canvas>
+                                        </Viewbox>
                                     </StackPanel>
                                 </Grid>
                             </Border>

@@ -64,7 +64,85 @@ public class GpuInfoService
             finally { Marshal.Release(factoryPtr); }
         }
         catch { }
+        if (result.Count == 0)
+        {
+            // 2026-10-31 真机：某些执行上下文 DXGI 工厂创建失败（E_NOINTERFACE），
+            // 但 GDI/注册表始终可用 —— 名称与显存走兜底，用量留空（宁缺勿假）。
+            result = EnumerateViaDisplayApi();
+        }
         return result;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAY_DEVICE
+    {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+        public uint StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool EnumDisplayDevicesW(string? lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
+
+    private const uint DISPLAY_DEVICE_ACTIVE = 0x1;
+
+    private static List<GpuAdapterInfo> EnumerateViaDisplayApi()
+    {
+        var list = new List<GpuAdapterInfo>();
+        try
+        {
+            for (uint i = 0; i < 8; i++)
+            {
+                var dd = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
+                if (!EnumDisplayDevicesW(null, i, ref dd, 0)) break;
+                if ((dd.StateFlags & DISPLAY_DEVICE_ACTIVE) == 0) continue;
+                var name = (dd.DeviceString ?? "").Trim();
+                if (name.Length == 0 || list.Any(x => x.Name == name)) continue;
+                list.Add(new GpuAdapterInfo
+                {
+                    Name = name,
+                    Vendor = GuessVendor(name),
+                    DedicatedVideoMemoryBytes = ReadVramFromRegistry(name)
+                });
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    private static string GuessVendor(string name)
+    {
+        if (name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase)) return "NVIDIA";
+        if (name.Contains("AMD", StringComparison.OrdinalIgnoreCase) || name.Contains("Radeon", StringComparison.OrdinalIgnoreCase)) return "AMD";
+        if (name.Contains("Intel", StringComparison.OrdinalIgnoreCase)) return "Intel";
+        if (name.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)) return "Microsoft";
+        return "";
+    }
+
+    /// <summary>显存大小：显示适配器类注册表 HardwareInformation.qwMemorySize（REG_QWORD，64 位可靠）。</summary>
+    private static long ReadVramFromRegistry(string adapterName)
+    {
+        try
+        {
+            const string classKey = @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+            using var baseKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(classKey);
+            if (baseKey == null) return 0;
+            foreach (var sub in baseKey.GetSubKeyNames())
+            {
+                if (sub.Length != 4 || !sub.All(char.IsDigit)) continue;
+                using var dev = baseKey.OpenSubKey(sub);
+                if (dev == null) continue;
+                var desc = dev.GetValue("DriverDesc") as string ?? "";
+                if (!adapterName.Contains(desc, StringComparison.OrdinalIgnoreCase) &&
+                    !desc.Contains(adapterName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (dev.GetValue("HardwareInformation.qwMemorySize") is long vram && vram > 0) return vram;
+            }
+        }
+        catch { }
+        return 0;
     }
 
     private static string VendorName(uint vendorId) => vendorId switch
@@ -79,41 +157,58 @@ public class GpuInfoService
     [DllImport("dxgi.dll")]
     private static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr ppFactory);
 
-    [ComImport, Guid("770aae78-f26f-4dba-a829-e2e40bd93d2c"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IDXGIFactory1
+    // COM 互操作要点：vtable 顺序 = 基接口方法在前。必须把基接口声明出来并继承，
+    // 否则方法序号整体错位（2026-10-31 真机 bug：EnumAdapters1 打到 CreateSwapChain 槽，
+    // 枚举永远 0 个适配器 → "GPU 信息不可用"）。
+    [ComImport, Guid("aec22fb8-76f3-4639-9be0-28eb43a67a2e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIObject
     {
-        // IDXGIFactory slots 0-4 (never called, stubs for vtable order)
+        [PreserveSig] int SetPrivateData(ref Guid name, uint dataSize, IntPtr pData);
+        [PreserveSig] int SetPrivateDataInterface(ref Guid name, [MarshalAs(UnmanagedType.IUnknown)] object? pUnknown);
+        [PreserveSig] int GetPrivateData(ref Guid name, ref uint dataSize, IntPtr pData);
+        [PreserveSig] int GetParent(ref Guid riid, out IntPtr ppParent);
+    }
+
+    [ComImport, Guid("7b7166ec-21c7-44ae-b21a-c9ae321ae369"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIFactory : IDXGIObject
+    {
         [PreserveSig] int EnumAdapters(int adapter, out IntPtr ppAdapter);
         [PreserveSig] int MakeWindowAssociation(IntPtr windowHandle, uint flags);
         [PreserveSig] int GetWindowAssociation(out IntPtr windowHandle);
         [PreserveSig] int CreateSwapChain(IntPtr pDevice, IntPtr pDesc, out IntPtr ppSwapChain);
         [PreserveSig] int CreateSoftwareAdapter(IntPtr module, out IntPtr ppAdapter);
-        // IDXGIFactory1
-        [PreserveSig] int EnumAdapters1(int adapter, [MarshalAs(UnmanagedType.Interface)] out IDXGIAdapter1 ppAdapter);
+    }
+
+    [ComImport, Guid("770aae78-f26f-4dba-a829-e2e40bd93d2c"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIFactory1 : IDXGIFactory
+    {
+        [PreserveSig] int EnumAdapters1(int adapter, out IDXGIAdapter1 ppAdapter);
         [PreserveSig] int IsCurrent();
     }
 
-    [ComImport, Guid("29038f61-3839-4626-91fd-086879011c05"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IDXGIAdapter1
+    [ComImport, Guid("2411e6fe-f28a-4b3e-abf1-93a21a421c33"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIAdapter : IDXGIObject
     {
-        // IDXGIAdapter slots 0-2
         [PreserveSig] int EnumOutputs(int output, out IntPtr ppOutput);
         [PreserveSig] int GetDesc(IntPtr pDesc);
         [PreserveSig] int CheckInterfaceSupport(ref Guid guid, out long umdVersion);
-        // IDXGIAdapter1
+    }
+
+    [ComImport, Guid("29038f61-3839-4626-91fd-086879011c05"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIAdapter1 : IDXGIAdapter
+    {
         [PreserveSig] int GetDesc1(out DXGI_ADAPTER_DESC1 desc);
     }
 
-    [ComImport, Guid("645967A4-1392-4310-A798-8053CE3E93FD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IDXGIAdapter3
+    [ComImport, Guid("0aa1ae0a-fa0e-4b84-8644-e05ff8e5acb5"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIAdapter2 : IDXGIAdapter1
     {
-        // IDXGIAdapter1 slots 0-3 + IDXGIAdapter2 slot 4
-        [PreserveSig] int EnumOutputs(int output, out IntPtr ppOutput);
-        [PreserveSig] int GetDesc(IntPtr pDesc);
-        [PreserveSig] int CheckInterfaceSupport(ref Guid guid, out long umdVersion);
-        [PreserveSig] int GetDesc1(out DXGI_ADAPTER_DESC1 desc);
         [PreserveSig] int GetDesc2(IntPtr pDesc);
-        // IDXGIAdapter3
+    }
+
+    [ComImport, Guid("645967A4-1392-4310-A798-8053CE3E93FD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDXGIAdapter3 : IDXGIAdapter2
+    {
         [PreserveSig] int RegisterVideoMemoryBudgetChangeNotificationEvent(IntPtr hEvent, out uint cookie);
         [PreserveSig] int UnregisterVideoMemoryBudgetChangeNotificationEvent(uint cookie);
         [PreserveSig] int QueryVideoMemoryInfo(uint segmentGroup, out DXGI_QUERY_VIDEO_MEMORY_INFO info);
