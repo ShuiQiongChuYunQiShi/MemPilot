@@ -100,9 +100,18 @@ public class MainViewModel : INotifyPropertyChanged
         set
         {
             if (_currentMode == value) return;
+            var previous = _currentMode;
             _currentMode = value;
             ConfigStore.Config.CurrentMode = value;
             ConfigStore.Save();
+            // 手动/自动模式切换留痕：复盘与习惯学习都依赖这条事件（此前切换无任何记录）
+            Audit.Log(new AuditEntry
+            {
+                Action = "ModeSwitch",
+                Target = $"{previous} → {value}",
+                Level = "Manual",
+                Result = ModeManager.Profile.Name
+            });
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentModeText));
             OnPropertyChanged(nameof(ModeDescription));
@@ -239,7 +248,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         AppMode.Resident => "安静驻守：只观察和记录，不主动动任何进程。",
         AppMode.Development => "开发模式：保护 IDE/编译器/数据库，游戏和娱乐类进入清理名单。",
-        AppMode.Game => "游戏模式：保护游戏和反作弊，开发工具和 AI 任务进入清理名单。",
+        AppMode.Game => "娱乐模式（游戏/直播/影视）：保护游戏、反作弊与播放器，开发工具和 AI 任务进入清理名单。",
         AppMode.AiGeneration => "AI 模式：保护 AI 工具，游戏/浏览器等进入清理名单，允许更积极的腾挪。",
         AppMode.Balanced => "平衡模式：只做最温和的工作集回收，其余交给手动操作。",
         _ => ""
@@ -314,6 +323,7 @@ public class MainViewModel : INotifyPropertyChanged
         Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage, Behaviors);
         Engine.Alert += (title, message, warning) =>
         {
+            if (title.Contains("时段")) SetUi(() => HabitHintText = message);
             RaiseAlert(title, message);            // 主页横幅（引擎线程 → SetUi 内部 marshal）
             AlertRaised?.Invoke(title, message, warning); // 托盘气泡（由 MainWindow 订阅）
         };
@@ -387,6 +397,7 @@ public class MainViewModel : INotifyPropertyChanged
                 if (uiActive)
                 {
                     UpdateCollections(_lastProcs, memOut, unusedOut);
+                    UpdateScenePanel();
                     _gpu = gpuOut;
                     OnPropertyChanged(nameof(GpuSummaryText));
                     UpdateTrend(memOut);
@@ -498,6 +509,17 @@ public class MainViewModel : INotifyPropertyChanged
     {
         ActiveTabKey = key;
         if (_lastProcs.Count > 0) RebuildActiveTab();
+    }
+
+    private void UpdateScenePanel()
+    {
+        var d = Engine.LastSceneDecision;
+        if (d == null) return;
+        SceneGame = Math.Round(d.GameScore);
+        SceneAi = Math.Round(d.AiScore);
+        SceneDev = Math.Round(d.DevScore);
+        SceneSummary = d.Summary;
+        SceneReason = d.Reason;
     }
 
     private void UpdateCollections(List<ProcessInfo> procs, SystemMemoryInfo mem, List<UnusedCandidate> unused)
@@ -720,6 +742,19 @@ public class MainViewModel : INotifyPropertyChanged
     public string AlertBannerTitle { get => _alertBannerTitle; private set { _alertBannerTitle = value; OnPropertyChanged(); } }
     private string _alertBannerText = "";
     public string AlertBannerText { get => _alertBannerText; private set { _alertBannerText = value; OnPropertyChanged(); } }
+    // ---- 场景识别诊断（v0.2.2 影子模式） ----
+    private string _sceneSummary = "等待第一次判定…";
+    public string SceneSummary { get => _sceneSummary; private set { _sceneSummary = value; OnPropertyChanged(); } }
+    private string _sceneReason = "";
+    public string SceneReason { get => _sceneReason; private set { _sceneReason = value; OnPropertyChanged(); } }
+    private double _sceneGame, _sceneAi, _sceneDev;
+    public double SceneGame { get => _sceneGame; private set { _sceneGame = value; OnPropertyChanged(); } }
+    public double SceneAi { get => _sceneAi; private set { _sceneAi = value; OnPropertyChanged(); } }
+    public double SceneDev { get => _sceneDev; private set { _sceneDev = value; OnPropertyChanged(); } }
+
+    private string _habitHintText = "暂无提示——继续积累采样后，这里会显示你的时段画像。";
+    public string HabitHintText { get => _habitHintText; private set { _habitHintText = value; OnPropertyChanged(); } }
+
     private bool _hasAlert;
     public bool HasAlert { get => _hasAlert; private set { _hasAlert = value; OnPropertyChanged(); } }
 

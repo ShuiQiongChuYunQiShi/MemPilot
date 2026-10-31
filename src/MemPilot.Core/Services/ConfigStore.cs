@@ -16,6 +16,20 @@ public class ConfigStore
         _path = Path.Combine(dataDir, "config.json");
         Load();
         EnsureDefaults();
+        MigrateToEntertainmentMode();
+    }
+
+    /// <summary>v0.2.0：游戏模式 → 娱乐模式（游戏/直播/影视是同一个场景，判定不需要区分"玩"还是"看"）。
+    /// 老配置迁移：改名 + 补播放器/直播平台保护模式（只增不删，用户自定义不受影响）。</summary>
+    private void MigrateToEntertainmentMode()
+    {
+        if (!Config.ModeProfiles.TryGetValue(AppMode.Game, out var game)) return;
+        if (game.Name != "游戏模式") return;
+        game.Name = "娱乐模式（游戏/直播/影视）";
+        foreach (var p in new[] { "bilibili", "douyu", "huya", "iqiyi", "qyplayer", "qqlive", "potplayer", "vlc", "mpv", "wmplayer", "netflix", "youtube" })
+            if (!game.KeepPatterns.Contains(p, StringComparer.OrdinalIgnoreCase))
+                game.KeepPatterns.Add(p);
+        Save();
     }
     private void Load()
     {
@@ -48,8 +62,9 @@ public class ConfigStore
             };
             Config.ModeProfiles[AppMode.Game] = new ModeProfile
             {
-                Mode = AppMode.Game, Name = "游戏模式",
-                KeepPatterns = new() { "steam", "epicgames", "battlenet", "origin", "riot", "anticheat", "easyanticheat", "battleye", "discord", "nvidia", "amd", "audio", "input" },
+                Mode = AppMode.Game, Name = "娱乐模式（游戏/直播/影视）",
+                KeepPatterns = new() { "steam", "epicgames", "battlenet", "origin", "riot", "anticheat", "easyanticheat", "battleye", "discord", "nvidia", "amd", "audio", "input",
+                                       "bilibili", "douyu", "huya", "iqiyi", "qyplayer", "qqlive", "potplayer", "vlc", "mpv", "wmplayer", "netflix", "youtube" },
                 CleanPatterns = new() { "devenv", "code", "rider", "dotnet build", "msbuild", "postgres", "mysql", "mongod", "redis", "ollama", "comfyui", "stable", "docker" },
                 Priority = new() { [ProcessCategory.Game] = 10, [ProcessCategory.GameLauncher] = 9, [ProcessCategory.AntiCheat] = 10, [ProcessCategory.DevTool] = 2, [ProcessCategory.AiImageVideo] = 1 },
                 AllowedActions = new() { CleanupActionLevel.L0Monitor, CleanupActionLevel.L1Trim, CleanupActionLevel.L2Suspend, CleanupActionLevel.L3GracefulClose },

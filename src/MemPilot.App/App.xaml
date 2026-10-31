@@ -1,30 +1,59 @@
 ﻿<Application x:Class="MemPilot.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:local="clr-namespace:MemPilot.App"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="AccentBlue" Color="#2563EB"/>
+        <!-- ===== v0.2.0 设计令牌：颜色（Slate 中性色 + 单一强调色） ===== -->
+        <SolidColorBrush x:Key="AccentBlue" Color="#4F46E5"/>
+        <SolidColorBrush x:Key="AccentBlueHover" Color="#4338CA"/>
         <SolidColorBrush x:Key="AccentRed" Color="#DC2626"/>
-        <SolidColorBrush x:Key="AccentGreen" Color="#059669"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="#111827"/>
-        <SolidColorBrush x:Key="TextSecondary" Color="#6B7280"/>
+        <SolidColorBrush x:Key="AccentRedHover" Color="#B91C1C"/>
+        <SolidColorBrush x:Key="AccentGreen" Color="#12734F"/>
+        <SolidColorBrush x:Key="AccentAmber" Color="#D97706"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#17172B"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#6B6B85"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#8A8AA3"/>
         <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="GridBg" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="RowAltBg" Color="#F9FAFB"/>
-        <SolidColorBrush x:Key="PanelBg" Color="#F2F4F7"/>
-        <SolidColorBrush x:Key="HeaderBg" Color="#1F2937"/>
-        <SolidColorBrush x:Key="BorderBrush" Color="#DCE1E6"/>
+        <SolidColorBrush x:Key="RowAltBg" Color="#FAFAFC"/>
+        <SolidColorBrush x:Key="PanelBg" Color="#F7F7FB"/>
+        <SolidColorBrush x:Key="HeaderBg" Color="#0F172A"/>
+        <SolidColorBrush x:Key="NavSelectedBg" Color="#1E293B"/>
+        <SolidColorBrush x:Key="NavHoverBg" Color="#F5F5F9"/>
+        <SolidColorBrush x:Key="NavActiveBg" Color="#EEF2FF"/>
+        <SolidColorBrush x:Key="NavActiveFg" Color="#4F46E5"/>
+        <SolidColorBrush x:Key="NavRailBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#ECECF5"/>
         <SolidColorBrush x:Key="InputBg" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="ControlBorder" Color="#CBD5E1"/>
-        <SolidColorBrush x:Key="ControlFg" Color="#111827"/>
-        <SolidColorBrush x:Key="TrackBg" Color="#E2E8F0"/>
-        <SolidColorBrush x:Key="ChipBg" Color="#F1F5F9"/>
-        <SolidColorBrush x:Key="SystemRowBg" Color="#E8F0FE"/>
-        <SolidColorBrush x:Key="GameRowBg" Color="#E7F8EE"/>
-        <SolidColorBrush x:Key="AiRowBg" Color="#F3E8FF"/>
-        <SolidColorBrush x:Key="UnknownRowBg" Color="#FFF4E5"/>
-        <SolidColorBrush x:Key="ChipHoverBg" Color="#E2E8F0"/>
+        <SolidColorBrush x:Key="ControlFg" Color="#0F172A"/>
+        <SolidColorBrush x:Key="TrackBg" Color="#F1F1F6"/>
+        <SolidColorBrush x:Key="ChipBg" Color="#F5F5F9"/>
+        <SolidColorBrush x:Key="ChipHoverBg" Color="#ECECF5"/>
+        <SolidColorBrush x:Key="SystemRowBg" Color="#EFF6FF"/>
+        <SolidColorBrush x:Key="GameRowBg" Color="#ECFDF5"/>
+        <SolidColorBrush x:Key="AiRowBg" Color="#F5F3FF"/>
+        <SolidColorBrush x:Key="UnknownRowBg" Color="#FFFBEB"/>
+        <SolidColorBrush x:Key="WarnBg" Color="#FFF9EC"/>
+        <SolidColorBrush x:Key="WarnFg" Color="#7A4B05"/>
+        <SolidColorBrush x:Key="WarnInk" Color="#6B4207"/>
+        <SolidColorBrush x:Key="OkColor" Color="#12734F"/>
+        <SolidColorBrush x:Key="ShadowColor" Color="#17172B"/>
+
+        <!-- ===== 字阶令牌（五档） ===== -->
+        <sys:Double x:Key="FsDisplay">28</sys:Double>
+        <sys:Double x:Key="FsTitle">20</sys:Double>
+        <sys:Double x:Key="FsSection">15</sys:Double>
+        <sys:Double x:Key="FsBody">13</sys:Double>
+        <sys:Double x:Key="FsCaption">11</sys:Double>
+
+        <!-- ===== 圆角 / 间距令牌 ===== -->
+        <CornerRadius x:Key="RadiusCard">12</CornerRadius>
+        <CornerRadius x:Key="RadiusControl">9</CornerRadius>
+        <CornerRadius x:Key="RadiusChip">6</CornerRadius>
+        <Thickness x:Key="SpaceCard">18</Thickness>
 
         <!-- implicit control styling: without these, check-boxes/text-boxes keep black
              system text on the dark theme (the "font same color as background" bug) -->

@@ -30,6 +30,12 @@ public class ResidentEngine
     private readonly DecisionLog _decisions;
     private readonly UsageRecorder _usage;
     private readonly BehaviorLedger? _behaviors;
+    private readonly GpuUsageService _gpuUsage = new();
+    private readonly List<(DateTime utc, double idle)> _inputSamples = new();
+    private AppMode? _lastShadowTarget;
+    private DateTime _lastShadowLogUtc = DateTime.MinValue;
+    /// <summary>最近一次场景判定（诊断面板用）。</summary>
+    public SceneDecision? LastSceneDecision { get; private set; }
     private int _intervalSeconds;
 
     private System.Threading.Timer? _timer;
@@ -109,7 +115,7 @@ public class ResidentEngine
     {
         var cfg = _config.Config;
         SampleForeground();
-        if (cfg.AutoModeSwitch) AutoSwitchMode(procs);
+        EvaluateScene(procs);
         if (cfg.AutoCleanupEnabled && cfg.CurrentMode is AppMode.Development or AppMode.Game or AppMode.AiGeneration)
             AutoCleanup(procs);
         if (cfg.AutoOptimizeEnabled) AutoOptimize(mem);
@@ -164,89 +170,112 @@ public class ResidentEngine
 
     // ---- mode switching with hysteresis ----
 
-    private void AutoSwitchMode(List<ProcessInfo> procs)
-    {
-        AppMode? target = null;
-        string reason = "";
+    // ---- 场景识别 v2（v0.2.2）：多信号打分 + 影子模式 + 自动切换 ----
 
-        // Game signal: D3D fullscreen foreground, or anticheat/known game processes alive
-        if (ForegroundFullscreen)
+    private void EvaluateScene(List<ProcessInfo> procs)
+    {
+        try
         {
-            target = AppMode.Game;
-            reason = "前台处于全屏/D3D 全屏";
-        }
-        else
-        {
-            var ac = procs.Where(p => p.Category == ProcessCategory.AntiCheat).Select(p => p.Name).Take(3).ToList();
-            if (ac.Count > 0)
+            var gpuMap = _gpuUsage.Sample();
+            var now = DateTime.UtcNow;
+            double idle = InputActivity.IdleSeconds();
+            _inputSamples.Add((now, idle));
+            _inputSamples.RemoveAll(x => (now - x.utc).TotalSeconds > 120);
+            double inputRatio = _inputSamples.Count == 0 ? 0
+                : (double)_inputSamples.Count(x => x.idle < 5) / _inputSamples.Count;
+
+            var fg = procs.FirstOrDefault(p => p.Pid == _lastForegroundPid);
+            double FgGpu(int pid) => gpuMap.TryGetValue(pid, out var g) ? g : -1;
+            double aiGpu = procs.Where(p => p.Category == ProcessCategory.AiImageVideo)
+                                .Select(p => FgGpu(p.Pid)).DefaultIfEmpty(-1).Max();
+            double aiCpu = procs.Where(p => p.Category == ProcessCategory.AiImageVideo)
+                                .Sum(p => p.Memory.CpuPercent);
+
+            var signals = new SceneSignals
             {
-                target = AppMode.Game;
-                reason = "反作弊进程在场: " + string.Join(", ", ac);
+                ForegroundFullscreen = ForegroundFullscreen,
+                ForegroundName = fg?.Name ?? ForegroundProcessName,
+                ForegroundTitle = fg?.MainWindowTitle ?? "",
+                ForegroundCategory = fg?.Category ?? ProcessCategory.Unknown,
+                ForegroundGpu = fg != null ? FgGpu(fg.Pid) : -1,
+                AnyAntiCheat = procs.Any(p => p.Category == ProcessCategory.AntiCheat),
+                GameProcessBusy = procs.Any(p => p.Category == ProcessCategory.Game &&
+                    (p.Memory.CpuPercent > 5 || FgGpu(p.Pid) > 10)),
+                AiProcessResident = procs.Any(p => p.Category == ProcessCategory.AiImageVideo &&
+                    p.Memory.PrivateBytes > 512L * 1024 * 1024),
+                AiGpu = aiGpu,
+                AiBusy = aiCpu > 30 || aiGpu > 20,
+                AudioActive = procs.Any(p => p.AudioActive),
+                InputIdleSeconds = idle,
+                RecentInputRatio = inputRatio,
+                DevForeground = fg?.Category == ProcessCategory.DevTool,
+                DevCompileActive = procs.Any(p => p.Category == ProcessCategory.DevTool &&
+                    (p.Memory.CpuPercent > 10 || FgGpu(p.Pid) > 5)),
+            };
+
+            var decision = SceneDetector.Evaluate(signals);
+            LastSceneDecision = decision;
+
+            var cfg = _config.Config;
+            if (cfg.AutoModeSwitch)
+            {
+                ApplySceneDecision(decision);
             }
-            else
+            else if (cfg.SceneShadowEnabled && decision.Decisive && decision.Target.HasValue)
             {
-                var busyGame = procs.FirstOrDefault(p => p.Category == ProcessCategory.Game &&
-                                                         !p.HasVisibleWindow && p.Memory.CpuPercent > 5);
-                if (busyGame != null)
+                // 影子模式：只记录"如果自动切换，会切到哪"，绝不动作；目标变化且距上次 ≥5 分钟才记
+                if (decision.Target != _lastShadowTarget && (now - _lastShadowLogUtc).TotalSeconds >= 300)
                 {
-                    target = AppMode.Game;
-                    reason = $"游戏进程高负载: {busyGame.Name}";
+                    _lastShadowTarget = decision.Target;
+                    _lastShadowLogUtc = now;
+                    _decisions.Log(new DecisionEntry
+                    {
+                        Kind = "SceneShadow",
+                        Target = decision.Target.Value.ToString(),
+                        Decision = "如果自动切换：会切",
+                        Reason = decision.Reason + "；信号：" + string.Join("、", decision.Signals.Take(6))
+                    });
                 }
             }
         }
+        catch { }
+    }
 
-        // AI signal: AI tool processes actually resident (not just leftover)
-        if (target == null)
-        {
-            var ai = procs.FirstOrDefault(p => p.Category == ProcessCategory.AiImageVideo &&
-                                               p.Memory.PrivateBytes > 512L * 1024 * 1024);
-            if (ai != null)
-            {
-                target = AppMode.AiGeneration;
-                reason = $"AI 工具进程常驻: {ai.Name}";
-            }
-        }
-
-        // Dev signal: foreground window belongs to a dev tool
-        if (target == null)
-        {
-            var fg = procs.FirstOrDefault(p => p.Pid == _lastForegroundPid);
-            if (fg != null && fg.Category == ProcessCategory.DevTool)
-            {
-                target = AppMode.Development;
-                reason = $"前台窗口属于开发工具: {fg.Name}";
-            }
-        }
-
-        if (target == null || target.Value == _config.Config.CurrentMode)
+    private void ApplySceneDecision(SceneDecision decision)
+    {
+        var cfg = _config.Config;
+        if (!decision.Decisive || !decision.Target.HasValue)
         {
             _pendingMode = null;
             _modeStreak = 0;
             return;
         }
-
-        // hysteresis: same target twice in a row, and no switch more often than 60s
-        if (_pendingMode == target.Value) _modeStreak++;
-        else { _pendingMode = target.Value; _modeStreak = 1; }
-
-        if (_modeStreak >= 2 && (DateTime.UtcNow - _lastModeSwitchUtc).TotalSeconds >= 60)
+        var target = decision.Target.Value;
+        if (target == cfg.CurrentMode)
         {
-            var from = _config.Config.CurrentMode;
-            _config.Config.CurrentMode = target.Value;
-            _config.Save();
-            _lastModeSwitchUtc = DateTime.UtcNow;
             _pendingMode = null;
             _modeStreak = 0;
-            _decisions.Log(new DecisionEntry
-            {
-                Kind = "ModeSwitch",
-                Target = "-",
-                Decision = "切换",
-                Reason = $"{from} → {target.Value}：{reason}（滞回确认 2 轮）"
-            });
-            MaybeResumeSuspendedOnModeChange();
-            ModeChanged?.Invoke(this, new ModeSwitchEventArgs { Mode = target.Value, Reason = reason });
+            return;
         }
+        if (_pendingMode == target) _modeStreak++;
+        else { _pendingMode = target; _modeStreak = 1; }
+        if (_modeStreak < 2 || (DateTime.UtcNow - _lastModeSwitchUtc).TotalSeconds < 60) return;
+
+        var from = cfg.CurrentMode;
+        cfg.CurrentMode = target;
+        _config.Save();
+        _lastModeSwitchUtc = DateTime.UtcNow;
+        _pendingMode = null;
+        _modeStreak = 0;
+        _decisions.Log(new DecisionEntry
+        {
+            Kind = "ModeSwitch",
+            Target = $"{from} → {target}",
+            Decision = "自动切换",
+            Reason = $"{decision.Reason}（滞回确认 2 轮）"
+        });
+        MaybeResumeSuspendedOnModeChange();
+        ModeChanged?.Invoke(this, new ModeSwitchEventArgs { Mode = target, Reason = decision.Reason });
     }
 
     public event EventHandler<ModeSwitchEventArgs>? ModeChanged;
@@ -421,43 +450,67 @@ public class ResidentEngine
     // Model loading (ollama etc.) lives in commit/pagefile, not working set: on 2026-10-29
     // commit jumped +22 GB in 10 minutes while every per-process WS stayed under the growth
     // threshold, so GrowthWatch missed it. This watches the system-level curve instead.
+    //
+    // 2026-10-31 误报修正：开机/唤醒时自启风暴会让提交内存在几分钟内涨 10-20GB（实测 07:40
+    // 唤醒后 5 分钟 +18.6GB、进程 224→631），但可用内存 14GB 完全健康。增长本身不是问题，
+    // 吃光余量才是。因此：① 窗口跨过 >10 分钟的空档时重置基线（睡眠恢复不放大增长率）；
+    // ② 增长型告警必须同时满足"可用 <8GB 且提交余量 <25%"，否则不报；③ 文案分级。
+
+    public enum CommitWatchLevel { None, Tight, Critical }
+
+    /// <summary>提交内存告警判定（纯函数，可单测）。growthGb=10 分钟增量；freeGb=可用物理内存；
+    /// commitFreeGb=提交余量；commitLimitGb=提交上限。</summary>
+    public static CommitWatchLevel EvaluateCommitWatch(double growthGb, double freeGb, double commitFreeGb, double commitLimitGb)
+    {
+        if (commitLimitGb <= 0) return CommitWatchLevel.None;
+        if (commitFreeGb < commitLimitGb * 0.10) return CommitWatchLevel.Critical;      // 真·余量告急
+        bool surge = growthGb >= 8 && freeGb < 8 && commitFreeGb < commitLimitGb * 0.25; // 增长且真的在吃余量
+        return surge ? CommitWatchLevel.Tight : CommitWatchLevel.None;
+    }
 
     private void WatchCommitPressure(SystemMemoryInfo mem)
     {
         var now = DateTime.UtcNow;
+        // 睡眠/关机恢复：上一轮采样已是 >10 分钟前 → 这是一条新基线，不能把「醒来的空闲值」
+        // 当作增长起点（否则每次开机都会误报）
+        if (_commitWindow.Count > 0 && (now - _commitWindow[^1].Utc).TotalMinutes > 10)
+            _commitWindow.Clear();
         _commitWindow.Add((now, mem.TotalCommittedBytes, mem.AvailablePhysicalBytes, mem.TotalCommitLimitBytes));
         _commitWindow.RemoveAll(x => (now - x.Utc).TotalMinutes > 10);
         if (_commitWindow.Count < 2) return;
         if ((now - _lastCommitWatchUtc).TotalMinutes < 30) return;
 
-        const double SurgeThresholdGb = 8;
         double growthGb = (mem.TotalCommittedBytes - _commitWindow[0].Commit) / 1073741824.0;
         long commitFree = mem.TotalCommitLimitBytes - mem.TotalCommittedBytes;
         double freeGb = mem.AvailablePhysicalBytes / 1073741824.0;
-        bool surge = growthGb >= SurgeThresholdGb;
-        bool exhausted = mem.TotalCommitLimitBytes > 0 && commitFree < mem.TotalCommitLimitBytes / 10;
-        if (!surge && !exhausted) return;
+        double commitFreeGb = commitFree / 1073741824.0;
+        double limitGb = mem.TotalCommitLimitBytes / 1073741824.0;
+
+        var level = EvaluateCommitWatch(growthGb, freeGb, commitFreeGb, limitGb);
+        if (level == CommitWatchLevel.None) return;
 
         _lastCommitWatchUtc = now;
+        bool critical = level == CommitWatchLevel.Critical;
+        string reason = critical
+            ? $"提交内存余量低于总量 10%（可用 {freeGb:F1} GB，提交余量 {commitFreeGb:F1} GB，仅提示，不自动处置）"
+            : $"提交内存 10 分钟内增长 {growthGb:F1} GB 且余量吃紧（可用 {freeGb:F1} GB，提交余量 {commitFreeGb:F1} GB，仅提示，不自动处置）";
         _decisions.Log(new DecisionEntry
         {
             Kind = "CommitWatch",
             Target = "-",
             Decision = "提示",
-            Reason = surge
-                ? $"提交内存 10 分钟内增长 {growthGb:F1} GB（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
-                : $"提交内存余量低于总量 10%（可用 {freeGb:F1} GB，提交余量 {commitFree / 1073741824.0:F1} GB，仅提示，不自动处置）"
+            Reason = reason
         });
         // 触达层：真正会把人叫醒的通道（决策日志之外的托盘气泡/主页横幅）
         if (_config.Config.ShowAlerts)
         {
             try
             {
-                Alert?.Invoke("内存告急",
-                    surge
-                        ? $"提交内存 10 分钟增长 {growthGb:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。"
-                        : $"提交余量仅 {commitFree / 1073741824.0:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。",
-                    true);
+                Alert?.Invoke(critical ? "内存告急" : "内存吃紧",
+                    critical
+                        ? $"提交余量仅 {commitFreeGb:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。"
+                        : $"提交内存 10 分钟增长 {growthGb:F1} GB，可用降至 {freeGb:F1} GB。主页可一键低风险腾挪。",
+                    critical);
             }
             catch { }
         }
