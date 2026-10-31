@@ -49,9 +49,12 @@ public partial class MainViewModel
 
     public void LoadHistory()
     {
-        // 页签切换不能读盘算图：数据读取放后台、10s 内复用上次结果，UI 只做点集/行的落位
-        if ((DateTime.UtcNow - _lastHistoryLoadUtc).TotalSeconds < 10) return;
+        // 页签切换不能读盘算图：数据读取放后台，UI 只做点集/行的落位。
+        // 只保留 0.8 秒防连击（TabControl 可能连发两次 SelectionChanged）；
+        // 原来是 10 秒节流——实测会静默跳过，用户看到的是"点了没反应"，已去掉。
+        if ((DateTime.UtcNow - _lastHistoryLoadUtc).TotalMilliseconds < 800) return;
         _lastHistoryLoadUtc = DateTime.UtcNow;
+        if (string.IsNullOrEmpty(_historySummary)) HistorySummary = "正在统计历史数据…";
         Task.Run(() =>
         {
             var day = Usage.ReadWindow(TimeSpan.FromHours(24));
@@ -65,28 +68,38 @@ public partial class MainViewModel
             return (day, week, habit, actions, gpu);
         }).ContinueWith(t =>
         {
-            if (t.IsFaulted || t.Result.day == null) return;
+            // 失败必须说出来：之前是静默 return，用户只能看到一张空图
+            if (t.IsFaulted)
+            {
+                var ex = t.Exception?.GetBaseException();
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                    HistorySummary = "历史统计失败：" + (ex?.Message ?? "未知错误"));
+                return;
+            }
+            if (t.Result.day == null) return;
             var (day, week, habit, actions, gpu) = t.Result;
             System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            HistoryPoints.Clear();
+            var memPts = new System.Windows.Media.PointCollection();
+            var memArea = new System.Windows.Media.PointCollection();
             if (day.Count > 1 && day[0].Total > 0)
             {
-                HistoryAreaPoints.Clear();
                 for (int i = 0; i < day.Count; i++)
                 {
                     double frac = (double)(day[i].Total - day[i].Avail) / day[i].Total; // v0.3.5：占用率（越高越紧张）
                     double x = i * (640.0 / Math.Max(1, day.Count - 1));
                     double y = 150 - frac * 140;
-                    HistoryPoints.Add(new System.Windows.Point(x, y));
-                    HistoryAreaPoints.Add(new System.Windows.Point(x, y));
+                    memPts.Add(new System.Windows.Point(x, y));
+                    memArea.Add(new System.Windows.Point(x, y));
                 }
-                if (HistoryPoints.Count > 1)
+                if (memPts.Count > 1)
                 {
-                    HistoryAreaPoints.Add(new System.Windows.Point(640, 160));
-                    HistoryAreaPoints.Add(new System.Windows.Point(0, 160));
+                    memArea.Add(new System.Windows.Point(640, 160));
+                    memArea.Add(new System.Windows.Point(0, 160));
                 }
             }
+            HistoryPoints = memPts;          // 整体替换（见属性注释：Clear+Add 不会让 Shape 重建几何）
+            HistoryAreaPoints = memArea;
             // mode usage over 7 days（week 已在后台线程读好：之前这里又同步读一次盘，与"页签切换不读盘"矛盾）
             ModeUsageItems.Clear();
             foreach (var g in week.GroupBy(s => s.Mode).OrderByDescending(g => g.Sum(s => (double)s.Interval)))
@@ -121,8 +134,8 @@ public partial class MainViewModel
 
             // ---- 显存（v0.3.4）：曲线 + 大户表 + 摘要 ----
             var gpuHist = GpuHistory.Build(gpu);
-            GpuHistoryPoints.Clear();
-            GpuHistoryAreaPoints.Clear();
+            var gpuPts = new System.Windows.Media.PointCollection();
+            var gpuArea = new System.Windows.Media.PointCollection();
             if (gpuHist.Points.Count > 1)
             {
                 for (int i = 0; i < gpuHist.Points.Count; i++)
@@ -130,12 +143,14 @@ public partial class MainViewModel
                     double frac = Math.Clamp(gpuHist.Points[i].Percent / 100.0, 0, 1);
                     double x = i * (640.0 / Math.Max(1, gpuHist.Points.Count - 1));
                     double y = 150 - frac * 140;
-                    GpuHistoryPoints.Add(new System.Windows.Point(x, y));
-                    GpuHistoryAreaPoints.Add(new System.Windows.Point(x, y));
+                    gpuPts.Add(new System.Windows.Point(x, y));
+                    gpuArea.Add(new System.Windows.Point(x, y));
                 }
-                GpuHistoryAreaPoints.Add(new System.Windows.Point(640, 160));
-                GpuHistoryAreaPoints.Add(new System.Windows.Point(0, 160));
+                gpuArea.Add(new System.Windows.Point(640, 160));
+                gpuArea.Add(new System.Windows.Point(0, 160));
             }
+            GpuHistoryPoints = gpuPts;
+            GpuHistoryAreaPoints = gpuArea;
             GpuUsageItems.Clear();
             foreach (var row in gpuHist.Top) GpuUsageItems.Add(row);
             GpuHistorySummary = gpuHist.SampleCount == 0
@@ -159,12 +174,46 @@ public partial class MainViewModel
         });
     }
 
-    public System.Windows.Media.PointCollection MemoryTrendPoints { get; } = new();
-    public System.Windows.Media.PointCollection MemoryTrendAreaPoints { get; } = new();
-    public System.Windows.Media.PointCollection HistoryPoints { get; } = new();
-    public System.Windows.Media.PointCollection HistoryAreaPoints { get; } = new();
-    public System.Windows.Media.PointCollection GpuHistoryPoints { get; } = new();
-    public System.Windows.Media.PointCollection GpuHistoryAreaPoints { get; } = new();
+    // v0.3.6：图表点集必须**整体替换**（new PointCollection）而不是 Clear+Add。
+    // 实测踩坑：共享 PointCollection 变异后 Polyline 的 RenderedGeometry 仍是空的（ActualWidth=0），
+    // 曲线点集有 231 个点却画不出来；换成新实例 + PropertyChanged 后立即正常。
+    // 这与项目既有规则「集合必须整体替换，不许 Clear+Add」同源。
+    private System.Windows.Media.PointCollection _memoryTrendPoints = new();
+    public System.Windows.Media.PointCollection MemoryTrendPoints
+    {
+        get => _memoryTrendPoints;
+        private set { _memoryTrendPoints = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.PointCollection _memoryTrendAreaPoints = new();
+    public System.Windows.Media.PointCollection MemoryTrendAreaPoints
+    {
+        get => _memoryTrendAreaPoints;
+        private set { _memoryTrendAreaPoints = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.PointCollection _historyPoints = new();
+    public System.Windows.Media.PointCollection HistoryPoints
+    {
+        get => _historyPoints;
+        private set { _historyPoints = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.PointCollection _historyAreaPoints = new();
+    public System.Windows.Media.PointCollection HistoryAreaPoints
+    {
+        get => _historyAreaPoints;
+        private set { _historyAreaPoints = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.PointCollection _gpuHistoryPoints = new();
+    public System.Windows.Media.PointCollection GpuHistoryPoints
+    {
+        get => _gpuHistoryPoints;
+        private set { _gpuHistoryPoints = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.PointCollection _gpuHistoryAreaPoints = new();
+    public System.Windows.Media.PointCollection GpuHistoryAreaPoints
+    {
+        get => _gpuHistoryAreaPoints;
+        private set { _gpuHistoryAreaPoints = value; OnPropertyChanged(); }
+    }
     private readonly List<(DateTime t, double usedFrac)> _memSamples = new();
 
     private string _searchText = "";
@@ -179,26 +228,28 @@ public partial class MainViewModel
             : (double)(mem.TotalPhysicalBytes - mem.AvailablePhysicalBytes) / mem.TotalPhysicalBytes;
         _memSamples.Add((DateTime.UtcNow, usedFrac));
         if (_memSamples.Count > 60) _memSamples.RemoveAt(0);
-        MemoryTrendPoints.Clear();
+        var trendPts = new System.Windows.Media.PointCollection();
+        var trendArea = new System.Windows.Media.PointCollection();
         if (_memSamples.Count > 1)
         {
             double maxV = _memSamples.Max(s => s.usedFrac);
             double minV = _memSamples.Min(s => s.usedFrac);
             double range = Math.Max(0.0001, maxV - minV);
-            MemoryTrendAreaPoints.Clear();
             for (int i = 0; i < _memSamples.Count; i++)
             {
                 // canvas on the home page is 260x64 — scale to it, or the line gets clipped
                 double x = i * (260.0 / Math.Max(1, _memSamples.Count - 1));
                 double y = 60 - (_memSamples[i].usedFrac - minV) / range * 54;
-                MemoryTrendPoints.Add(new System.Windows.Point(x, y));
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(x, y));
+                trendPts.Add(new System.Windows.Point(x, y));
+                trendArea.Add(new System.Windows.Point(x, y));
             }
-            if (MemoryTrendPoints.Count > 1)
+            if (trendPts.Count > 1)
             {
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(260, 64));
-                MemoryTrendAreaPoints.Add(new System.Windows.Point(0, 64));
+                trendArea.Add(new System.Windows.Point(260, 64));
+                trendArea.Add(new System.Windows.Point(0, 64));
             }
         }
+        MemoryTrendPoints = trendPts;       // 整体替换（同图表点集规则）
+        MemoryTrendAreaPoints = trendArea;
     }
 }

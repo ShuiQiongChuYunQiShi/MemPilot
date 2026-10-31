@@ -137,6 +137,11 @@ public partial class MainWindow : Window
         Activate();
         UpdateUiActivity();
         _ = _vm.RefreshAsync(); // 打开即刷新：GPU/趋势等隐藏期间未更新的字段立刻补齐
+        // v0.3.6：从托盘恢复时页签没有变化，SelectionChanged 不会再触发 → 停在历史页会一直空着。
+        // 这里按当前可见页签主动补一次统计（LoadHistory 内部只做 0.8s 防连击，代价约 10ms）。
+        if (RootTabs?.SelectedItem is TabItem { Header: not null } tab &&
+            tab.Header.ToString()!.Replace(" ", "").StartsWith("📊", StringComparison.Ordinal))
+            _vm.LoadHistory();
     }
 
     /// <summary>Lightweight mode: while the window is hidden/minimized the refresh loop runs
