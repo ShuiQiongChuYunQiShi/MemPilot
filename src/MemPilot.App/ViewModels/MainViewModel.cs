@@ -283,6 +283,23 @@ public class MainViewModel : INotifyPropertyChanged
     }
     private readonly HashSet<int> _collapsedPids = new();
 
+    private string _workloadFilter = "";
+    /// <summary>用途筛选（"" = 全部）。取值来自 WorkloadClassifier.DisplayName：工作/娱乐/AI/系统/其他/未知。</summary>
+    public string WorkloadFilter
+    {
+        get => _workloadFilter;
+        set
+        {
+            var v = value ?? "";
+            if (_workloadFilter == v) return;
+            _workloadFilter = v;
+            OnPropertyChanged();
+            ConfigStore.Config.WorkloadFilter = v;
+            ConfigStore.Save();
+            ApplyFilter();
+        }
+    }
+
     public void ToggleCollapse(int pid)
     {
         if (!_collapsedPids.Remove(pid)) _collapsedPids.Add(pid);
@@ -312,6 +329,7 @@ public class MainViewModel : INotifyPropertyChanged
         ConfigStore = config;
         Audit = audit;
         Feedback = feedback;
+        _workloadFilter = config.Config.WorkloadFilter ?? "";
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
                          ?? new ProgramCatalogService();
@@ -607,6 +625,45 @@ public class MainViewModel : INotifyPropertyChanged
         private set { _programCatalogInfo = value; OnPropertyChanged(); }
     }
 
+    // ---- 场景影子校准（v0.3.2）：影子只写不读 → 这里给出结算，设置页可见 ----
+
+    private string _shadowCalibrationText = "尚未统计（打开设置页或点「刷新校准数据」）。";
+    public string ShadowCalibrationText
+    {
+        get => _shadowCalibrationText;
+        private set { _shadowCalibrationText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>重算近 7 天影子结算文本。失败要说出来，不能静默留旧值。</summary>
+    public void RefreshShadowCalibration(int days = 7)
+    {
+        try
+        {
+            var report = SceneShadowReport.Build(Decisions.Recent(1000), Audit.Recent(500), DateTime.UtcNow, days);
+            ShadowCalibrationText = report.Text;
+        }
+        catch (Exception ex)
+        {
+            ShadowCalibrationText = "影子校准统计失败：" + ex.Message;
+        }
+    }
+
+    // ---- 持久化诊断（v0.3.2）：JsonFileStore 的失败计数，设置页可见 ----
+
+    private string _storeDiagnosticsText = "";
+    public string StoreDiagnosticsText
+    {
+        get => _storeDiagnosticsText;
+        private set { _storeDiagnosticsText = value; OnPropertyChanged(); }
+    }
+
+    public void RefreshDiagnostics()
+    {
+        var summary = MemPilot.Helpers.StoreDiagnostics.Summary();
+        var recent = MemPilot.Helpers.StoreDiagnostics.Recent().FirstOrDefault();
+        StoreDiagnosticsText = recent == null ? summary : summary + "\n最近：" + recent;
+    }
+
     private void BuildProgramCatalogInBackground()
     {
         try
@@ -692,6 +749,9 @@ public class MainViewModel : INotifyPropertyChanged
             var q = SearchText.ToLowerInvariant();
             src = src.Where(p => p.Name.ToLowerInvariant().Contains(q) || p.ExecutablePath.ToLowerInvariant().Contains(q) || p.MainWindowTitle.ToLowerInvariant().Contains(q));
         }
+        // 用途筛选先于树构建：树里只留命中的节点，避免"筛了工作却还看到游戏父节点"
+        if (!string.IsNullOrEmpty(_workloadFilter))
+            src = src.Where(p => WorkloadClassifier.DisplayName(p.Workload) == _workloadFilter);
         if (TreeMode) src = ProcessTreeBuilder.Build(src, _collapsedPids);
         // swap the whole collection instead of Clear+Add: one Reset notification beats
         // 500 Add notifications every refresh (the periodic-jank fix)

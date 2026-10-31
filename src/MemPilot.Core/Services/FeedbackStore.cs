@@ -1,5 +1,5 @@
 ﻿using System.IO;
-using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -14,22 +14,8 @@ public class FeedbackStore
         _path = Path.Combine(dataDir, "feedback.json");
         Load();
     }
-    private void Load()
-    {
-        try
-        {
-            if (File.Exists(_path))
-            {
-                var json = File.ReadAllText(_path);
-                _entries = JsonSerializer.Deserialize<List<FeedbackEntry>>(json) ?? new();
-            }
-        }
-        catch { _entries = new(); }
-    }
-    public void Save()
-    {
-        try { File.WriteAllText(_path, JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = true })); } catch { }
-    }
+    private void Load() => _entries = JsonFileStore.Load<List<FeedbackEntry>>(_path) ?? new();
+    public void Save() => JsonFileStore.Save(_path, _entries, JsonFileStore.Pretty);
     public void Add(FeedbackEntry e) { _entries.Add(e); Save(); }
     public List<FeedbackEntry> All() => _entries.ToList();
     public FeedbackEntry? Find(string name, string path, string publisher)

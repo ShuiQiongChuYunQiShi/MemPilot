@@ -65,6 +65,21 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.2 — 棱镜第二轮整改（2026-10-31，待发布）
+
+第二轮棱镜（证据包 ev-22be20dd7790，HEAD 3d573d4）：19 条 findings，新增 6 / 已解决 4 / 仍活跃 9；两个历史 P0 全部认账关闭。本轮先做成本最低、收益最直接的一批：
+
+- [x] **CI 机器产物**（prism test/coverage）：`dotnet test --logger trx --collect:"XPlat Code Coverage"` + TestResults 上传；`MemPilot.Core` 行覆盖门槛 **50%**（实测基线 52.4%，目标 60%——定一个当下就红的口槛等于没门槛，先锁现状再迭代抬升）。新增覆盖率汇总步骤打印 TRX 用例数与 Core 行覆盖。
+- [x] **锁文件**（prism stack/dependency）：三个 csproj 启用 `RestorePackagesWithLockFile`，`packages.lock.json` 入库；CI/release 均先 `dotnet restore --locked-mode`。
+- [x] **文档漂移**（prism docs/drift）：HANDOFF.md 更新到 v0.3.1/152 用例并加"只写不常变的事实"维护约定；README 删除重复的「腾挪工作流」段、补 v0.3.0/v0.3.1 功能、修正「零 NuGet」（实际 1 个包）、补「许可」段。
+- [x] **进程表密度**（prism ui/table-density）：PID/名称冻结（`FrozenColumnCount=2`）；新增「列设置 ▾」菜单（11 个可切换列）并把默认收起的 9 个低频列写入 `AppConfig.ProcessHiddenColumns`（列改名会静默失效 → 静态守卫测试锁死）。
+- [x] **用途筛选**（prism product/classification-quality）：进程页新增「全部用途/工作/娱乐/AI/系统/其他/未知」下拉，选择持久化到 `AppConfig.WorkloadFilter`；筛选先于树构建（树里不残留未命中父节点）。守卫测试断言下拉项与 `WorkloadClassifier.DisplayName` 完全一致。
+- [x] **影子结算**（prism completeness/shadow-loop）：`SceneShadowReport` 纯函数——影子决断/自动切换/人工切换按本地日聚合；±10 分钟内的人工切换才算标签（同向=一致、异向=分歧、否则「未验证」）；无标签时只报频率不编造准确率。设置页「场景影子校准（近 7 天）」卡片 + 刷新按钮。
+- [x] **持久化收敛**（prism maintainability/duplication + backend/error-handling）：`JsonFileStore`（tmp+Move 原子写、重试、最终失败计数）+ `StoreDiagnostics`（内存计数 + 最近 20 条 + 可选 diag.log）；DecisionLog/AuditLogger/FeedbackStore/ConfigStore/SuspendRegistry/lookups 六处改为调用，设置页显示落盘诊断一句话。
+- [x] 签名入 CI 的**可选项**：release.yml 增加 `SIGN_ENABLED` 变量门控的签名步骤（缺密钥=告警跳过，不打断发布链）；证书与变量由用户侧配置后生效。
+- 测试 152→171（新增：进程页列设置/用途筛选守卫 5、影子结算 7、JsonFileStore 7）。
+- 未做：god-class 拆分、UI 性能回归守卫、签名默认启用（需用户上传证书）。
+
 ### v0.3.1 — 用途维度（2026-10-31，已发布安装）
 
 - [x] `WorkloadKind`（娱乐/工作/AI/系统/其他/未知）+ `WorkloadClassifier`：身份（Category）之上派生用途；强类别优先（游戏/AI/系统/开发容器），名称/清单显示名/清单发布者关键词补充；歧义进程（浏览器/聊天）归"其他"不硬猜；Bloatware 不参与用途判定。用途仅展示/排序，**不构成处置依据**。

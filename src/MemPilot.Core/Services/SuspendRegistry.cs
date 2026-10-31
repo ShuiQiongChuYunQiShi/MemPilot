@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -27,16 +27,12 @@ public class SuspendRegistry
 
     private void LoadAndValidate()
     {
-        try
+        var list = JsonFileStore.Load<List<SuspendRecord>>(_path);
+        if (list == null) return;
+        foreach (var rec in list)
         {
-            if (!File.Exists(_path)) return;
-            var list = JsonSerializer.Deserialize<List<SuspendRecord>>(File.ReadAllText(_path)) ?? new List<SuspendRecord>();
-            foreach (var rec in list)
-            {
-                if (IsRecordAlive(rec)) _records[rec.Pid] = rec;
-            }
+            if (IsRecordAlive(rec)) _records[rec.Pid] = rec;
         }
-        catch { }
     }
 
     private static bool IsRecordAlive(SuspendRecord rec)
@@ -105,23 +101,5 @@ public class SuspendRegistry
         return LiveRecords().Select(r => r.Pid).ToHashSet();
     }
 
-    private void Save()
-    {
-        // AV real-time scanners transiently lock freshly created directories/files;
-        // retry briefly before giving up (state remains in memory either way).
-        for (int attempt = 1; ; attempt++)
-        {
-            try
-            {
-                File.WriteAllText(_path, JsonSerializer.Serialize(_records.Values.ToList(), new JsonSerializerOptions { WriteIndented = false }));
-                return;
-            }
-            catch (Exception ex)
-            {
-                System.Console.Error.WriteLine($"SuspendRegistry.Save attempt {attempt} failed: {ex.GetType().Name}: {ex.Message}");
-                if (attempt >= 3) return;
-                System.Threading.Thread.Sleep(100 * attempt);
-            }
-        }
-    }
+    private void Save() => JsonFileStore.Save(_path, _records.Values.ToList());
 }

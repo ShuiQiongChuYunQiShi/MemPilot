@@ -1,5 +1,5 @@
 ﻿using System.IO;
-using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -31,22 +31,8 @@ public class ConfigStore
                 game.KeepPatterns.Add(p);
         Save();
     }
-    private void Load()
-    {
-        try
-        {
-            if (File.Exists(_path))
-            {
-                var json = File.ReadAllText(_path);
-                Config = JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
-            }
-        }
-        catch { Config = new AppConfig(); }
-    }
-    public void Save()
-    {
-        try { File.WriteAllText(_path, JsonSerializer.Serialize(Config, new JsonSerializerOptions { WriteIndented = true })); } catch { }
-    }
+    private void Load() => Config = JsonFileStore.Load<AppConfig>(_path) ?? new AppConfig();
+    public void Save() => JsonFileStore.Save(_path, Config, JsonFileStore.Pretty);
     private void EnsureDefaults()
     {
         if (Config.ModeProfiles.Count == 0)

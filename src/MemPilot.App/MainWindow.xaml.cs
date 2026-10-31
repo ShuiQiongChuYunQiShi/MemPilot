@@ -112,6 +112,8 @@ public partial class MainWindow : Window
         {
             SyncModeRadios(_vm.CurrentMode);
             if (AutoSwitchCheck != null) AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
+            ApplyColumnVisibility();      // 列设置（默认收起 9 个低频列）
+            ApplyWorkloadFilterToUi();    // 用途筛选（上次选择）
             UpdateUiActivity(); // start-minimized sessions begin in lightweight mode
             await _vm.RefreshAsync();
             _vm.StartEngine();          // resident engine: periodic refresh + policies
@@ -419,6 +421,83 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => _vm.SearchText = SearchBox.Text;
 
+    // ---- 进程页：用途筛选 + 列设置（棱镜 ui/table-density、product/classification-quality）----
+
+    private void WorkloadFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_vm == null || WorkloadFilterBox == null) return;
+        var tag = (WorkloadFilterBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        _vm.WorkloadFilter = tag;
+    }
+
+    private void ColumnMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.ContextMenu == null) return;
+        fe.ContextMenu.PlacementTarget = fe;
+        fe.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        fe.ContextMenu.IsOpen = true;
+    }
+
+    private void ColumnMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu cm) return;
+        foreach (var item in cm.Items.OfType<MenuItem>())
+        {
+            var header = item.Tag as string ?? "";
+            var col = FindColumn(header);
+            item.IsChecked = col != null && col.Visibility == Visibility.Visible;
+        }
+    }
+
+    private void ColumnToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem mi) return;
+        var header = mi.Tag as string ?? "";
+        var col = FindColumn(header);
+        if (col == null) return;
+
+        col.Visibility = mi.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+        var hidden = _config.Config.ProcessHiddenColumns ?? new List<string>();
+        hidden.RemoveAll(h => string.Equals(h, header, StringComparison.Ordinal));
+        if (!mi.IsChecked) hidden.Add(header);
+        _config.Config.ProcessHiddenColumns = hidden;
+        _vm.ConfigStore.Save();
+    }
+
+    private DataGridColumn? FindColumn(string header)
+        => ProcessGrid?.Columns.FirstOrDefault(c => c.Header is string h && string.Equals(h, header, StringComparison.Ordinal));
+
+    /// <summary>按配置应用列显隐。PID/名称固定可见（FrozenColumnCount=2），不被配置隐藏。</summary>
+    private void ApplyColumnVisibility()
+    {
+        if (ProcessGrid == null) return;
+        var hidden = _config.Config.ProcessHiddenColumns ?? new List<string>();
+        foreach (var col in ProcessGrid.Columns)
+        {
+            if (col.Header is not string h) continue;
+            if (h is "PID" or "名称") { col.Visibility = Visibility.Visible; continue; }
+            col.Visibility = hidden.Any(x => string.Equals(x, h, StringComparison.Ordinal))
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+    }
+
+    /// <summary>把配置里的用途筛选同步到下拉框（初始化时调用，避免触发一次多余的 Save）。</summary>
+    private void ApplyWorkloadFilterToUi()
+    {
+        if (WorkloadFilterBox == null) return;
+        var want = _config.Config.WorkloadFilter ?? "";
+        WorkloadFilterBox.SelectedIndex = 0;
+        foreach (var item in WorkloadFilterBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag as string, want, StringComparison.Ordinal))
+            {
+                WorkloadFilterBox.SelectedItem = item;
+                break;
+            }
+        }
+    }
+
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.OriginalSource is not TabControl) return;
@@ -482,7 +561,11 @@ public partial class MainWindow : Window
         ProtectedListEditor.Text = string.Join("\n", _config.Config.ProtectedNames);
         WhitelistEditor.Text = string.Join("\n", _config.Config.Whitelist);
         BlacklistEditor.Text = string.Join("\n", _config.Config.Blacklist);
+        _vm.RefreshShadowCalibration(); // 影子结算：进设置页即算一次（1000 条内存内，无 IO）
+        _vm.RefreshDiagnostics();       // 落盘诊断：失败计数 + 最近一条
     }
+
+    private void RefreshShadowCalibration_Click(object sender, RoutedEventArgs e) => _vm.RefreshShadowCalibration();
 
     // ---- cleanup actions ----
 

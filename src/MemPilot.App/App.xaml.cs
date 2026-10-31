@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
+using MemPilot.Helpers;
 using MemPilot.Services;
 
 namespace MemPilot.App;
@@ -126,6 +127,9 @@ public partial class App : Application
                 var test = Path.Combine(c, ".writetest");
                 File.WriteAllText(test, "x");
                 File.Delete(test);
+                // 落盘失败诊断（JsonFileStore）写这里；只在首次可用目录时确定
+                if (StoreDiagnostics.LogPath == null)
+                    StoreDiagnostics.LogPath = Path.Combine(c, "diag.log");
                 return c;
             }
             catch { }

@@ -8,6 +8,7 @@ test_*.txt
 src/MemoryTool.App/Data/
 *.zip
 .test-tmp/
+TestResults/
 _patch*.py
 .workbuddy/
 .zcode/

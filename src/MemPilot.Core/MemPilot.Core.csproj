@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>MemPilot</RootNamespace>
     <AssemblyName>MemPilot.Core</AssemblyName>
+    <!-- 可复现构建：锁文件入库，CI 用 locked-mode（棱镜 stack/dependency） -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Diagnostics.EventLog" Version="9.0.0" />

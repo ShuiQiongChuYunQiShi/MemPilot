@@ -457,7 +457,33 @@
                     <DockPanel Margin="0,0,0,6">
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                             <TextBox x:Name="SearchBox" Width="240" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
+                            <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="按用途筛选（工作/娱乐/AI/系统/其他/未知）" SelectionChanged="WorkloadFilter_Changed">
+                                <ComboBoxItem Content="全部用途" Tag=""/>
+                                <ComboBoxItem Content="工作" Tag="工作"/>
+                                <ComboBoxItem Content="娱乐" Tag="娱乐"/>
+                                <ComboBoxItem Content="AI" Tag="AI"/>
+                                <ComboBoxItem Content="系统" Tag="系统"/>
+                                <ComboBoxItem Content="其他" Tag="其他"/>
+                                <ComboBoxItem Content="未知" Tag="未知"/>
+                            </ComboBox>
                             <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" VerticalAlignment="Center"/>
+                            <Button x:Name="ColumnMenuButton" Content="列设置 ▾" Margin="8,0,0,0" VerticalAlignment="Center" Click="ColumnMenu_Click">
+                                <Button.ContextMenu>
+                                    <ContextMenu Opened="ColumnMenu_Opened">
+                                        <MenuItem Header="所属程序" Tag="所属程序" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="内存增长" Tag="内存增长" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="线程" Tag="线程" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="子进程" Tag="子进程" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="窗口标题" Tag="窗口标题" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="厂商" Tag="厂商" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="音频" Tag="音频" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="保护" Tag="保护" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="模式保留" Tag="模式保留" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="签名" Tag="签名" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="分类依据" Tag="分类依据" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
                         </StackPanel>
                         <TextBlock DockPanel.Dock="Right" Text="右键 = 处置 · 双击 = 定位文件" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -471,7 +497,7 @@
                             <TextBlock Text="未识别" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
                         </StackPanel>
                     </DockPanel>
-                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
+                    <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="2" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                 <Style.Triggers>
@@ -1025,6 +1051,15 @@
                                 <TextBlock Text="API 密钥（仅存本机 config.json）" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBox x:Name="SetApiKey" Width="440" HorizontalAlignment="Left" Margin="0,2,0,10"/>
                                 <CheckBox x:Name="SetOnlineEnabled" Content="启用联网查询" Margin="0,3"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="场景影子校准（近 7 天）" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
+                                <TextBlock Text="{Binding ShadowCalibrationText}" Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding StoreDiagnosticsText}" Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                <Button Content="刷新校准数据" Click="RefreshShadowCalibration_Click" Style="{StaticResource GhostBtn}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
                             </StackPanel>
                         </Border>
 

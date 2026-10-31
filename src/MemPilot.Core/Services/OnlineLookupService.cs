@@ -2,6 +2,7 @@
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -26,45 +27,28 @@ public class OnlineLookupService
 
     public static void LoadCache(string dataDir)
     {
-        try
+        _cachePath = Path.Combine(dataDir, "lookups.json");
+        var loaded = JsonFileStore.Load<Dictionary<string, CachedLookup>>(_cachePath);
+        if (loaded == null) return;
+        lock (_cacheLock)
         {
-            _cachePath = Path.Combine(dataDir, "lookups.json");
-            if (!File.Exists(_cachePath)) return;
-            var loaded = JsonSerializer.Deserialize<Dictionary<string, CachedLookup>>(File.ReadAllText(_cachePath));
-            if (loaded == null) return;
-            lock (_cacheLock)
-            {
-                foreach (var kv in loaded)
-                    if ((DateTime.UtcNow - kv.Value.Time).TotalDays < CacheDays)
-                        _cache[kv.Key] = kv.Value;
-            }
+            foreach (var kv in loaded)
+                if ((DateTime.UtcNow - kv.Value.Time).TotalDays < CacheDays)
+                    _cache[kv.Key] = kv.Value;
         }
-        catch { _cachePath = null; }
     }
 
     private static void SaveCache()
     {
         if (_cachePath == null) return;
-        for (int attempt = 1; ; attempt++)
+        lock (_cacheLock)
         {
-            try
+            if (_cache.Count > CacheMaxEntries)
             {
-                lock (_cacheLock)
-                {
-                    if (_cache.Count > CacheMaxEntries)
-                    {
-                        foreach (var dead in _cache.OrderBy(kv => kv.Value.Time).Take(_cache.Count - CacheMaxEntries).Select(kv => kv.Key).ToList())
-                            _cache.Remove(dead);
-                    }
-                    File.WriteAllText(_cachePath, JsonSerializer.Serialize(_cache, new JsonSerializerOptions { WriteIndented = false }));
-                }
-                return;
+                foreach (var dead in _cache.OrderBy(kv => kv.Value.Time).Take(_cache.Count - CacheMaxEntries).Select(kv => kv.Key).ToList())
+                    _cache.Remove(dead);
             }
-            catch (Exception)
-            {
-                if (attempt >= 3) return;
-                System.Threading.Thread.Sleep(100 * attempt);
-            }
+            JsonFileStore.Save(_cachePath, _cache);
         }
     }
 

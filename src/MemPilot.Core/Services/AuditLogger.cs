@@ -1,5 +1,5 @@
 ﻿using System.IO;
-using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -18,18 +18,11 @@ public class AuditLogger
     }
     private void Load()
     {
-        try
-        {
-            if (File.Exists(_path))
-            {
-                var json = File.ReadAllText(_path);
-                var list = JsonSerializer.Deserialize<List<AuditEntry>>(json);
-                if (list != null) _entries.AddRange(list);
-                if (_entries.Count > MaxEntries)
-                    _entries.RemoveRange(0, _entries.Count - MaxEntries);
-            }
-        }
-        catch { }
+        var list = JsonFileStore.Load<List<AuditEntry>>(_path);
+        if (list == null) return;
+        _entries.AddRange(list);
+        if (_entries.Count > MaxEntries)
+            _entries.RemoveRange(0, _entries.Count - MaxEntries);
     }
     public void Log(AuditEntry e)
     {
@@ -38,11 +31,7 @@ public class AuditLogger
             _entries.Add(e);
             if (_entries.Count > MaxEntries)
                 _entries.RemoveRange(0, _entries.Count - MaxEntries);
-            try
-            {
-                File.WriteAllText(_path, JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = false }));
-            }
-            catch { }
+            JsonFileStore.Save(_path, _entries);
         }
     }
     public List<AuditEntry> Recent(int n = 500)

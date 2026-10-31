@@ -371,6 +371,13 @@ public class AppConfig
     public bool ShowAlerts { get; set; } = true;
     // 场景识别影子模式：只记录"如果自动切换会切到哪"，不动作（默认开，校准期用）
     public bool SceneShadowEnabled { get; set; } = true;
+    // 进程页列设置：用户隐藏的列（按表头文本）。默认收起 9 个低频/证据列——19 列合计约 1.7k px，
+    // 1280 宽窗口下会把「签名/分类依据」挤到视口外，等于把判断依据藏起来（棱镜 ui/table-density）。
+    // PID 与名称固定可见（DataGrid FrozenColumnCount=2），不在此列表中生效。
+    public List<string> ProcessHiddenColumns { get; set; } = new()
+    { "内存增长", "子进程", "线程", "窗口标题", "厂商", "音频", "模式保留", "签名", "分类依据" };
+    // 进程页用途筛选："" = 全部；否则为 WorkloadClassifier.DisplayName 的取值（工作/娱乐/AI/系统/其他/未知）
+    public string WorkloadFilter { get; set; } = "";
     public bool AutoOptimizeIntervalEnabled { get; set; } = false;
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
     public int AutoOptimizeThresholdPercent { get; set; } = 15; // clean when free RAM below this %

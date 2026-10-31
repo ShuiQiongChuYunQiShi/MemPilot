@@ -17,8 +17,55 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # 锁文件门禁：版本以 packages.lock.json 为准，依赖漂移直接红（棱镜 stack/dependency）
+      - name: Restore (locked)
+        run: dotnet restore tests/MemPilot.Tests/MemPilot.Tests.csproj --locked-mode
+
+      # 机器可读产物：TRX（真实用例数/结果）+ cobertura（行覆盖）。
+      # 为什么必须落盘：xUnit 断言消息会被 CI 日志吞（HANDOFF 关键事实 #5），
+      # 而「129 个 Fact/Theory 到底跑了几个」此前只能靠人肉数——用例数不可证 = 假绿风险。
       - name: Test
-        run: dotnet test tests/MemPilot.Tests/MemPilot.Tests.csproj -v q
+        run: dotnet test tests/MemPilot.Tests/MemPilot.Tests.csproj -v q --logger "trx;LogFileName=test-results.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
+
+      - name: Coverage summary
+        if: always()
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path TestResults -Filter coverage.cobertura.xml -Recurse -ErrorAction SilentlyContinue
+          if (-not $files) { Write-Warning '未找到 coverage.cobertura.xml'; exit 0 }
+          # Core 行覆盖门槛：2026-10-31 实测基线 52.4%，先设 50% 只防倒退（目标 60%，见 ITERATION-BACKLOG）。
+          # 为什么 50 而不是 60：定一个当下就红的口槛等于没有门槛——先锁住现状，再靠迭代往上抬。
+          $coreGate = 0.50
+          $coreRate = $null
+          foreach ($f in $files) {
+            [xml]$x = Get-Content $f.FullName
+            $rate = [double]$x.coverage.'line-rate'
+            Write-Host ("coverage {0} line-rate {1:P1}" -f $f.Directory.Name, $rate)
+            foreach ($p in $x.coverage.packages.package) {
+              if ($p.name -eq 'MemPilot.Core') { $coreRate = [double]$p.'line-rate' }
+            }
+          }
+          if ($null -eq $coreRate) { Write-Warning '未找到 MemPilot.Core 覆盖率条目'; exit 0 }
+          Write-Host ("MemPilot.Core line-rate {0:P1} (gate {1:P0})" -f $coreRate, $coreGate)
+          if ($coreRate -lt $coreGate) {
+            Write-Error ("MemPilot.Core 行覆盖 {0:P1} 低于门槛 {1:P0}" -f $coreRate, $coreGate)
+            exit 1
+          }
+          $trx = Get-ChildItem -Path TestResults -Filter *.trx -Recurse -ErrorAction SilentlyContinue
+          foreach ($t in $trx) {
+            [xml]$d = Get-Content $t.FullName
+            $c = $d.TestRun.ResultSummary.Counters
+            Write-Host ("trx total={0} passed={1} failed={2} skipped={3}" -f $c.total, $c.passed, $c.failed, $c.notExecuted)
+          }
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: TestResults/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload test diagnostics
         if: always()
@@ -27,7 +74,6 @@ jobs:
           name: test-diag-${{ github.run_id }}
           path: .test-tmp/enumeration-diag.txt
           if-no-files-found: ignore
-
 
       - name: Build (Release)
         run: dotnet build src/MemPilot.App/MemPilot.App.csproj -c Release -v q

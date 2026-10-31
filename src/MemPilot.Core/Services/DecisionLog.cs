@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -26,14 +27,10 @@ public class DecisionLog
 
     private void Load()
     {
-        try
-        {
-            if (!File.Exists(_path)) return;
-            var list = JsonSerializer.Deserialize<List<DecisionEntry>>(File.ReadAllText(_path));
-            if (list != null) _entries.AddRange(list);
-            if (_entries.Count > MaxEntries) _entries.RemoveRange(0, _entries.Count - MaxEntries);
-        }
-        catch { }
+        var list = JsonFileStore.Load<List<DecisionEntry>>(_path);
+        if (list == null) return;
+        _entries.AddRange(list);
+        if (_entries.Count > MaxEntries) _entries.RemoveRange(0, _entries.Count - MaxEntries);
     }
 
     public void Log(DecisionEntry e)
@@ -51,23 +48,7 @@ public class DecisionLog
         lock (_lock) return _entries.OrderByDescending(e => e.TimestampUtc).Take(n).ToList();
     }
 
-    private void Save()
-    {
-        // AV scanners can transiently lock fresh files; retry briefly, stay quiet otherwise
-        for (int attempt = 1; ; attempt++)
-        {
-            try
-            {
-                File.WriteAllText(_path, JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = false }));
-                return;
-            }
-            catch (Exception)
-            {
-                if (attempt >= 3) return;
-                System.Threading.Thread.Sleep(100 * attempt);
-            }
-        }
-    }
+    private void Save() => JsonFileStore.Save(_path, _entries);
 }
 
 /// <summary>Processes this tool has closed/killed, persisted to killed.json (capped) so the
