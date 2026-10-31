@@ -1,4 +1,6 @@
-﻿namespace MemPilot.Models;
+﻿using MemPilot.Helpers;
+
+namespace MemPilot.Models;
 
 public enum ProcessCategory
 {
@@ -118,6 +120,12 @@ public class ProcessInfo
     public bool IsSuspended { get; set; }
     public bool ModeKeep { get; set; }  // current mode's KeepPattern match: excluded from auto-actions
     public long MemoryGrowthBytes { get; set; }  // WS growth over the tracked window (leak watch)
+    // 显存（v0.3.4，PDH \GPU Process Memory）：不可用与 0 字节必须区分——
+    // 采集失败时 GpuMemoryAvailable=false，UI 显示 "-" 而不是假 0（与 GpuAdapterInfo 同一红线）。
+    public long GpuDedicatedMemoryBytes { get; set; }
+    public long GpuSharedMemoryBytes { get; set; }
+    public bool GpuMemoryAvailable { get; set; }
+    public string GpuMemoryText => !GpuMemoryAvailable ? "-" : ByteFormat.Human(GpuDedicatedMemoryBytes);
     public int TreeDepth { get; set; }          // tree view: 0 = root (runtime-only)
     public bool HasChildren { get; set; }       // tree view: has in-set children
     public bool Collapsed { get; set; }         // tree view: node is collapsed in the UI
@@ -255,22 +263,18 @@ public class GpuAdapterInfo
     public string Vendor { get; set; } = "";
     public long DedicatedVideoMemoryBytes { get; set; }
     public long UsedVideoMemoryBytes { get; set; }
+    /// <summary>用量来源：dxgi / pdh / ""（不可用）。用于在 UI 上如实标注兜底来源。</summary>
+    public string UsageSource { get; set; } = "";
+    /// <summary>DXGI LUID（可空）：多适配器时把 PDH 的 luid 实例映射回具体卡。</summary>
+    public uint LuidLowPart { get; set; }
+    public int LuidHighPart { get; set; }
     public double UsedPercent => DedicatedVideoMemoryBytes <= 0 ? 0 : (double)UsedVideoMemoryBytes / DedicatedVideoMemoryBytes * 100;
     public string Summary => DedicatedVideoMemoryBytes <= 0
         ? Name
         : UsedVideoMemoryBytes <= 0
-            ? $"{Name}  {FormatBytes(DedicatedVideoMemoryBytes)}（用量不可用）"
-            : $"{Name}  {FormatBytes(UsedVideoMemoryBytes)} / {FormatBytes(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)";
-
-    private static string FormatBytes(long b)
-    {
-        if (b < 1024) return b + " B";
-        double v = b;
-        string[] units = { "B", "KB", "MB", "GB", "TB" };
-        int i = 0;
-        while (v >= 1024 && i < units.Length - 1) { v /= 1024; i++; }
-        return $"{v:F1} {units[i]}";
-    }
+            ? $"{Name}  {ByteFormat.Human(DedicatedVideoMemoryBytes)}（用量不可用）"
+            : $"{Name}  {ByteFormat.Human(UsedVideoMemoryBytes)} / {ByteFormat.Human(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)"
+              + (UsageSource == "pdh" ? "（PDH 汇总）" : "");
 }
 
 public class SuspendRecord
@@ -378,6 +382,10 @@ public class AppConfig
     { "内存增长", "子进程", "线程", "窗口标题", "厂商", "音频", "模式保留", "签名", "分类依据" };
     // 进程页用途筛选："" = 全部；否则为 WorkloadClassifier.DisplayName 的取值（工作/娱乐/AI/系统/其他/未知）
     public string WorkloadFilter { get; set; } = "";
+    // 显存采样（v0.3.4）：独立 30 秒节奏，与内存采样分开落盘（gpu-*.jsonl）。
+    // 为什么单独高频：AI 生成视频时显存尖峰只有 1–2 分钟，5 分钟采样会漏掉。
+    public bool GpuSamplingEnabled { get; set; } = true;
+    public int GpuSampleIntervalSeconds { get; set; } = 30;   // 允许 15–300；0 视为关闭
     public bool AutoOptimizeIntervalEnabled { get; set; } = false;
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
     public int AutoOptimizeThresholdPercent { get; set; } = 15; // clean when free RAM below this %

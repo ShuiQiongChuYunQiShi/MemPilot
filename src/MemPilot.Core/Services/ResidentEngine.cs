@@ -36,6 +36,8 @@ public class ResidentEngine
     private DateTime _lastShadowLogUtc = DateTime.MinValue;
     /// <summary>最近一次场景判定（诊断面板用）。</summary>
     public SceneDecision? LastSceneDecision { get; private set; }
+    /// <summary>最近一次逐进程 GPU%（v0.3.4，显存采样器复用；不可用时为空字典）。</summary>
+    public IReadOnlyDictionary<int, double> LastGpuPercent { get; private set; } = new Dictionary<int, double>();
     private int _intervalSeconds;
 
     private System.Threading.Timer? _timer;
@@ -177,6 +179,7 @@ public class ResidentEngine
         try
         {
             var gpuMap = _gpuUsage.Sample();
+            LastGpuPercent = gpuMap; // v0.3.4：供显存采样器记录逐进程 GPU%（复用同一次 PDH 采集）
             var now = DateTime.UtcNow;
             double idle = InputActivity.IdleSeconds();
             _inputSamples.Add((now, idle));

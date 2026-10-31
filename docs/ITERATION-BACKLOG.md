@@ -65,6 +65,18 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.4 — GPU 观测与记录（2026-11-01，待发布）
+
+**缘起**：用户问「GPU 内存是不是读不到」。实测结论：能读到，只是我们只走了 DXGI——本机 `CreateDXGIFactory1` 返回 `E_NOINTERFACE`，落到 GDI 兜底后只有容量、没有用量；而 PDH 的 `GPU Process Memory(*)` / `GPU Adapter Memory(*)` 一直可用（16.6 GB 对 nvidia-smi 的 15821 MiB，误差 <1%）。
+
+- [x] **PdhQuery 统一读取层**（`Helpers/PdhQuery.cs`）：PDH 查询/计数器封装，`PDH_MORE_DATA` 时扩容重试（旧实现会整帧丢弃 → 曲线假空洞）；`GpuUsageService` 改为复用（GPU% 语义不变）。
+- [x] **GpuMemoryService**：逐进程 `Local Usage`/`Non Local Usage` + 适配器 `Dedicated Usage`；`UsedBytes` 优先适配器级、退而进程合计，不可用返回 **null**（绝不用 0 冒充）。
+- [x] **GpuInfoService 兜底与诊断**：失败记 HRESULT（本机 `hr=0x80004002`）；新增纯函数 `ApplyPdhFallback`——单卡用合计、多卡按 LUID 匹配、**无 LUID 不猜**；`UsageSource` 标 `pdh` 并在摘要显示「（PDH 汇总）」；缓存 60s→10s。
+- [x] **30 秒独立采样**（`GpuRecorder`/`GpuMonitor`）：`history/gpu-yyyyMMdd.jsonl` 单独落盘、保留 30 天；记录 `Used/Total/Src/Procs/Top5(name+pid+专用+共享+GPU%)`；`Event` 标 `resume`（间隔 >3 倍）与 `gpu-spike`（单条跳增 ≥4 GB，只标记不告警）。设置页可开关、间隔 15/30/60/300 秒。
+- [x] **UI**：进程页「显存」列（不可用显示 `-`）；主页 GPU 卡第二行「已用/总量（%）· 来源」；历史页独立「显存」卡片（24h 曲线 + 显存大户 Top10 + 峰值/跳增摘要）。顺手修掉历史页在 UI 线程重复读 7 天窗口的老 bug。
+- [x] **回归守卫**：`GpuRecorderTests`（往返/跳增/醒来/保留）、`GpuHistoryTests`（缺数据不画假 0、峰值均值）、`GpuMemoryServiceTests`（环境容忍 + **PDH_FMT_LARGE 溢出守卫**：写成 LONG 时 16 GB 会截成 `int.MaxValue`，实测踩到过）、`GpuInfoServiceTests` 补兜底与 HRESULT。
+- 测试 188→210。真机：30 秒三条样本、`Src=pdh-adapter`、Top1 为 `python`（ComfyUI 常驻 15 GB，正是用户视频生成后的残留），crash.log 零增量。
+
 ### v0.3.3 — god-class 拆分 + UI 回归守卫（2026-10-31，待发布）
 
 - [x] **MainWindow 按页签拆 partial**：`MainWindow.xaml.cs` 1198 → 335 行；新增 `ProcessPage`(24 成员)/`CleanupPage`(23)/`MakeRoomPage`(9)/`SettingsPage`(10)/`Tabs`(23) 五个 partial。机械拆分，只动文件边界不动逻辑，靠编译器与后续真机启动验证兜底。

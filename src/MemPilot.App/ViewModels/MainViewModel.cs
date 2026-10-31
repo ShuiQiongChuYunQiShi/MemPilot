@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using MemPilot.Helpers;
 using MemPilot.Models;
 using MemPilot.Services;
 
@@ -13,6 +14,9 @@ public partial class MainViewModel : INotifyPropertyChanged
     public ServiceService ServiceService { get; } = new();
     public AudioSessionService AudioService { get; } = new();
     public GpuInfoService GpuService { get; } = new();
+    /// <summary>显存读取（PDH，逐进程 + 适配器）；GpuMonitor 内另有一份用于独立采样。</summary>
+    public GpuMemoryService GpuMemory { get; } = new();
+    public GpuMonitor GpuMonitor { get; }
     public ClassificationEngine Classification { get; }
     public UnusedDetector UnusedDetector { get; } = new();
     public OnlineLookupService OnlineLookup { get; } = new();
@@ -64,7 +68,29 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     private List<GpuAdapterInfo> _gpu = new();
+    private GpuMemorySnapshot? _lastGpuMem;
     public string GpuSummaryText => _gpu.Count == 0 ? "GPU 信息不可用" : string.Join("  |  ", _gpu.Select(g => g.Summary));
+
+    /// <summary>显存用量一行（主页 GPU 卡第二行）：已用/总量（百分比）· 来源。不可用就说不可用。</summary>
+    public string GpuMemorySummaryText
+    {
+        get
+        {
+            var snap = _lastGpuMem;
+            if (snap == null || !snap.Available) return "";
+            var used = snap.UsedBytes ?? 0;
+            var total = _gpu.Sum(a => a.DedicatedVideoMemoryBytes);
+            var src = snap.Source switch
+            {
+                "pdh-adapter" => "PDH 适配器",
+                "pdh-process" => "进程汇总",
+                _ => "DXGI"
+            };
+            return total > 0
+                ? $"显存 {ByteFormat.Human(used)} / {ByteFormat.Human(total)}（{used * 100.0 / total:F0}%）· {src}"
+                : $"显存 {ByteFormat.Human(used)} · {src}";
+        }
+    }
 
     public string TotalMemoryText => FormatBytes(SysMem.TotalPhysicalBytes);
     public string AvailableMemoryText => FormatBytes(SysMem.AvailablePhysicalBytes);
@@ -157,6 +183,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         Audit = audit;
         Feedback = feedback;
         _workloadFilter = config.Config.WorkloadFilter ?? "";
+        GpuMonitor = new GpuMonitor(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
                          ?? new ProgramCatalogService();
@@ -194,7 +221,15 @@ public partial class MainViewModel : INotifyPropertyChanged
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
 
-    public void StartEngine() => Engine.Start(ct => RefreshAsync(ct));
+    public void StartEngine()
+    {
+        Engine.Start(ct => RefreshAsync(ct));
+        // 显存采样：独立 30 秒节奏（窗口最小化也照采）；配置改动在 Tick 内实时读取
+        GpuMonitor.Start(ConfigStore.Config.GpuSampleIntervalSeconds,
+            () => ConfigStore.Config.GpuSamplingEnabled && ConfigStore.Config.GpuSampleIntervalSeconds > 0,
+            () => _lastProcs,
+            () => Engine.LastGpuPercent);
+    }
 
     /// <summary>One refresh cycle. Runs enumeration/classification on a background thread,
     /// marshals only the collection updates to the UI thread. Concurrent calls coalesce.</summary>
@@ -233,15 +268,18 @@ public partial class MainViewModel : INotifyPropertyChanged
                 MaybeSuggestPromotions();
 
                 var mem = ProcessService.GetSystemMemory();
+                var gpuMem = GpuMemory.Sample();          // 显存：逐进程 + 适配器（PDH，独立于 UI 可见性）
+                ApplyGpuMemory(procs, gpuMem);            // 填 ProcessInfo.Gpu*（不可用则保持 false → UI 显示 "-"）
                 var unused = UnusedDetector.Detect(procs, mem, Engine.LastForegroundPid, audio, suspended);
-                var gpu = GpuService.GetAdapters();
-                return (procs, mem, unused, gpu);
+                var gpu = GpuService.GetAdapters(gpuMem); // 名称/容量 + DXGI 缺失时的 PDH 用量兜底
+                return (procs, mem, unused, gpu, gpuMem);
             }, ct).ConfigureAwait(false);
 
             _lastProcs = data.procs;
             var memOut = data.mem;
             var unusedOut = data.unused;
             var gpuOut = data.gpu;
+            var gpuMemOut = data.gpuMem;
 
             var uiActive = UiActive;
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
@@ -259,7 +297,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 // GPU 字段与窗口可见性无关：StartMinimizedToTray 下首刷走隐藏分支，
                 // 若只在 uiActive 里赋值，托盘模式永远显示"GPU 信息不可用"（2026-10-31 实测）
                 _gpu = gpuOut;
+                _lastGpuMem = gpuMemOut;
                 OnPropertyChanged(nameof(GpuSummaryText));
+                OnPropertyChanged(nameof(GpuMemorySummaryText));
                 Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。";
             });
 
@@ -274,6 +314,18 @@ public partial class MainViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
             _refreshGate.Release();
+        }
+    }
+
+    /// <summary>把显存快照填进进程（进程页「显存」列用）。采集不可用时全部保持 false，UI 显示 "-"。</summary>
+    private static void ApplyGpuMemory(List<ProcessInfo> procs, GpuMemorySnapshot snap)
+    {
+        if (!snap.ProcessDedicatedAvailable) return;
+        foreach (var p in procs)
+        {
+            p.GpuMemoryAvailable = true;
+            p.GpuDedicatedMemoryBytes = snap.ProcessDedicated.GetValueOrDefault(p.Pid);
+            p.GpuSharedMemoryBytes = snap.ProcessShared.GetValueOrDefault(p.Pid);
         }
     }
 

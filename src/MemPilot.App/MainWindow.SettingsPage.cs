@@ -67,6 +67,8 @@ public partial class MainWindow : Window
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
+        SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
+        SelectGpuInterval(_config.Config.GpuSampleIntervalSeconds);
         SetAutoStart.IsChecked = StartupService.IsAutoStart();
         SetStartMinimized.IsChecked = _config.Config.StartMinimizedToTray;
         SetHotkeyEnabled.IsChecked = _config.Config.GlobalHotkeyEnabled;
@@ -81,6 +83,26 @@ public partial class MainWindow : Window
     }
 
     private void RefreshShadowCalibration_Click(object sender, RoutedEventArgs e) => _vm.RefreshShadowCalibration();
+
+    // ---- 显存采样设置（v0.3.4）----
+
+    private void SelectGpuInterval(int seconds)
+    {
+        foreach (var item in SetGpuInterval.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag is string t && int.TryParse(t, out var s) && s == seconds)
+            {
+                SetGpuInterval.SelectedItem = item;
+                return;
+            }
+        }
+        SetGpuInterval.SelectedIndex = 1; // 30s
+    }
+
+    private int SelectedGpuInterval()
+        => SetGpuInterval.SelectedItem is ComboBoxItem { Tag: string t } && int.TryParse(t, out var s)
+            ? Math.Clamp(s, 15, 300)
+            : 30;
 
     // ---- 程序清单（v0.3.0）----
 
@@ -113,6 +135,8 @@ public partial class MainWindow : Window
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
+        _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;
+        _config.Config.GpuSampleIntervalSeconds = SelectedGpuInterval();
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Config.StartMinimizedToTray = SetStartMinimized.IsChecked == true;
         _config.Config.WriteEventLogAudit = SetEventLog.IsChecked == true;

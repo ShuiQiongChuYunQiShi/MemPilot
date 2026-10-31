@@ -1,35 +1,89 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
 
 /// <summary>
 /// GPU adapter info via DXGI: total dedicated VRAM per adapter (always available)
-/// plus current usage when IDXGIAdapter3 QI succeeds. Usage is informational context
-/// for AI-generation scenarios; failures degrade to totals only.
+/// plus current usage when IDXGIAdapter3 QI succeeds.
+///
+/// v0.3.4 补强（棱镜 + 真机实测）：
+/// ① 每次失败都记录 HRESULT —— 之前 "factory creation failed" 看不出是 E_NOINTERFACE 还是别的；
+/// ② 适配器用量兜底：DXGI 不可用时用 PDH `\GPU Adapter Memory(*)\Dedicated Usage` 填（本机实测可用），
+///    并在模型里标 UsageSource="pdh"，UI 如实显示「（PDH 汇总）」；
+/// ③ 多适配器且拿不到 LUID 映射时**不猜**——保持"用量不可用"，绝不用容量推算用量。
 /// </summary>
 public class GpuInfoService
 {
     private static (DateTime time, List<GpuAdapterInfo> data)? _cache;
     private static readonly object _cacheLock = new();
+    private const int CacheSeconds = 10; // v0.3.4：60s → 10s（枚举仅几毫秒，用量需要新鲜）
 
-    public List<GpuAdapterInfo> GetAdapters()
+    /// <summary>最近一次枚举的诊断信息（测试可读；失败不再无声）。</summary>
+    public static string LastDiag { get; private set; } = "none";
+
+    /// <summary>取适配器列表。传入显存快照时，DXGI 用量缺失会尝试用 PDH 适配器计数兜底。</summary>
+    public List<GpuAdapterInfo> GetAdapters(GpuMemorySnapshot? gpuMem = null)
     {
+        List<GpuAdapterInfo> data;
         lock (_cacheLock)
         {
-            if (_cache != null && (DateTime.UtcNow - _cache.Value.time).TotalSeconds < 60)
-                return _cache.Value.data;
+            if (_cache != null && (DateTime.UtcNow - _cache.Value.time).TotalSeconds < CacheSeconds)
+                data = Clone(_cache.Value.data);
+            else
+            {
+                data = EnumerateAdapters();
+                if (data.Count > 0) _cache = (DateTime.UtcNow, Clone(data)); // 空结果不缓存：下一轮立刻重试
+            }
         }
-        var result = EnumerateAdapters();
-        if (result.Count > 0) // 空结果不缓存：下一轮立刻重试（DXGI+GDI 每次仅几毫秒）
-        {
-            lock (_cacheLock) { _cache = (DateTime.UtcNow, result); }
-        }
-        return result;
+        if (gpuMem != null) ApplyPdhFallback(data, gpuMem.AdapterDedicatedByInstance, gpuMem.AdapterDedicatedBytes);
+        return data;
     }
 
-    /// <summary>最近一次枚举的诊断信息（设置页/测试可读，失败不再无声）。</summary>
-    public static string LastDiag { get; private set; } = "none";
+    private static List<GpuAdapterInfo> Clone(List<GpuAdapterInfo> src)
+        => src.Select(a => new GpuAdapterInfo
+        {
+            Name = a.Name,
+            Vendor = a.Vendor,
+            DedicatedVideoMemoryBytes = a.DedicatedVideoMemoryBytes,
+            UsedVideoMemoryBytes = a.UsedVideoMemoryBytes,
+            UsageSource = a.UsageSource,
+            LuidLowPart = a.LuidLowPart,
+            LuidHighPart = a.LuidHighPart
+        }).ToList();
+
+    /// <summary>
+    /// PDH 兜底（纯函数，可单测）：只填「有容量但用量缺失」的适配器。
+    /// 单适配器直接用合计；多适配器按 LUID 实例名逐一匹配；匹配不上就留空（不猜）。
+    /// 返回实际填充的适配器数量。
+    /// </summary>
+    public static int ApplyPdhFallback(IReadOnlyList<GpuAdapterInfo> adapters,
+        IReadOnlyDictionary<string, long>? byLuid, long totalDedicatedBytes)
+    {
+        if (adapters.Count == 0) return 0;
+        var missing = adapters.Where(a => a.DedicatedVideoMemoryBytes > 0 && a.UsedVideoMemoryBytes <= 0).ToList();
+        if (missing.Count == 0) return 0;
+
+        int filled = 0;
+        if (adapters.Count == 1 && totalDedicatedBytes > 0)
+        {
+            missing[0].UsedVideoMemoryBytes = totalDedicatedBytes;
+            missing[0].UsageSource = "pdh";
+            return 1;
+        }
+
+        if (byLuid == null || byLuid.Count == 0) return 0;
+        foreach (var a in missing)
+        {
+            var key = $"luid_0x{a.LuidHighPart:X8}_0x{a.LuidLowPart:X8}";
+            var hit = byLuid.FirstOrDefault(kv => kv.Key.StartsWith(key, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(hit.Key) || hit.Value <= 0) continue;
+            a.UsedVideoMemoryBytes = hit.Value;
+            a.UsageSource = "pdh";
+            filled++;
+        }
+        return filled;
+    }
 
     private List<GpuAdapterInfo> EnumerateAdapters()
     {
@@ -37,50 +91,64 @@ public class GpuInfoService
         try
         {
             var iid = new Guid("770aae78-f26f-4dba-a829-e2e40bd93d2c"); // IID_IDXGIFactory1
-            if (CreateDXGIFactory1(ref iid, out var factoryPtr) != 0 || factoryPtr == IntPtr.Zero)
+            int hr = CreateDXGIFactory1(ref iid, out var factoryPtr);
+            if (hr != 0 || factoryPtr == IntPtr.Zero)
             {
                 // 关键：不能在这里 return —— 那样会绕过下面的 GDI 兜底（v0.2.2 的兜底因此是死代码）
-                LastDiag = "dxgi: factory creation failed";
+                LastDiag = $"dxgi: factory creation failed (hr=0x{hr:X8})";
             }
             else
             {
-            try
-            {
-                var factory = (IDXGIFactory1)Marshal.GetObjectForIUnknown(factoryPtr);
-                for (int i = 0; ; i++)
+                var usageNotes = new List<string>();
+                try
                 {
-                    IDXGIAdapter1? adapter = null;
-                    int hr = 0;
-                    try { hr = factory.EnumAdapters1(i, out adapter); } catch { break; }
-                    if (hr != 0 || adapter == null) break;
-                    if (adapter.GetDesc1(out var desc) != 0) { Marshal.ReleaseComObject(adapter); continue; }
-                    if ((desc.Flags & 2) != 0) { Marshal.ReleaseComObject(adapter); continue; } // DXGI_ADAPTER_FLAG_SOFTWARE (WARP)
-                    var info = new GpuAdapterInfo
+                    var factory = (IDXGIFactory1)Marshal.GetObjectForIUnknown(factoryPtr);
+                    for (int i = 0; ; i++)
                     {
-                        Name = desc.Description,
-                        Vendor = VendorName(desc.VendorId),
-                        DedicatedVideoMemoryBytes = (long)desc.DedicatedVideoMemory
-                    };
-                    try
-                    {
-                        if (adapter is IDXGIAdapter3 adapter3 &&
-                            adapter3.QueryVideoMemoryInfo(0 /*DXGI_MEMORY_SEGMENT_GROUP_LOCAL*/, out var vmem) == 0)
-                            info.UsedVideoMemoryBytes = (long)vmem.CurrentUsage;
+                        IDXGIAdapter1? adapter = null;
+                        int ehr;
+                        try { ehr = factory.EnumAdapters1(i, out adapter); } catch { break; }
+                        if (ehr != 0 || adapter == null) break;
+                        int dhr = adapter.GetDesc1(out var desc);
+                        if (dhr != 0) { usageNotes.Add($"desc1=0x{dhr:X8}"); Marshal.ReleaseComObject(adapter); continue; }
+                        if ((desc.Flags & 2) != 0) { Marshal.ReleaseComObject(adapter); continue; } // DXGI_ADAPTER_FLAG_SOFTWARE (WARP)
+                        var info = new GpuAdapterInfo
+                        {
+                            Name = desc.Description,
+                            Vendor = VendorName(desc.VendorId),
+                            DedicatedVideoMemoryBytes = (long)desc.DedicatedVideoMemory,
+                            LuidLowPart = desc.LuidLowPart,
+                            LuidHighPart = desc.LuidHighPart
+                        };
+                        try
+                        {
+                            if (adapter is IDXGIAdapter3 adapter3)
+                            {
+                                int qhr = adapter3.QueryVideoMemoryInfo(0 /*DXGI_MEMORY_SEGMENT_GROUP_LOCAL*/, out var vmem);
+                                if (qhr == 0)
+                                {
+                                    info.UsedVideoMemoryBytes = (long)vmem.CurrentUsage;
+                                    info.UsageSource = "dxgi";
+                                }
+                                else usageNotes.Add($"vmem=0x{qhr:X8}");
+                            }
+                            else usageNotes.Add("no IDXGIAdapter3");
+                        }
+                        catch (Exception ex) { usageNotes.Add("vmem-ex:" + ex.GetType().Name); }
+                        result.Add(info);
+                        Marshal.ReleaseComObject(adapter);
                     }
-                    catch { }
-                    result.Add(info);
-                    Marshal.ReleaseComObject(adapter);
                 }
-            }
-            finally { Marshal.Release(factoryPtr); }
-            LastDiag = result.Count == 0 ? "dxgi: no adapters" : "dxgi: ok";
+                finally { Marshal.Release(factoryPtr); }
+                LastDiag = (result.Count == 0 ? "dxgi: no adapters" : "dxgi: ok")
+                           + (usageNotes.Count > 0 ? " | " + string.Join(",", usageNotes.Take(3)) : "");
             }
         }
         catch (Exception ex) { LastDiag = "dxgi: " + ex.Message; }
         if (result.Count == 0)
         {
-            // 2026-10-31 真机：某些执行上下文 DXGI 工厂创建失败（E_NOINTERFACE），
-            // 但 GDI/注册表始终可用 —— 名称与显存走兜底，用量留空（宁缺勿假）。
+            // 某些执行上下文 DXGI 工厂创建失败，但 GDI/注册表始终可用 —— 名称与显存走兜底，
+            // 用量留空（宁缺勿假），由 ApplyPdhFallback 在调用侧补。
             result = EnumerateViaDisplayApi();
         }
         return result;
