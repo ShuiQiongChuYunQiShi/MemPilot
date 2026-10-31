@@ -75,7 +75,7 @@ public partial class MainViewModel
                 HistoryAreaPoints.Clear();
                 for (int i = 0; i < day.Count; i++)
                 {
-                    double frac = (double)day[i].Avail / day[i].Total; // 0..1 available
+                    double frac = (double)(day[i].Total - day[i].Avail) / day[i].Total; // v0.3.5：占用率（越高越紧张）
                     double x = i * (640.0 / Math.Max(1, day.Count - 1));
                     double y = 150 - frac * 140;
                     HistoryPoints.Add(new System.Windows.Point(x, y));
@@ -152,7 +152,7 @@ public partial class MainViewModel
                 maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
             HistorySummary = (day.Count == 0
                 ? "（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）"
-                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs}")
+                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs} · 最近可用 {ByteFormat.Human(day[^1].Avail)}")
                 + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
                 + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");
             });
@@ -165,27 +165,32 @@ public partial class MainViewModel
     public System.Windows.Media.PointCollection HistoryAreaPoints { get; } = new();
     public System.Windows.Media.PointCollection GpuHistoryPoints { get; } = new();
     public System.Windows.Media.PointCollection GpuHistoryAreaPoints { get; } = new();
-    private readonly List<(DateTime t, long avail)> _memSamples = new();
+    private readonly List<(DateTime t, double usedFrac)> _memSamples = new();
 
     private string _searchText = "";
     public string SearchText { get => _searchText; set { _searchText = value; OnPropertyChanged(); ApplyFilter(); } }
 
     private void UpdateTrend(SystemMemoryInfo mem)
     {
-        _memSamples.Add((DateTime.UtcNow, mem.AvailablePhysicalBytes));
+        // v0.3.5：曲线口径统一为"占用率"（越高越紧张）——与进度条、显存曲线、任务管理器一致。
+        // 可用内存仍是摘要里的可执行数字，只是不再当曲线纵轴。
+        double usedFrac = mem.TotalPhysicalBytes <= 0
+            ? 0
+            : (double)(mem.TotalPhysicalBytes - mem.AvailablePhysicalBytes) / mem.TotalPhysicalBytes;
+        _memSamples.Add((DateTime.UtcNow, usedFrac));
         if (_memSamples.Count > 60) _memSamples.RemoveAt(0);
         MemoryTrendPoints.Clear();
         if (_memSamples.Count > 1)
         {
-            long maxV = _memSamples.Max(s => s.avail);
-            long minV = _memSamples.Min(s => s.avail);
-            double range = Math.Max(1, maxV - minV);
+            double maxV = _memSamples.Max(s => s.usedFrac);
+            double minV = _memSamples.Min(s => s.usedFrac);
+            double range = Math.Max(0.0001, maxV - minV);
             MemoryTrendAreaPoints.Clear();
             for (int i = 0; i < _memSamples.Count; i++)
             {
                 // canvas on the home page is 260x64 — scale to it, or the line gets clipped
                 double x = i * (260.0 / Math.Max(1, _memSamples.Count - 1));
-                double y = 60 - (_memSamples[i].avail - minV) / range * 54;
+                double y = 60 - (_memSamples[i].usedFrac - minV) / range * 54;
                 MemoryTrendPoints.Add(new System.Windows.Point(x, y));
                 MemoryTrendAreaPoints.Add(new System.Windows.Point(x, y));
             }

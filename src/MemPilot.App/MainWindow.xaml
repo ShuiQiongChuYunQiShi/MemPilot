@@ -301,7 +301,7 @@
                                         <TextBlock Text="GPU 显存" Style="{StaticResource CaptionText}"/>
                                         <TextBlock Text="{Binding GpuSummaryText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
                                         <TextBlock Text="{Binding GpuMemorySummaryText}" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,10" ToolTip="进程归属里 pid 4（System）通常是驱动层/未释放的显存，不一定是某个前台程序"/>
-                                        <TextBlock Text="可用内存趋势" Style="{StaticResource CaptionText}"/>
+                                        <TextBlock Text="内存占用趋势（越高越紧张）" Style="{StaticResource CaptionText}"/>
                                         <Viewbox Height="56" Stretch="Fill" HorizontalAlignment="Stretch" Margin="0,4,0,0">
                                             <Canvas Width="260" Height="64" Background="{DynamicResource TrackBg}" ClipToBounds="True">
                                                 <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="#334F46E5"/>
@@ -757,22 +757,34 @@
                                     <TextBlock Text="使用习惯记录（每 5 分钟一个采样点，本地保存 30 天）" Style="{StaticResource SectionTitle}"/>
                                 </DockPanel>
                                 <TextBlock Text="{Binding HistorySummary}" Margin="0,6,0,8" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
-                                <Canvas Width="640" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
+                                <Canvas Width="700" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
+                                    <Line X1="0" Y1="10" X2="640" Y2="10" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <Line X1="0" Y1="80" X2="640" Y2="80" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <Line X1="0" Y1="150" X2="640" Y2="150" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="2" Text="100%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="72" Text="50%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="142" Text="0%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <Polygon Points="{Binding HistoryAreaPoints}" Fill="#332563EB"/>
                                     <Polyline Points="{Binding HistoryPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2.5" StrokeLineJoin="Round"/>
                                 </Canvas>
-                                <TextBlock Text="上：24 小时可用内存占比（越低越紧张）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                                <TextBlock Text="上：24 小时内存占用率（越高越紧张；可用 GB 见上方摘要）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="显存（每 30 秒采样，本地保存 30 天）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
                                 <TextBlock Text="{Binding GpuHistorySummary}" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                                <Canvas Width="640" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
+                                <Canvas Width="700" Height="160" Background="{DynamicResource TrackBg}" HorizontalAlignment="Left">
+                                    <Line X1="0" Y1="10" X2="640" Y2="10" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <Line X1="0" Y1="80" X2="640" Y2="80" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <Line X1="0" Y1="150" X2="640" Y2="150" Stroke="{DynamicResource BorderBrush}" StrokeThickness="1" StrokeDashArray="3,3"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="2" Text="100%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="72" Text="50%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Canvas.Left="646" Canvas.Top="142" Text="0%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <Polygon Points="{Binding GpuHistoryAreaPoints}" Fill="#3355C8A5"/>
                                     <Polyline Points="{Binding GpuHistoryPoints}" Stroke="{DynamicResource AccentGreen}" StrokeThickness="2.5" StrokeLineJoin="Round"/>
                                 </Canvas>
-                                <TextBlock Text="上：24 小时显存占用率（按适配器总容量折算；采集不可用时为空）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,8"/>
+                                <TextBlock Text="上：24 小时显存占用率（越高越紧张；按适配器总容量折算，采集不可用时为空）" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,8"/>
                                 <DataGrid ItemsSource="{Binding GpuUsageItems}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="260">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="进程" Binding="{Binding Name}" Width="170"/>
