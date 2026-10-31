@@ -18,6 +18,19 @@ public enum ProcessCategory
     SecuritySoftware
 }
 
+/// <summary>用途维度（v0.3.1）：从"进程身份"派生"它在给你干什么"。
+/// 与 Category 不同：Category 是身份（游戏/开发工具/容器…），Workload 是用途（娱乐/工作/AI/系统/其他）。
+/// 歧义场景（浏览器、通用三方）保持 Unknown，不猜。</summary>
+public enum WorkloadKind
+{
+    Unknown = 0,
+    Work = 1,
+    Entertainment = 2,
+    Ai = 3,
+    System = 4,
+    Other = 5,
+}
+
 public enum ProcessRiskLevel { Low, Medium, High, Critical }
 
 public enum CleanupActionLevel
@@ -86,6 +99,8 @@ public class ProcessInfo
     public double IdleMinutes { get; set; }
     public MemoryMetrics Memory { get; set; } = new();
     public ProcessCategory Category { get; set; } = ProcessCategory.Unknown;
+    public WorkloadKind Workload { get; set; } = WorkloadKind.Unknown;
+    public string WorkloadReason { get; set; } = "";
     public string CategoryReason { get; set; } = "";
     public ProcessRiskLevel Risk { get; set; } = ProcessRiskLevel.Low;
     public bool IsProtected { get; set; }

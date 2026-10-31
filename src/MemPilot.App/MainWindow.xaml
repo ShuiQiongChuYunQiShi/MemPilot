@@ -11,6 +11,7 @@
     <Window.Resources>
         <helpers:ByteSizeConverter x:Key="Bytes"/>
         <helpers:SignedBytesConverter x:Key="SignedBytes"/>
+        <helpers:WorkloadTextConverter x:Key="WorkloadText"/>
         <helpers:IndentConverter x:Key="Indent"/>
         <helpers:CollapsedGlyphConverter x:Key="Glyph"/>
         <helpers:CategoryTextConverter x:Key="CatText"/>
@@ -518,6 +519,7 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="分类" Binding="{Binding Category, Converter={StaticResource CatText}}" Width="72"/>
+                            <DataGridTextColumn Header="用途" Binding="{Binding Workload, Converter={StaticResource WorkloadText}}" Width="60"/>
                             <DataGridTextColumn Header="工作集" Binding="{Binding Memory.WorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="私有WS" Binding="{Binding Memory.PrivateWorkingSetBytes, Converter={StaticResource Bytes}}" Width="90"/>
                             <DataGridTextColumn Header="提交" Binding="{Binding Memory.PrivateBytes, Converter={StaticResource Bytes}}" Width="90"/>

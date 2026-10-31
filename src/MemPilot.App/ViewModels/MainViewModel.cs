@@ -380,6 +380,7 @@ public class MainViewModel : INotifyPropertyChanged
                     Classification.Classify(p, svcByPid, protectedNames);
                     // a mode KeepPattern pins the process from auto-actions, not from manual ones
                     p.ModeKeep = ModeManager.ShouldKeep(p);
+                    WorkloadClassifier.Apply(p); // v0.3.1 用途维度（展示/排序用，不构成处置依据）
                 }
                 classifyMs = swC.ElapsedMilliseconds;
 
