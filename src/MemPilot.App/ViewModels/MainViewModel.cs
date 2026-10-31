@@ -398,14 +398,16 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     UpdateCollections(_lastProcs, memOut, unusedOut);
                     UpdateScenePanel();
-                    _gpu = gpuOut;
-                    OnPropertyChanged(nameof(GpuSummaryText));
                     UpdateTrend(memOut);
                 }
                 else
                 {
                     SysMem = memOut; // tray tooltip still needs fresh numbers
                 }
+                // GPU 字段与窗口可见性无关：StartMinimizedToTray 下首刷走隐藏分支，
+                // 若只在 uiActive 里赋值，托盘模式永远显示"GPU 信息不可用"（2026-10-31 实测）
+                _gpu = gpuOut;
+                OnPropertyChanged(nameof(GpuSummaryText));
                 Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。";
             });
 

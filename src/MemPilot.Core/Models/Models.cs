@@ -228,7 +228,9 @@ public class GpuAdapterInfo
     public double UsedPercent => DedicatedVideoMemoryBytes <= 0 ? 0 : (double)UsedVideoMemoryBytes / DedicatedVideoMemoryBytes * 100;
     public string Summary => DedicatedVideoMemoryBytes <= 0
         ? Name
-        : $"{Name}  {FormatBytes(UsedVideoMemoryBytes)} / {FormatBytes(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)";
+        : UsedVideoMemoryBytes <= 0
+            ? $"{Name}  {FormatBytes(DedicatedVideoMemoryBytes)}（用量不可用）"
+            : $"{Name}  {FormatBytes(UsedVideoMemoryBytes)} / {FormatBytes(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)";
 
     private static string FormatBytes(long b)
     {

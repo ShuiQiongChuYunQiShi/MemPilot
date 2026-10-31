@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -39,7 +39,10 @@ public class ClassificationEngine
     private static readonly HashSet<string> DevToolNames = new(StringComparer.OrdinalIgnoreCase)
     { "devenv", "code", "code - insiders", "rider", "rider64", "idea", "idea64", "clion", "clion64", "pycharm", "pycharm64", "webstorm", "webstorm64", "goland", "goland64", "phpstorm", "phpstorm64", "rubymine", "datagrip", "vscode", "node", "deno", "bun", "dotnet", "java", "javaw", "python", "pythonw", "gcc", "clang", "clang-cl", "msbuild", "cmake", "ninja", "git", "ssh", "sshd", "bash", "wsl", "wslhost", "wslrelay", "postgres", "mysql", "mysqld", "mongod", "redis-server", "sqlservr", "ssms", "windbg", "x64dbg", "nodejs", "pnpm", "npm", "yarn" };
 
-    private static readonly string[] DevPathFragments = { "\\visual studio", "\\jetbrains\\", "\\docker\\", "\\vagrant.d\\", "\\sdk\\" };
+    private static readonly string[] DevPathFragments = { "\\visual studio", "\\jetbrains\\", "\\vagrant.d\\", "\\sdk\\" };
+
+    // 容器/虚拟机安装路径：必须在 DevTool 之前判定（2026-10-31 实测 Docker 全家被 \docker\ 路径误标成开发工具）
+    private static readonly string[] ContainerVmPathFragments = { "\\docker\\", "\\wsl\\", "\\windowsapps\\docker" };
 
     private static readonly HashSet<string> AiToolNames = new(StringComparer.OrdinalIgnoreCase)
     { "comfyui", "invokeai", "ollama", "ollama app", "llama-server", "llama-server.exe", "lmstudio", "lm-studio", "jan", "jan.exe", "textgen", "koboldcpp", "fooocus", "vram", "sd-webui", "swarmui", "whisper", "ffmpeg" };
@@ -47,7 +50,10 @@ public class ClassificationEngine
     private static readonly string[] AiPathFragments = { "\\stable-diffusion\\", "\\comfyui\\", "\\automatic1111\\", "\\invokeai\\", "\\comfy\\", "\\models\\stable" };
 
     private static readonly HashSet<string> ContainerVmNames = new(StringComparer.OrdinalIgnoreCase)
-    { "docker", "dockerd", "containerd", "docker-desktop", "com.docker.service", "vmware-vmx", "vmware", "virtualbox", "vboxsvc", "vmcompute", "hcsdiag", "qemu-system-x86_64", "qemu", "parallels" };
+    { "docker", "dockerd", "containerd", "docker-desktop", "docker desktop", "com.docker.service",
+      "com.docker.backend", "com.docker.build", "com.docker.dev-envs", "com.docker.proxy", "docker-index", "cagent",
+      "wslservice", "wslhost", "wslrelay", "vmmem", "vmmemwsl",
+      "vmware-vmx", "vmware", "virtualbox", "vboxsvc", "vmcompute", "hcsdiag", "qemu-system-x86_64", "qemu", "parallels" };
 
     private static readonly HashSet<string> BrowserNames = new(StringComparer.OrdinalIgnoreCase)
     { "chrome", "msedge", "msedgewebview2", "firefox", "brave", "opera", "vivaldi", "browser_broker", "openconsole" };
@@ -72,6 +78,7 @@ public class ClassificationEngine
         ("asustek", ProcessCategory.BackgroundService),
         ("array networks", ProcessCategory.BackgroundService),
         ("openai", ProcessCategory.DevTool),
+        ("docker", ProcessCategory.ContainerVm),
     };
 
     // 垃圾常驻：推广位/云助手/常驻更新器等无即时用户价值的后台进程。
@@ -213,6 +220,14 @@ public class ClassificationEngine
             p.Category = ProcessCategory.Game; p.CategoryReason = "game_path"; return;
         }
 
+        // 容器/虚拟机先于开发工具：Docker/WSL 安装路径含 \docker\、\wsl\，
+        // 若 DevTool 先判，整族会被误标"开发工具"且 ContainerVm 分支永远不可达（2026-10-31 实测）
+        if (ContainerVmNames.Contains(name) || name.StartsWith("vmmem", StringComparison.OrdinalIgnoreCase) ||
+            ContainerVmPathFragments.Any(f => path.Contains(f)) || path.Contains("\\vmware\\"))
+        {
+            p.Category = ProcessCategory.ContainerVm; p.CategoryReason = "container_vm"; return;
+        }
+
         if (DevToolNames.Contains(name) || DevPathFragments.Any(f => path.Contains(f)))
         {
             p.Category = ProcessCategory.DevTool; p.CategoryReason = "dev_tool"; return;
@@ -221,11 +236,6 @@ public class ClassificationEngine
         if (AiToolNames.Contains(name) || AiPathFragments.Any(f => path.Contains(f)))
         {
             p.Category = ProcessCategory.AiImageVideo; p.CategoryReason = "ai_tool"; return;
-        }
-
-        if (ContainerVmNames.Contains(name) || path.Contains("\\docker\\") || path.Contains("\\vmware\\"))
-        {
-            p.Category = ProcessCategory.ContainerVm; p.CategoryReason = "container_vm"; return;
         }
 
         if (BrowserNames.Contains(name))

@@ -169,6 +169,7 @@ public partial class MainWindow : Window
         WindowState = WindowState.Normal;
         Activate();
         UpdateUiActivity();
+        _ = _vm.RefreshAsync(); // 打开即刷新：GPU/趋势等隐藏期间未更新的字段立刻补齐
     }
 
     /// <summary>Lightweight mode: while the window is hidden/minimized the refresh loop runs

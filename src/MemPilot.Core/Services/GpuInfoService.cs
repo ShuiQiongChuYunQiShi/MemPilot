@@ -21,9 +21,15 @@ public class GpuInfoService
                 return _cache.Value.data;
         }
         var result = EnumerateAdapters();
-        lock (_cacheLock) { _cache = (DateTime.UtcNow, result); }
+        if (result.Count > 0) // 空结果不缓存：下一轮立刻重试（DXGI+GDI 每次仅几毫秒）
+        {
+            lock (_cacheLock) { _cache = (DateTime.UtcNow, result); }
+        }
         return result;
     }
+
+    /// <summary>最近一次枚举的诊断信息（设置页/测试可读，失败不再无声）。</summary>
+    public static string LastDiag { get; private set; } = "none";
 
     private List<GpuAdapterInfo> EnumerateAdapters()
     {
@@ -32,7 +38,12 @@ public class GpuInfoService
         {
             var iid = new Guid("770aae78-f26f-4dba-a829-e2e40bd93d2c"); // IID_IDXGIFactory1
             if (CreateDXGIFactory1(ref iid, out var factoryPtr) != 0 || factoryPtr == IntPtr.Zero)
-                return result;
+            {
+                // 关键：不能在这里 return —— 那样会绕过下面的 GDI 兜底（v0.2.2 的兜底因此是死代码）
+                LastDiag = "dxgi: factory creation failed";
+            }
+            else
+            {
             try
             {
                 var factory = (IDXGIFactory1)Marshal.GetObjectForIUnknown(factoryPtr);
@@ -43,7 +54,7 @@ public class GpuInfoService
                     try { hr = factory.EnumAdapters1(i, out adapter); } catch { break; }
                     if (hr != 0 || adapter == null) break;
                     if (adapter.GetDesc1(out var desc) != 0) { Marshal.ReleaseComObject(adapter); continue; }
-                    if ((desc.Flags & 2) != 0) continue; // DXGI_ADAPTER_FLAG_SOFTWARE (WARP)
+                    if ((desc.Flags & 2) != 0) { Marshal.ReleaseComObject(adapter); continue; } // DXGI_ADAPTER_FLAG_SOFTWARE (WARP)
                     var info = new GpuAdapterInfo
                     {
                         Name = desc.Description,
@@ -62,8 +73,10 @@ public class GpuInfoService
                 }
             }
             finally { Marshal.Release(factoryPtr); }
+            LastDiag = result.Count == 0 ? "dxgi: no adapters" : "dxgi: ok";
+            }
         }
-        catch { }
+        catch (Exception ex) { LastDiag = "dxgi: " + ex.Message; }
         if (result.Count == 0)
         {
             // 2026-10-31 真机：某些执行上下文 DXGI 工厂创建失败（E_NOINTERFACE），
@@ -84,10 +97,10 @@ public class GpuInfoService
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
     }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern bool EnumDisplayDevicesW(string? lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
 
-    private const uint DISPLAY_DEVICE_ACTIVE = 0x1;
+    private const uint DISPLAY_DEVICE_MIRRORING_DRIVER = 0x8;
 
     private static List<GpuAdapterInfo> EnumerateViaDisplayApi()
     {
@@ -98,9 +111,11 @@ public class GpuInfoService
             {
                 var dd = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
                 if (!EnumDisplayDevicesW(null, i, ref dd, 0)) break;
-                if ((dd.StateFlags & DISPLAY_DEVICE_ACTIVE) == 0) continue;
+                // 只排除镜像驱动与基础渲染器；不再要求"附着到当前桌面"（远程/虚拟会话会全滤掉真显卡）
+                if ((dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) != 0) continue;
                 var name = (dd.DeviceString ?? "").Trim();
-                if (name.Length == 0 || list.Any(x => x.Name == name)) continue;
+                if (name.Length == 0 || name.Contains("Microsoft Basic Render", StringComparison.OrdinalIgnoreCase)) continue;
+                if (list.Any(x => x.Name == name)) continue;
                 list.Add(new GpuAdapterInfo
                 {
                     Name = name,
@@ -108,8 +123,9 @@ public class GpuInfoService
                     DedicatedVideoMemoryBytes = ReadVramFromRegistry(name)
                 });
             }
+            LastDiag += " | gdi: " + list.Count;
         }
-        catch { }
+        catch (Exception ex) { LastDiag += " | gdi: " + ex.Message; }
         return list;
     }
 
@@ -226,7 +242,7 @@ public class GpuInfoService
         public UIntPtr DedicatedVideoMemory;
         public UIntPtr DedicatedSystemMemory;
         public UIntPtr SharedSystemMemory;
-        public long LuidLowPart;
+        public uint LuidLowPart;
         public int LuidHighPart;
         public uint Flags;
     }

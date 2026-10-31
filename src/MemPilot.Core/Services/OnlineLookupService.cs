@@ -71,7 +71,7 @@ public class OnlineLookupService
     public async Task<OnlineLookupResult> LookupAsync(ProcessInfo p)
     {
         var res = await LookupUncachedAsync(p).ConfigureAwait(false);
-        if (!string.IsNullOrEmpty(p.ExecutablePath) && res.Status is not ("error" or "offline"))
+        if (!string.IsNullOrEmpty(p.ExecutablePath) && res.Status is "found" or "uncertain" or "not_found")
         {
             lock (_cacheLock)
             {
@@ -96,7 +96,8 @@ public class OnlineLookupService
             lock (_cacheLock)
             {
                 if (_cache.TryGetValue(p.ExecutablePath, out var hit) &&
-                    (DateTime.UtcNow - hit.Time).TotalDays < CacheDays)
+                    (DateTime.UtcNow - hit.Time).TotalDays < CacheDays &&
+                    hit.Result.Status is not ("not_configured" or "disabled"))
                     return hit.Result;
             }
         }
