@@ -146,18 +146,29 @@ UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_T
 - 显存用量依赖 IDXGIAdapter3（Win10 1607+），旧系统降级为仅显示总量；
 - VirusTotal 分支仅返回摘要与链接，不做本地恶意度映射。
 
-## 许可
+## 许可与签名
 
-本仓库当前为**个人内部使用**，未声明开源许可（`LICENSE` 尚未添加）。
-转公开或分发他人前需要：① 补 LICENSE（MIT / Apache-2.0 由作者决定）+ NOTICE 汇总依赖许可；
-② 发布产物签名入 CI（现在只有本地自签，官方产物未签名，360 会拦截）。
-在此之前请勿直接再分发构建产物。
+本仓库当前为**个人内部使用**，未声明开源许可（`LICENSE` 尚未添加）。转公开前需补 LICENSE（MIT / Apache-2.0）+ NOTICE。
 
-### 启用发布签名（可选，三步）
+**签名决策（2026-10-31）：不自购商业证书。** 理由：商业代码签名证书 ¥1–3k/年，而自签证书对别人的机器没有意义
+（只有把证书装进目标机的「受信任的根证书颁发机构」才生效），花钱买不到"别人装了不弹窗"的效果。
+官方发布产物因此是**未签名**的，首次安装会被 360/SmartScreen 提示——这是预期行为，不是包坏了。
 
-1. 把自签证书导出为 pfx，转 base64：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`；
-2. 仓库 Secrets 增加 `SIGN_PFX_BASE64`、`SIGN_PFX_PASSWORD`；仓库 Variables 增加 `SIGN_ENABLED=true`；
-3. 下次发布时 release.yml 会在打包后、算 SHA256SUMS 前签名；缺密钥只告警不阻断。
+### 安装前校验（替代签名，30 秒）
 
-注意：自签证书只有在目标机器把该证书装入「受信任的根证书颁发机构」后才会改善 SmartScreen/360 观感；
-仓库转公开积累云查杀信誉仍是主要手段。
+```powershell
+# 1) 下载 MemPilot-<ver>-win-x64.exe 与 SHA256SUMS.txt 到同一目录，然后：
+(Get-FileHash .\MemPilot-<ver>-win-x64.exe -Algorithm SHA256).Hash.ToLower()
+Get-Content .\SHA256SUMS.txt
+# 2) 两个值一致 = 文件与官方发布的一致（签名回答"谁发的"，哈希回答"有没有被改"，这里只缺前者）
+```
+
+360 拦截时的正常处理：弹窗选「允许程序运行 / 添加信任」，或把 exe 加入 360 信任区——本项目就装在这一台机器上，
+不需要对全网放行。
+
+### 如果将来真的要签
+
+免费/低价路径按代价排序：① 仓库转公开 + 有人下载安装，靠云查杀信誉自然转白（免费，慢）；
+② Azure Trusted Signing（按月计费，需身份验证）；③ 商业 CA 证书（最贵，效果最直接）。
+工程链路已预留：把 pfx 转 base64 存 `SIGN_PFX_BASE64` + `SIGN_PFX_PASSWORD`、设仓库变量 `SIGN_ENABLED=true`，
+发布时会在算 `SHA256SUMS` 前自动签名；缺密钥只告警不阻断。

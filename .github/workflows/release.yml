@@ -95,3 +95,31 @@ jobs:
           # NOTE: no array splatting (@assets) — pwsh passes it to native commands as a
           # single joined argument, which gh then glob-matches and fails to find.
           gh release create "$env:GITHUB_REF_NAME" "dist/MemPilot-$env:VERSION-portable.zip" "dist/MemPilot-$env:VERSION-win-x64.exe" "dist/SHA256SUMS.txt" --title "MemPilot $env:VERSION" --generate-notes
+
+      # 未签名说明 + 校验命令写进 Release 正文。
+      # 为什么在 create 之后追加而不是 --notes：--generate-notes 的自动 changelog 想保留，
+      # 而 --notes 与它会互相覆盖；追加失败只告警，不能影响已经发出去的资产。
+      - name: Append unsigned-artifact notice
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $body = gh release view $tag --json body -q .body
+          $footer = @"
+
+          ---
+
+          ### 安装前请校验（本包未签名，属预期行为）
+
+          商业代码签名证书年费过高，本项目暂不购买；自签证书只对装了信任根的机器有效，故官方产物**未签名**。
+          首次运行被 360 / SmartScreen 拦下是正常的：选择「允许运行」或把 exe 加入信任区即可。
+
+          ``````powershell
+          # 与 SHA256SUMS.txt 里的同名行比对，一致即未被改动
+          (Get-FileHash ".\MemPilot-${env:VERSION}-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
+          ``````
+          "@
+          if (-not $body) { Write-Warning 'release body 为空，跳过追加'; exit 0 }
+          ($body + $footer) | Out-File -FilePath notes.md -Encoding utf8
+          gh release edit $tag --notes-file notes.md
+          if ($LASTEXITCODE -ne 0) { Write-Warning '追加安装说明失败（不影响已发布资产）' }
+          exit 0
