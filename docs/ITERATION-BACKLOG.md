@@ -65,6 +65,13 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.2.3 — 缺陷修复（2026-10-31，已发布安装）
+
+- [x] **GPU 链路**：`_gpu` 赋值移出 `uiActive` 门控（StartMinimizedToTray 下首刷隐藏 → 永远不可用）+ `ShowWindow` 后立即刷新；`DXGI_ADAPTER_DESC1.LuidLowPart` 由 `long` 改 `uint`（LUID 4+4，修正 `Flags` 错位）；GDI 兜底去掉 `ATTACHED_TO_DESKTOP` 过滤（远程/虚拟会话全滤），改排除镜像驱动与 Basic Render；**修复 v0.2.2 兜底死代码**（DXGI 工厂创建失败时直接 return 绕过兜底）；空结果不再缓存 60s；GDI 无用量时显示「（用量不可用）」不再假 0%；新增 `LastDiag` 诊断。实测原 DXGI 失败上下文现返回 `NVIDIA GeForce RTX 5060 Ti 15.93GB`。
+- [x] **容器识别**：ContainerVm 前移到 DevTool 之前（`\docker\` 路径此前把 Docker 全家误标开发工具且 ContainerVm 永不达）；`DevPathFragments` 移除 `\docker\`，新增 `ContainerVmPathFragments`（`\docker\`/`\wsl\`/`\windowsapps\docker`）；`ContainerVmNames` 补 `docker desktop`/`com.docker.*`/`cagent`/`wslservice`/`wslhost`/`wslrelay`/`vmmem*`；`PublisherRules` 加 `docker→ContainerVm`；vmmem 前缀特判。
+- [x] **在线核实**：`not_configured`/`disabled` 不写缓存，读缓存跳过旧无效状态（配置端点后立即生效）。
+- 测试 117→128（容器分类 10 条 + GPU 摘要断言）。
+
 ### v0.2.0 — 视觉基础（亮色，2026-10-31 开工）
 
 - [x] 设计令牌：颜色（Slate 中性色 + 单一强调色 #2563EB）、字阶五档（28/20/15/13/11）、圆角（10/8/6）、间距令牌，全部进 `App.xaml`。
