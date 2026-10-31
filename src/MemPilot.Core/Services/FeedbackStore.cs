@@ -34,10 +34,29 @@ public class FeedbackStore
     public List<FeedbackEntry> All() => _entries.ToList();
     public FeedbackEntry? Find(string name, string path, string publisher)
     {
-        return _entries.FirstOrDefault(f =>
-            (f.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(name)) ||
-            (!string.IsNullOrEmpty(path) && f.ExecutablePath.Equals(path, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(publisher) && f.Publisher.Equals(publisher, StringComparison.OrdinalIgnoreCase)));
+        // 进程级：名称或路径精确匹配。**不再按发布者泛匹配**——一条"腾讯=游戏"曾会误伤全部腾讯应用。
+        var processHit = _entries.FirstOrDefault(f =>
+            f.Scope != "software" &&
+            ((!string.IsNullOrEmpty(name) && f.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrEmpty(path) && f.ExecutablePath.Equals(path, StringComparison.OrdinalIgnoreCase))));
+        if (processHit != null) return processHit;
+
+        // 软件级：exe 落在该软件的安装目录下才算命中（配合程序清单使用）
+        if (!string.IsNullOrEmpty(path))
+        {
+            foreach (var f in _entries.Where(x => x.Scope == "software" && !string.IsNullOrEmpty(x.ExecutablePath)))
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(f.ExecutablePath);
+                    if (!string.IsNullOrEmpty(dir) &&
+                        path.StartsWith(dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                        return f;
+                }
+                catch { }
+            }
+        }
+        return null;
     }
     public void UpdateStatus(Guid id, string status)
     {

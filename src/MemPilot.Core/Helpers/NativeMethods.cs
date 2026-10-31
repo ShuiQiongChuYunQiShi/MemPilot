@@ -4,6 +4,58 @@ namespace MemPilot.Helpers;
 
 public static class NativeMethods
 {
+    // ---- Shell Link（程序清单：解析开始菜单 .lnk） ----
+    public const uint CLSCTX_INPROC_SERVER = 0x1;
+    public static readonly Guid CLSID_ShellLink = new("00021401-0000-0000-C000-000000000046");
+    public static readonly Guid IID_IShellLinkW = new("000214F9-0000-0000-C000-000000000046");
+
+    public const uint COINIT_MULTITHREADED = 0x0;
+
+    [DllImport("ole32.dll")]
+    public static extern int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+    [DllImport("ole32.dll")]
+    public static extern void CoUninitialize();
+
+    [DllImport("ole32.dll")]
+    public static extern int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext,
+        ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
+
+    // vtable 顺序必须与原生一致：IUnknown(3) 之后是 IShellLinkW 的 20 个方法
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszFile, int cch, IntPtr pfd, uint fFlags);
+        void GetIDList(out IntPtr ppidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszName, int cch);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszDir, int cch);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszArgs, int cch);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
+        void GetHotkey(out short pwHotkey);
+        void SetHotkey(short wHotkey);
+        void GetShowCmd(out int piShowCmd);
+        void SetShowCmd(int iShowCmd);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszIconPath, int cch, out int piIcon);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, uint dwReserved);
+        void Resolve(IntPtr hwnd, uint fFlags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
+    }
+
+    [ComImport, Guid("0000010b-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPersistFile
+    {
+        void GetClassID(out Guid pClassID);
+        [PreserveSig] int IsDirty();
+        void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, uint dwMode);
+        void Save([MarshalAs(UnmanagedType.LPWStr)] string? pszFileName, bool fRemember);
+        void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
+        void GetCurFile([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder ppszFileName);
+    }
+
     public const uint PROCESS_QUERY_INFORMATION = 0x0400;
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
     public const uint PROCESS_VM_READ = 0x0010;

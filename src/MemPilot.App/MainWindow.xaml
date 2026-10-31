@@ -526,6 +526,7 @@
                             <DataGridTextColumn Header="内存增长" Binding="{Binding MemoryGrowthBytes, Converter={StaticResource SignedBytes}}" Width="85"/>
                             <DataGridTextColumn Header="子进程" Binding="{Binding ChildPids.Count}" Width="55"/>
                             <DataGridTextColumn Header="线程" Binding="{Binding Memory.ThreadCount}" Width="50"/>
+                            <DataGridTextColumn Header="所属程序" Binding="{Binding ProgramDisplayName}" Width="150"/>
                             <DataGridTextColumn Header="厂商" Binding="{Binding Company}" Width="130"/>
                             <DataGridTextColumn Header="窗口标题" Binding="{Binding MainWindowTitle}" Width="150"/>
                             <DataGridTextColumn Header="音频" Binding="{Binding AudioActive}" Width="45"/>
@@ -1008,7 +1009,15 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="联网查询" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
+                                <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="程序清单" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
+                                <TextBlock Text="{Binding ProgramCatalogInfo}" Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap"/>
+                                <Button Content="重建程序清单（注册表 + 开始菜单 + 安装根）" Click="RebuildCatalog_Click" Style="{StaticResource PrimaryBtn}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="联网查询" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
                                 <TextBlock Text="查询端点 URL" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBox x:Name="SetEndpoint" Width="440" HorizontalAlignment="Left" Margin="0,2,0,10"/>
                                 <TextBlock Text="API 密钥（仅存本机 config.json）" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>

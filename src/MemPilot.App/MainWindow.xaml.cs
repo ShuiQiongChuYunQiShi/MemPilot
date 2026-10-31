@@ -544,6 +544,18 @@ public partial class MainWindow : Window
         await RunCleanup(c, level);
     }
 
+    // ---- 程序清单（v0.3.0）----
+
+    private async void RebuildCatalog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _vm.RebuildProgramCatalogAsync();
+            await _vm.RefreshAsync();
+        }
+        catch (Exception ex) { _vm.Status = "重建程序清单失败: " + ex.Message; }
+    }
+
     // ---- 告警触达（v0.1.8）：主页横幅 + 托盘气泡 ----
 
     private async void QuickRelief_Click(object sender, RoutedEventArgs e)

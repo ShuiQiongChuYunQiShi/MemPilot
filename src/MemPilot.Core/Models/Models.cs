@@ -65,6 +65,9 @@ public class ProcessInfo
     public string ExecutablePath { get; set; } = "";
     public string CommandLine { get; set; } = "";
     public string Company { get; set; } = "";
+    /// <summary>程序清单命中：所属程序显示名与发布者（展示用，不构成处置依据）。</summary>
+    public string ProgramDisplayName { get; set; } = "";
+    public string ProgramPublisher { get; set; } = "";
     public string ProductName { get; set; } = "";
     public string FileDescription { get; set; } = "";
     public string FileVersion { get; set; } = "";
@@ -217,6 +220,18 @@ public class SystemMemoryInfo
     public long TotalCommittedBytes { get; set; }
     public long CachedBytes { get; set; }
     public double MemoryLoadPercent { get; set; }
+}
+
+/// <summary>已安装程序条目（程序清单 v0.3.0）：注册表 Uninstall / 开始菜单 / 安装根扫描三源合并。</summary>
+public class InstalledProgram
+{
+    public string DisplayName { get; set; } = "";
+    public string Publisher { get; set; } = "";
+    public string Version { get; set; } = "";
+    public string InstallLocation { get; set; } = "";
+    public string ExecutablePath { get; set; } = "";
+    public string IconPath { get; set; } = "";
+    public string Source { get; set; } = ""; // registry / startmenu / scan
 }
 
 public class GpuAdapterInfo

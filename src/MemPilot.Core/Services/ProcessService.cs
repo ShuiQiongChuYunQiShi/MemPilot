@@ -16,43 +16,17 @@ public class ProcessService
     private static readonly object _cacheLock = new();
 
     // file version metadata cache: GetVersionInfo reads the PE header from disk on every call
-    private static readonly Dictionary<string, (DateTime lastWrite, string company, string product, string description, string version)> _versionCache = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly object _versionLock = new();
-
     private static void FillVersionInfo(ProcessInfo info)
     {
         var path = info.ExecutablePath;
         if (string.IsNullOrEmpty(path)) return;
-        try
-        {
-            var lastWrite = File.GetLastWriteTimeUtc(path);
-            lock (_versionLock)
-            {
-                if (_versionCache.TryGetValue(path, out var hit) && hit.lastWrite == lastWrite)
-                {
-                    info.Company = hit.company; info.ProductName = hit.product;
-                    info.FileDescription = hit.description; info.FileVersion = hit.version;
-                    return;
-                }
-            }
-            string company = "", product = "", description = "", version = "";
-            try
-            {
-                var vi = FileVersionInfo.GetVersionInfo(path);
-                company = vi.CompanyName ?? ""; product = vi.ProductName ?? "";
-                description = vi.FileDescription ?? ""; version = vi.FileVersion ?? "";
-            }
-            catch { }
-            lock (_versionLock)
-            {
-                if (_versionCache.Count > 4096) _versionCache.Clear();
-                _versionCache[path] = (lastWrite, company, product, description, version);
-            }
-            info.Company = company; info.ProductName = product;
-            info.FileDescription = description; info.FileVersion = version;
-        }
-        catch { }
+        var meta = MemPilot.Helpers.ExeMetadataCache.Read(path);
+        info.Company = meta.Company;
+        info.ProductName = meta.Product;
+        info.FileDescription = meta.Description;
+        info.FileVersion = meta.Version;
     }
+
     private static readonly Dictionary<int, string> _cmdlineCache = new();
     private static readonly object _cmdlineLock = new();
 

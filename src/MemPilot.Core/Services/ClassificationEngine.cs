@@ -13,7 +13,14 @@ namespace MemPilot.Services;
 public class ClassificationEngine
 {
     private readonly FeedbackStore _feedback;
-    public ClassificationEngine(FeedbackStore feedback) { _feedback = feedback; }
+    /// <summary>程序清单（可选）：只作证据补充，不构成处置依据；构建完成后可由外部替换引用。</summary>
+    public ProgramCatalogService? Catalog { get; set; }
+
+    public ClassificationEngine(FeedbackStore feedback, ProgramCatalogService? catalog = null)
+    {
+        _feedback = feedback;
+        Catalog = catalog;
+    }
 
     private static readonly HashSet<string> SystemCriticalNames = new(StringComparer.OrdinalIgnoreCase)
     { "system", "registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "svchost", "dwm", "winlogon", "memcompression" };
@@ -134,6 +141,13 @@ public class ClassificationEngine
             return;
         }
 
+        var catalogHit = Catalog?.FindByPath(p.ExecutablePath);
+        if (catalogHit != null)
+        {
+            p.ProgramDisplayName = catalogHit.DisplayName;
+            p.ProgramPublisher = catalogHit.Publisher;
+        }
+
         string name = p.Name;
         string path = p.ExecutablePath.ToLowerInvariant();
         bool isSystemPath = path.StartsWith(@"c:\windows\system32") || path.StartsWith(@"c:\windows\syswow64") || path.StartsWith(@"c:\windows");
@@ -210,6 +224,18 @@ public class ClassificationEngine
             }
         }
 
+        // 程序清单的发布者证据：签名不可用/未验证时的补充（如 Docker Inc 的未签名辅助组件）
+        if (catalogHit != null && !string.IsNullOrWhiteSpace(catalogHit.Publisher))
+        {
+            foreach (var (keyword, category) in PublisherRules)
+            {
+                if (catalogHit.Publisher.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    p.Category = category; p.CategoryReason = $"program_catalog:{keyword}"; return;
+                }
+            }
+        }
+
         if (GameLauncherNames.Contains(name))
         {
             p.Category = ProcessCategory.GameLauncher; p.CategoryReason = "launcher_name"; return;
@@ -251,6 +277,14 @@ public class ClassificationEngine
         if (isSystemPath)
         {
             p.Category = ProcessCategory.SystemService; p.IsSystemProcess = true; p.CategoryReason = "system_path"; return;
+        }
+
+        if (catalogHit != null)
+        {
+            // 属于某个已安装程序但规则未覆盖：至少不再标"未识别"（证据仅说明"它是个装过的程序"）
+            p.Category = ProcessCategory.ThirdPartyApp;
+            p.CategoryReason = "program_catalog:" + catalogHit.DisplayName;
+            return;
         }
 
         p.Category = ProcessCategory.Unknown;

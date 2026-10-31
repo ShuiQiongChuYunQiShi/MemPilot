@@ -313,7 +313,9 @@ public class MainViewModel : INotifyPropertyChanged
         Audit = audit;
         Feedback = feedback;
         ModeManager = new ModeManager(config.Config);
-        Classification = new ClassificationEngine(feedback);
+        ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
+                         ?? new ProgramCatalogService();
+        Classification = new ClassificationEngine(feedback, ProgramCatalog);
         UnusedDetector.Config = config.Config;
         OnlineLookup.Config = config.Config;
         Decisions = new DecisionLog(ConfigStore.DataDirectory);
@@ -335,6 +337,10 @@ public class MainViewModel : INotifyPropertyChanged
             ReloadDecisions();
         };
         OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
+        ProgramCatalogInfo = ProgramCatalog.Count > 0
+            ? $"程序清单：{ProgramCatalog.Count} 条（{ProgramCatalog.BuiltUtc.ToLocalTime():MM-dd HH:mm}）"
+            : "程序清单：尚未构建（后台构建中…）";
+        if (ProgramCatalog.Count == 0) _ = Task.Run(BuildProgramCatalogInBackground);
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         CurrentMode = config.Config.CurrentMode;
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
@@ -587,6 +593,46 @@ public class MainViewModel : INotifyPropertyChanged
                 break;
         }
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ---- 程序清单（v0.3.0）----
+
+    public ProgramCatalogService ProgramCatalog { get; private set; }
+
+    private string _programCatalogInfo = "";
+    public string ProgramCatalogInfo
+    {
+        get => _programCatalogInfo;
+        private set { _programCatalogInfo = value; OnPropertyChanged(); }
+    }
+
+    private void BuildProgramCatalogInBackground()
+    {
+        try
+        {
+            var built = ProgramCatalogService.Build(msg => SetUi(() => Status = msg));
+            built.Save(ConfigStore.DataDirectory);
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                ProgramCatalog = built;
+                Classification.Catalog = built;
+                ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
+            });
+        }
+        catch { }
+    }
+
+    /// <summary>手动重建程序清单（设置页按钮）：注册表 + 开始菜单 + 安装根。</summary>
+    public async Task<string> RebuildProgramCatalogAsync()
+    {
+        Status = "正在重建程序清单（注册表 + 开始菜单 + 安装根）…";
+        var built = await Task.Run(() => ProgramCatalogService.Build(msg => SetUi(() => Status = msg))).ConfigureAwait(true);
+        built.Save(ConfigStore.DataDirectory);
+        ProgramCatalog = built;
+        Classification.Catalog = built;
+        ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
+        Status = $"程序清单已重建：{built.Count} 条（目录索引 {built.DirectoryIndexCount}）";
+        return Status;
     }
 
     private void RebuildUnused()
