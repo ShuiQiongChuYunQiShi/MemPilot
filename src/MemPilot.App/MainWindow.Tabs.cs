@@ -227,18 +227,49 @@ public partial class MainWindow : Window
 
     private void SubmitFeedback_Click(object sender, RoutedEventArgs e)
     {
+        // 空表单会写进一条永远匹配不到任何进程的记录（v0.3.6 真机见过一条），
+        // 所以这里必须校验：至少要有进程名或路径。
+        var name = (FbName.Text ?? "").Trim();
+        var path = (FbPath.Text ?? "").Trim().Trim('"');
+        if (name.Length == 0 && path.Length == 0)
+        {
+            _vm.Status = "请至少填写进程名或路径——空反馈不会匹配任何进程，等于没提交。";
+            FbName.Focus();
+            return;
+        }
+
         var entry = new FeedbackEntry
         {
-            ProcessName = FbName.Text,
-            ExecutablePath = FbPath.Text,
+            ProcessName = name,
+            ExecutablePath = path,
             ReportedCategory = FbCategory.SelectedItem is ProcessCategory c ? c : ProcessCategory.Unknown,
-            UserNote = FbNote.Text,
+            UserNote = (FbNote.Text ?? "").Trim(),
             MarkKeep = FbKeep.IsChecked == true,
             MarkCleanable = FbClean.IsChecked == true,
             MarkSystem = FbSystem.IsChecked == true,
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        MessageBox.Show("反馈已记录。");
+        // 不用模态弹窗（用户偏好）：状态栏 + 清空表单，列表里立刻能看到这一行
+        FbName.Text = ""; FbPath.Text = ""; FbNote.Text = "";
+        FbKeep.IsChecked = false; FbClean.IsChecked = false; FbSystem.IsChecked = false;
+        _vm.Status = $"已记录反馈：{entry.ProcessName} → {entry.EffectText}（下次刷新生效，右键该行可撤销）。";
+        _ = _vm.RefreshAsync();
+    }
+
+    /// <summary>撤销一条反馈（v0.3.7）：标记错了要能撤回，否则只能去改 feedback.json。</summary>
+    private void DeleteFeedback_Click(object sender, RoutedEventArgs e)
+    {
+        if (FeedbackGrid?.SelectedItem is not FeedbackEntry fe)
+        {
+            _vm.Status = "请先在列表里选中一条反馈再撤销。";
+            return;
+        }
+        if (_vm.RemoveFeedback(fe))
+        {
+            _vm.Status = $"已撤销 {fe.ProcessName} 的反馈，下次刷新生效。";
+            _ = _vm.RefreshAsync();
+        }
+        else _vm.Status = "撤销失败：记录不存在（可能已被删除）。";
     }
 }

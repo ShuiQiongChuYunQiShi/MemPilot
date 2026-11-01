@@ -17,6 +17,13 @@ public class FeedbackStore
     private void Load() => _entries = JsonFileStore.Load<List<FeedbackEntry>>(_path) ?? new();
     public void Save() => JsonFileStore.Save(_path, _entries, JsonFileStore.Pretty);
     public void Add(FeedbackEntry e) { _entries.Add(e); Save(); }
+    /// <summary>撤销一条反馈（v0.3.7）：标记错了必须能撤回，否则用户只能重装数据目录。</summary>
+    public bool Remove(Guid id)
+    {
+        var hit = _entries.RemoveAll(e => e.Id == id);
+        if (hit > 0) Save();
+        return hit > 0;
+    }
     public List<FeedbackEntry> All() => _entries.ToList();
     public FeedbackEntry? Find(string name, string path, string publisher)
     {

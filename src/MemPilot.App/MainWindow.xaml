@@ -955,31 +955,68 @@
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="教它认识进程：最方便的方式是在「进程」页右键某个进程直接标记；这里也可以手工提交。" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBox x:Name="FbName" Width="160" Margin="0,0,8,0" ToolTip="进程名" Padding="6,4"/>
-                        <TextBox x:Name="FbPath" Width="260" Margin="0,0,8,0" ToolTip="可执行文件路径" Padding="6,4"/>
-                        <ComboBox x:Name="FbCategory" Width="160" Margin="0,0,8,0"/>
-                        <TextBox x:Name="FbNote" Width="200" Margin="0,0,8,0" ToolTip="备注" Padding="6,4"/>
-                    </StackPanel>
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding FeedbackEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+
+                    <!-- 说明：之前这段文字和输入框都落在 Grid 第 0 行，视觉上叠在一起 -->
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="这些反馈做什么" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
+                            <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap"
+                                       Text="告诉分类器「这个进程该怎么对待」：标记需保留 → 永不进清理候选；标记可清理 → 只需 2 轮观察即可成为候选；标记为系统 → 视为受保护。反馈只保存在本机（%APPDATA%\MemPilot\feedback.json），不上传，下一次刷新生效。最方便的用法是在「进程」页右键那个进程直接标记。"/>
+                            <TextBlock Text="{Binding FeedbackEntries.Count, StringFormat=已记录 {0} 条 · 右键表格行可撤销}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="170"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Text="进程名（必填，或填路径）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                            <TextBox x:Name="FbName" Padding="6,4" Margin="0,2,0,0" ToolTip="与任务管理器一致，例如 wegame.exe"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="可执行文件路径（可选；填了按路径精确匹配，软件级反馈按目录匹配）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                            <TextBox x:Name="FbPath" Padding="6,4" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                            <TextBlock Text="把它归类为" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                            <ComboBox x:Name="FbCategory" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Text="备注（可选，只给自己看）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                            <TextBox x:Name="FbNote" Padding="6,4" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <DataGrid Grid.Row="2" x:Name="FeedbackGrid" ItemsSource="{Binding FeedbackEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="撤销这条反馈（删除标记）" Click="DeleteFeedback_Click"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="160"/>
-                            <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="130"/>
-                            <DataGridTextColumn Header="分类" Binding="{Binding ReportedCategory}" Width="110"/>
-                            <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"/>
-                            <DataGridTextColumn Header="范围" Binding="{Binding Scope}" Width="70"/>
+                            <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="100"/>
+                            <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150"/>
+                            <DataGridTextColumn Header="分类" Binding="{Binding ReportedCategory, Converter={StaticResource CatText}}" Width="120"/>
+                            <DataGridTextColumn Header="效果" Binding="{Binding EffectText}" Width="160"/>
+                            <DataGridTextColumn Header="范围" Binding="{Binding ScopeText}" Width="60"/>
                             <DataGridTextColumn Header="备注" Binding="{Binding UserNote}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="提交反馈" Click="SubmitFeedback_Click" Style="{StaticResource PrimaryBtn}"/>
-                        <CheckBox x:Name="FbKeep" Content="标记需保留" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                        <CheckBox x:Name="FbClean" Content="标记可清理" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                        <CheckBox x:Name="FbSystem" Content="标记为系统进程" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="FbKeep" Content="标记需保留" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="FbClean" Content="标记可清理" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="FbSystem" Content="标记为系统进程（受保护）" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="至少填进程名或路径，否则这条反馈不会生效" FontSize="11" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" Margin="14,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </TabItem>

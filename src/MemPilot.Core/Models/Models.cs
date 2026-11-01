@@ -224,6 +224,17 @@ public class FeedbackEntry
     public bool MarkCleanable { get; set; }
     public bool MarkKeep { get; set; }
     public bool MarkSystem { get; set; }
+
+    // 展示用（v0.3.7）：表格里显示本地时间与中文范围/效果，而不是原始 UTC 与枚举名
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string TimeText => TimestampUtc.ToLocalTime().ToString("MM-dd HH:mm");
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ScopeText => Scope == "software" ? "软件" : "进程";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectText => MarkSystem ? "标记为系统（受保护）"
+                               : MarkKeep ? "需保留（不进清理）"
+                               : MarkCleanable ? "可清理（优先候选）"
+                               : "仅修正分类";
 }
 
 public class OnlineLookupResult

@@ -578,6 +578,14 @@ public partial class MainViewModel : INotifyPropertyChanged
         return result;
     }
 
+    /// <summary>撤销一条反馈（v0.3.7）：删库 + 从列表移除，下次刷新分类即恢复。</summary>
+    public bool RemoveFeedback(FeedbackEntry e)
+    {
+        if (e == null || !Feedback.Remove(e.Id)) return false;
+        FeedbackEntries.Remove(e);
+        return true;
+    }
+
     public void AddFeedback(FeedbackEntry e)
     {
         Feedback.Add(e);
