@@ -85,7 +85,10 @@ public class FeedbackStoreTests : IDisposable
     public void DisplayFields_AreLocalTimeAndChineseScope()
     {
         var e = new FeedbackEntry { TimestampUtc = new DateTime(2026, 11, 1, 4, 14, 30, DateTimeKind.Utc), Scope = "software", MarkSystem = true };
-        Assert.EndsWith("12:14", e.TimeText);   // UTC 04:14 → 本地（UTC+8）12:14
+        // 不能写死时区：CI runner 是 UTC，开发机是 UTC+8（v0.3.8 首次发布就因此红了）。
+        // 断言形状 + 与 ToLocalTime 的换算关系，两边都成立。
+        Assert.Matches(@"^\d{2}-\d{2} \d{2}:\d{2}$", e.TimeText);
+        Assert.Equal(e.TimestampUtc.ToLocalTime().ToString("MM-dd HH:mm"), e.TimeText);
         Assert.Equal("软件", e.ScopeText);
         Assert.Contains("系统", e.EffectText);
     }
