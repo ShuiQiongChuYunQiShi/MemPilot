@@ -77,7 +77,7 @@ dotnet build src/MemPilot.App -c Release
 dotnet test tests/MemPilot.Tests
 ```
 
-（210 个用例 / 174 个 `[Fact]`+`[Theory]` 方法）运行时只依赖一个 NuGet 包
+（用例数随 Theory 数据行变化，一律以 `dotnet test` 输出为准）运行时只依赖一个 NuGet 包
 （`System.Diagnostics.EventLog` 9.0.0）；其余全是 P/Invoke，测试项目用 xunit。
 .NET 10 LTS（Core 引擎类库 + WPF 壳双项目）。
 CI 产出 TRX 与 cobertura 覆盖率：`MemPilot.Core` 行覆盖门槛 50%（2026-10-31 基线 52.4%，目标 60%）。

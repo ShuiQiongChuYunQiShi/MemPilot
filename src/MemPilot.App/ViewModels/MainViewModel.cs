@@ -221,6 +221,15 @@ public partial class MainViewModel : INotifyPropertyChanged
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
 
+    /// <summary>退出前释放资源（v0.3.8，棱镜 backend/resource-lifecycle）：
+    /// 显存采样定时器 + PDH 查询句柄 + 引擎定时器。进程退出虽会回收，但 Dispose 存在就该有人调。</summary>
+    public void Shutdown()
+    {
+        try { GpuMonitor.Dispose(); } catch { }
+        try { GpuMemory.Dispose(); } catch { }
+        try { Engine.Stop(); } catch { }
+    }
+
     public void StartEngine()
     {
         Engine.Start(ct => RefreshAsync(ct));

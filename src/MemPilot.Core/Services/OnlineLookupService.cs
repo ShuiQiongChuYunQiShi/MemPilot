@@ -52,9 +52,9 @@ public class OnlineLookupService
         }
     }
 
-    public async Task<OnlineLookupResult> LookupAsync(ProcessInfo p)
+    public async Task<OnlineLookupResult> LookupAsync(ProcessInfo p, CancellationToken ct = default)
     {
-        var res = await LookupUncachedAsync(p).ConfigureAwait(false);
+        var res = await LookupUncachedAsync(p, ct).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(p.ExecutablePath) && res.Status is "found" or "uncertain" or "not_found")
         {
             lock (_cacheLock)
@@ -66,7 +66,7 @@ public class OnlineLookupService
         return res;
     }
 
-    private async Task<OnlineLookupResult> LookupUncachedAsync(ProcessInfo p)
+    private async Task<OnlineLookupResult> LookupUncachedAsync(ProcessInfo p, CancellationToken ct = default)
     {
         var res = new OnlineLookupResult();
         if (!Config.OnlineLookupEnabled)
@@ -107,10 +107,18 @@ public class OnlineLookupService
                     .Replace("{hash}", Uri.EscapeDataString(hash))
                     .Replace("{publisher}", Uri.EscapeDataString(p.Company))
                     .Replace("{product}", Uri.EscapeDataString(p.ProductName));
+                // v0.3.8（棱镜 security/network）：非 https 且非本机时拒绝——否则 x-api-key 会明文过网
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                    (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback))
+                {
+                    res.Status = "error";
+                    res.Summary = "查询端点必须是 https（或 localhost）；http 会让 API 密钥明文过网";
+                    return res;
+                }
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 if (!string.IsNullOrWhiteSpace(Config.OnlineLookupApiKey))
                     req.Headers.TryAddWithoutValidation("x-api-key", Config.OnlineLookupApiKey);
-                var resp = await _http.SendAsync(req);
+                var resp = await _http.SendAsync(req, ct);
                 if (!resp.IsSuccessStatusCode)
                 {
                     res.Status = "error";
@@ -165,7 +173,7 @@ public class OnlineLookupService
                 var url = $"https://www.virustotal.com/api/v3/files/{hash}";
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 req.Headers.TryAddWithoutValidation("x-apikey", Config.OnlineLookupApiKey);
-                var resp = await _http.SendAsync(req);
+                var resp = await _http.SendAsync(req, ct);
                 if (resp.IsSuccessStatusCode)
                 {
                     res.Status = "uncertain";

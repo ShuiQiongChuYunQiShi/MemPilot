@@ -65,6 +65,18 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.8 — 棱镜第三轮遗留整改（2026-11-01，待发布）
+
+第三轮棱镜（ev-90e0384c8cb9）：23 条 findings，新增 4 / 已解决 7 / 驳回 1 / 仍活跃 7。本轮清 1 条 P2 + 4 条低优先，全部是低成本项：
+
+- [x] **文档漂移**（docs/drift，P2）：README 用例数、HANDOFF 安装版本/用例数全部改成「以 … 为准」，不再写死会变的数字（这是第二次同类返工）。
+- [x] **wharf 清单 notes**（user/hygiene，P3）：版本 0.1.0 → 0.3.8，补能力范围（程序清单/用途/显存观测/反馈/场景影子）。
+- [x] **using 头重复**（maintainability/usings-duplication，P3）：6 个 MainWindow partial 各自 17 行 using → 全部收进 csproj `<Using Include>`（含 7 个 Alias），重复率第一来源消除。
+- [x] **GPU 资源生命周期**（backend/resource-lifecycle，P3）：`MainViewModel.Shutdown()` 释放 GpuMonitor/GpuMemory/Engine 定时器，托盘退出与关窗两条路径都调用。
+- [x] **联网查询加固**（security/network，P3）：端点强制 https 或 localhost（发请求前拒绝，避免 x-api-key 明文过网）；API 密钥用 DPAPI（CryptProtectData P/Invoke，无新依赖）加密落盘，老明文配置下次保存自动升级；SendAsync 传取消令牌。
+- 测试 230→234（DPAPI 往返/明文兼容/config 不含明文/http 端点被拒）。
+- 守卫：ConfigStore 测试断言「config.json 里绝不出现明文密钥」。
+
 ### v0.3.7 — 反馈页重做（2026-11-01，待发布）
 
 用户反馈：反馈页顶部输入框叠在一起；不知道该页干什么；提交了一次也看不出效果。

@@ -1,21 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using MemPilot.Helpers;
-using MemPilot.Models;
-using MemPilot.Services;
-using MemPilot.ViewModels;
-using Application = System.Windows.Application;
-using TabControl = System.Windows.Controls.TabControl;
-using RadioButton = System.Windows.Controls.RadioButton;
-using MessageBox = System.Windows.MessageBox;
-using Color = System.Windows.Media.Color;
-using Colors = System.Windows.Media.Colors;
-
 namespace MemPilot.App;
 
 public partial class MainWindow : Window

@@ -1,21 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using MemPilot.Helpers;
-using MemPilot.Models;
-using MemPilot.Services;
-using MemPilot.ViewModels;
-using Application = System.Windows.Application;
-using TabControl = System.Windows.Controls.TabControl;
-using RadioButton = System.Windows.Controls.RadioButton;
-using MessageBox = System.Windows.MessageBox;
-using Color = System.Windows.Media.Color;
-using Colors = System.Windows.Media.Colors;
-
 namespace MemPilot.App;
 
 public partial class MainWindow : Window
@@ -85,7 +67,7 @@ public partial class MainWindow : Window
         var miExit = (System.Windows.Controls.MenuItem)_trayMenu.Items[2];
         miShow.Click += (s, e) => ShowWindow();
         miRefresh.Click += async (s, e) => await _vm.RefreshAsync();
-        miExit.Click += (s, e) => { _allowClose = true; _tray?.Dispose(); Application.Current.Shutdown(); };
+        miExit.Click += (s, e) => { _allowClose = true; _vm.Shutdown(); _tray?.Dispose(); Application.Current.Shutdown(); };
 
         // auto mode switch happens in the engine — reflect it back into the combo box
         _vm.PropertyChanged += (s, e) =>
@@ -213,6 +195,7 @@ public partial class MainWindow : Window
             UpdateUiActivity(); // enter tray lightweight mode
             return;
         }
+        _vm.Shutdown();
         _tray?.Dispose();
         _hotkey?.Dispose();
     }

@@ -31,8 +31,24 @@ public class ConfigStore
                 game.KeepPatterns.Add(p);
         Save();
     }
-    private void Load() => Config = JsonFileStore.Load<AppConfig>(_path) ?? new AppConfig();
-    public void Save() => JsonFileStore.Save(_path, Config, JsonFileStore.Pretty);
+    private void Load()
+    {
+        Config = JsonFileStore.Load<AppConfig>(_path) ?? new AppConfig();
+        // v0.3.8：API 密钥加密存储；老配置是明文，原样读入，下次 Save 自动升级为密文
+        Config.OnlineLookupApiKey = Dpapi.Unprotect(Config.OnlineLookupApiKey);
+    }
+
+    public void Save()
+    {
+        // 只在落盘这一刻加密，内存里始终是明文（UI/请求都用明文），避免到处解密
+        var plain = Config.OnlineLookupApiKey;
+        try
+        {
+            Config.OnlineLookupApiKey = Dpapi.Protect(plain);
+            JsonFileStore.Save(_path, Config, JsonFileStore.Pretty);
+        }
+        finally { Config.OnlineLookupApiKey = plain; }
+    }
     private void EnsureDefaults()
     {
         if (Config.ModeProfiles.Count == 0)
