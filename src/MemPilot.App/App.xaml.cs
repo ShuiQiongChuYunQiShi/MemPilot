@@ -125,8 +125,8 @@ public partial class App : Application
                 File.WriteAllText(test, "x");
                 File.Delete(test);
                 // 落盘失败诊断（JsonFileStore）写这里；只在首次可用目录时确定
-                if (StoreDiagnostics.LogPath == null)
-                    StoreDiagnostics.LogPath = Path.Combine(c, "diag.log");
+                if (Diag.LogPath == null)
+                    Diag.LogPath = Path.Combine(c, "diag.log");
                 return c;
             }
             catch { }

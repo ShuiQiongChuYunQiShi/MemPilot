@@ -65,6 +65,15 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 
 ## 版本迭代计划（2026-10-30 制定，基于两天遥测+代码实测）
 
+### v0.3.9 — 棱镜两个 P2：静默失败扩面 + 引擎拆分（2026-11-01，待发布）
+
+- [x] **Diag 统一诊断**（棱镜 backend/error-handling）：`StoreDiagnostics` 升级为通用 `Diag`（area 维度聚合、最近 20 条、可选 diag.log），落盘调用改为 `store:load:*` / `store:save:*`。
+- [x] **采集链路接入诊断**（此前完全无声）：程序清单三源（registry/startmenu/roots 分别记 + 结果为空记 `catalog:empty`）、进程枚举（10 分钟最多记一次受限比例 `proc-enum`）、场景评估（`scene`）、显存采集不可用（只记一次 `gpu-mem` 并复位）。
+- [x] **ResidentEngine 拆分**（棱镜 maintainability/complexity）：591 行 god class → 核心 172 行（字段/调度/前台采样）+ `Scene`（打分/影子/滞回切换/挂起恢复）140 + `Pressure`（内存增长/CommitWatch/时段提醒）142 + `AutoActions`（模式清理/系统优化/垃圾清扫）170。**只移动不改逻辑**。
+- 空 catch 88→87（场景评估那条变成 Diag 记录）。
+- 测试 234→239：新增 DiagTests 5 条（area 聚合/异常类型/环形上限/log 文件），并把 Diag 与 JsonFileStore 测试放进同一 xUnit collection 串行执行（全局静态状态，并行会互相污染——实测踩到）。
+- 真机：Release 起活、crash.log 零增量、显存采样继续、`diag.log` 未生成（无失败）。
+
 ### v0.3.8 — 棱镜第三轮遗留整改（2026-11-01，待发布）
 
 第三轮棱镜（ev-90e0384c8cb9）：23 条 findings，新增 4 / 已解决 7 / 驳回 1 / 仍活跃 7。本轮清 1 条 P2 + 4 条低优先，全部是低成本项：

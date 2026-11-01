@@ -9,6 +9,7 @@ namespace MemPilot.Services;
 public class ProcessService
 {
     private readonly TrustVerifier _trust = new();
+    private static DateTime _lastEnumDiagUtc = DateTime.MinValue;
 
     // ---- caches: scheduled tasks & startup items rarely change; do not spawn schtasks every refresh ----
     private static (DateTime time, List<ScheduledTaskInfo> tasks)? _taskCache;
@@ -47,6 +48,7 @@ public class ProcessService
     public List<ProcessInfo> EnumerateProcesses()
     {
         var result = new List<ProcessInfo>();
+        int restricted = 0; // v0.3.9：本轮读取受限的进程数（诊断用）
         var startupItems = GetStartupItemsCached();
         var scheduledTasks = GetScheduledTasksCached();
         var procs = Process.GetProcesses();
@@ -101,10 +103,19 @@ public class ProcessService
             }
             catch (Exception ex)
             {
+                restricted++;
                 info.AccessDenied = true;
                 info.AccessNote = ex.Message;
             }
             result.Add(info);
+        }
+
+        // v0.3.9：受限进程过多说明数据通路有问题（提权失败/安全软件拦截），
+        // 但每轮都记会把诊断刷满，10 分钟最多记一次。
+        if (restricted > 0 && (DateTime.UtcNow - _lastEnumDiagUtc).TotalMinutes >= 10)
+        {
+            _lastEnumDiagUtc = DateTime.UtcNow;
+            Diag.Record("proc-enum", $"{restricted}/{result.Count} 个进程读取受限（提权/安全软件？）");
         }
 
         // child lists from the parent PIDs we just collected

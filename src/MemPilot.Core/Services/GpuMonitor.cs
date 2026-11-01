@@ -19,6 +19,7 @@ public sealed class GpuMonitor : IDisposable
 
     private Timer? _timer;
     private int _ticking;
+    private bool _reportedUnavailable;
     private int _intervalSeconds = 30;
     private Func<bool> _enabled = () => true;
     private Func<IReadOnlyList<ProcessInfo>>? _procs;
@@ -70,6 +71,12 @@ public sealed class GpuMonitor : IDisposable
                 _intervalSeconds,
                 DateTime.UtcNow);
             LastError = snap.Available ? "" : (_mem.LastDiag.Length > 0 ? _mem.LastDiag : "gpu memory unavailable");
+            if (!snap.Available && !_reportedUnavailable)
+            {
+                _reportedUnavailable = true;                       // 只记一次，可用后复位
+                Helpers.Diag.Record("gpu-mem", LastError);
+            }
+            else if (snap.Available) _reportedUnavailable = false;
         }
         catch (Exception ex) { LastError = ex.GetType().Name + ": " + ex.Message; }
         finally { Interlocked.Exchange(ref _ticking, 0); }

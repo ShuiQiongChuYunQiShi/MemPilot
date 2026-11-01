@@ -57,8 +57,8 @@ public partial class MainViewModel
 
     public void RefreshDiagnostics()
     {
-        var summary = MemPilot.Helpers.StoreDiagnostics.Summary();
-        var recent = MemPilot.Helpers.StoreDiagnostics.Recent().FirstOrDefault();
+        var summary = MemPilot.Helpers.Diag.Summary();
+        var recent = MemPilot.Helpers.Diag.Recent().FirstOrDefault();
         StoreDiagnosticsText = recent == null ? summary : summary + "\n最近：" + recent;
     }
 

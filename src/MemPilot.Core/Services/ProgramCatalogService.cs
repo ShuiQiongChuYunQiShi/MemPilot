@@ -59,13 +59,19 @@ public class ProgramCatalogService
     public static ProgramCatalogService Build(Action<string>? progress = null)
     {
         var catalog = new ProgramCatalogService();
-        try { foreach (var p in FromRegistry()) catalog.Index(p); } catch { }
+        // v0.3.9：三个来源分别记诊断——清单悄悄变空是最难发现的失败（界面只会显示"未识别"变多）
+        try { foreach (var p in FromRegistry()) catalog.Index(p); }
+        catch (Exception ex) { Diag.Record("catalog:registry", ex); }
         progress?.Invoke($"程序清单：注册表 {catalog.Count} 条");
-        try { foreach (var p in FromStartMenu()) catalog.Index(p); } catch { }
+        try { foreach (var p in FromStartMenu()) catalog.Index(p); }
+        catch (Exception ex) { Diag.Record("catalog:startmenu", ex); }
         progress?.Invoke($"程序清单：开始菜单累计 {catalog.Count} 条");
-        try { foreach (var p in FromInstallRoots()) catalog.Index(p); } catch { }
+        try { foreach (var p in FromInstallRoots()) catalog.Index(p); }
+        catch (Exception ex) { Diag.Record("catalog:roots", ex); }
         catalog.BuiltUtc = DateTime.UtcNow;
         catalog.SortDirectoryIndex();
+        if (catalog.Count == 0)
+            Diag.Record("catalog:empty", "三个来源均为空（扫描失败，或系统确实没有已安装程序）");
         progress?.Invoke($"程序清单完成：{catalog.Count} 条（目录索引 {catalog.DirectoryIndexCount}）");
         return catalog;
     }
