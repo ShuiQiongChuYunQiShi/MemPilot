@@ -187,6 +187,16 @@ public partial class MainWindow : Window
 
     // ---- feedback shortcuts from the process grid ----
 
+    /// <summary>右键「标记用途」（v0.4.0）：人工纠正优先于规则，下一轮刷新即生效。</summary>
+    private void CtxWorkload_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        var tag = (sender as MenuItem)?.Tag as string ?? "";
+        WorkloadKind? kind = Enum.TryParse<WorkloadKind>(tag, out var k) ? k : null;
+        _vm.MarkWorkload(p, kind);
+    }
+
     private void CtxFeedbackKeep_Click(object sender, RoutedEventArgs e)
     {
         var p = GetSelectedProcess();

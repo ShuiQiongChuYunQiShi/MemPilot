@@ -529,6 +529,15 @@
                                 <MenuItem Header="开启 EcoQoS 节能" Click="CtxEcoOn_Click"/>
                                 <MenuItem Header="关闭 EcoQoS" Click="CtxEcoOff_Click"/>
                                 <Separator/>
+                                <MenuItem Header="标记用途">
+                                    <MenuItem Header="工作" Tag="Work" Click="CtxWorkload_Click"/>
+                                    <MenuItem Header="娱乐" Tag="Entertainment" Click="CtxWorkload_Click"/>
+                                    <MenuItem Header="AI" Tag="Ai" Click="CtxWorkload_Click"/>
+                                    <MenuItem Header="系统" Tag="System" Click="CtxWorkload_Click"/>
+                                    <MenuItem Header="其他" Tag="Other" Click="CtxWorkload_Click"/>
+                                    <Separator/>
+                                    <MenuItem Header="清除用途标记（回到规则判定）" Tag="" Click="CtxWorkload_Click"/>
+                                </MenuItem>
                                 <MenuItem Header="标记为需保留（以后不清理它）" Click="CtxFeedbackKeep_Click"/>
                                 <MenuItem Header="标记为可清理（优先清理它）" Click="CtxFeedbackClean_Click"/>
                             </ContextMenu>
@@ -1006,6 +1015,7 @@
                             <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150"/>
                             <DataGridTextColumn Header="分类" Binding="{Binding ReportedCategory, Converter={StaticResource CatText}}" Width="120"/>
                             <DataGridTextColumn Header="效果" Binding="{Binding EffectText}" Width="160"/>
+                            <DataGridTextColumn Header="用途" Binding="{Binding WorkloadMarkText}" Width="60"/>
                             <DataGridTextColumn Header="范围" Binding="{Binding ScopeText}" Width="60"/>
                             <DataGridTextColumn Header="备注" Binding="{Binding UserNote}" Width="*"/>
                         </DataGrid.Columns>

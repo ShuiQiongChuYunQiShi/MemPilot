@@ -9,45 +9,25 @@ namespace MemPilot.Services;
 /// </summary>
 public static class WorkloadClassifier
 {
-    // 娱乐：游戏平台、直播/影视、音乐
-    private static readonly string[] EntertainmentNames =
-    {
-        "steam", "steamwebhelper", "epicgameslauncher", "wegame", "battlenet", "battle.net", "origin", "uplay",
-        "ubisoftconnect", "goggalaxy", "riotclient", "riotclientservices", "xboxapp",
-        "bilibili", "哔哩哔哩", "douyu", "斗鱼", "huya", "虎牙", "qqlive", "qyplayer", "iqiyi", "爱奇艺",
-        "youku", "优酷", "potplayer", "vlc", "mpv", "mpc-hc", "wmplayer", "cloudmusic", "网易云音乐",
-        "qqmusic", "spotify", "kugou", "kuwo", "musicbee",
-    };
+    /// <summary>默认名单走内置（v0.4.0：可被 workload-rules.json 覆盖；静态调用保持旧行为）。</summary>
+    public static void Apply(ProcessInfo p) => Apply(p, null, null);
 
-    // 工作：办公/文档/数据库/终端/远程
-    private static readonly string[] WorkNames =
+    /// <summary>
+    /// 完整判定。顺序：① 用户标记（右键「标记用途」）→ ② 强类别 → ③ 名单/发布者 → ④ 其他/未知。
+    /// userLookup 返回 null 表示未标记；返回任何值都直接采用（包括 Other），便于"纠正成其他"。
+    /// </summary>
+    public static void Apply(ProcessInfo p, WorkloadRules? rules, Func<ProcessInfo, WorkloadKind?>? userLookup)
     {
-        "winword", "excel", "powerpnt", "outlook", "onenote", "msaccess", "kingsoft",
-        "notion", "obsidian", "typora", "xmind", "processon", "visio",
-        "ssms", "dbeaver", "navicat", "datagrip", "redis-cli", "mongosh", "mysql", "mysqld", "postgres",
-        "redis-server", "sqlservr", "mongod",
-        "windows terminal", "windowsterminal", "powershell", "mstsc", "wsl",
-    };
+        // 0) 用户标记优先：人工判断永远压过规则（错判不必再等发版）
+        var user = userLookup?.Invoke(p);
+        if (user.HasValue)
+        {
+            Set(p, user.Value, "user_mark");
+            return;
+        }
 
-    // 短名必须精确匹配，禁止子串（v0.3.1 真机教训："et" 把 wetype/SocketServer 误判成工作）
-    private static readonly HashSet<string> WorkExactNames = new(StringComparer.OrdinalIgnoreCase)
-    { "wps", "et", "wpp", "code", "cmd", "project" };
+        rules ??= WorkloadRules.Defaults();
 
-    private static readonly string[] EntertainmentPublishers =
-    {
-        "valve", "blizzard", "epic games", "riot games", "tencent games", "netease games",
-        "miHoYo", "米哈游", "ubisoft", "electronic arts",
-    };
-
-    private static readonly string[] WorkPublishers =
-    {
-        "jetbrains", "autodesk", "adobe", "kingsoft office", "microsoft office", "siemens", "ansys",
-        "unity technologies", "dassault",
-    };
-
-    public static void Apply(ProcessInfo p)
-    {
-        // 1) 强类别：游戏/AI/系统直接定用途
         switch (p.Category)
         {
             case ProcessCategory.Game:
@@ -73,18 +53,18 @@ public static class WorkloadClassifier
         // 2) 名称 / 清单显示名关键词（短名精确匹配，长名子串）
         var name = p.Name;
         var programName = p.ProgramDisplayName;
-        if (MatchesAny(name, EntertainmentNames) || MatchesAny(programName, EntertainmentNames))
+        if (MatchesAny(name, rules.EntertainmentNames) || MatchesAny(programName, rules.EntertainmentNames))
         { Set(p, WorkloadKind.Entertainment, "name:entertainment"); return; }
-        if (WorkExactNames.Contains(name) || WorkExactNames.Contains(programName))
+        if (rules.WorkExactNames.Contains(name) || rules.WorkExactNames.Contains(programName))
         { Set(p, WorkloadKind.Work, "name:work_exact"); return; }
-        if (MatchesAny(name, WorkNames) || MatchesAny(programName, WorkNames))
+        if (MatchesAny(name, rules.WorkNames) || MatchesAny(programName, rules.WorkNames))
         { Set(p, WorkloadKind.Work, "name:work"); return; }
 
         // 3) 清单发布者关键词（签名不可用时的补充证据）
         var publisher = p.ProgramPublisher;
-        if (MatchesAny(publisher, EntertainmentPublishers))
+        if (MatchesAny(publisher, rules.EntertainmentPublishers))
         { Set(p, WorkloadKind.Entertainment, "publisher:entertainment"); return; }
-        if (MatchesAny(publisher, WorkPublishers))
+        if (MatchesAny(publisher, rules.WorkPublishers))
         { Set(p, WorkloadKind.Work, "publisher:work"); return; }
 
         // 4) 其余：明确是"装了的三方程序"记 Other（便于和未识别区分），否则 Unknown
@@ -100,7 +80,7 @@ public static class WorkloadClassifier
         p.WorkloadReason = reason;
     }
 
-    private static bool MatchesAny(string? text, string[] words)
+    private static bool MatchesAny(string? text, List<string> words)
     {
         if (string.IsNullOrWhiteSpace(text)) return false;
         foreach (var w in words)
@@ -108,13 +88,5 @@ public static class WorkloadClassifier
         return false;
     }
 
-    public static string DisplayName(WorkloadKind kind) => kind switch
-    {
-        WorkloadKind.Work => "工作",
-        WorkloadKind.Entertainment => "娱乐",
-        WorkloadKind.Ai => "AI",
-        WorkloadKind.System => "系统",
-        WorkloadKind.Other => "其他",
-        _ => "未知",
-    };
+    public static string DisplayName(WorkloadKind kind) => WorkloadText.Of(kind);
 }

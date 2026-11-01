@@ -34,6 +34,10 @@ public partial class MainViewModel
     }
     private readonly HashSet<int> _collapsedPids = new();
 
+    /// <summary>用途名单（v0.4.0，来自 %APPDATA%\MemPilot\workload-rules.json；改文件后重启生效）。</summary>
+    private readonly WorkloadRules _workloadRules;
+    private readonly Func<ProcessInfo, WorkloadKind?> _workloadLookup;
+
     private string _workloadFilter = "";
     /// <summary>用途筛选（"" = 全部）。取值来自 WorkloadClassifier.DisplayName：工作/娱乐/AI/系统/其他/未知。</summary>
     public string WorkloadFilter

@@ -25,13 +25,39 @@ public class FeedbackStore
         return hit > 0;
     }
     public List<FeedbackEntry> All() => _entries.ToList();
+
+    /// <summary>同一目标（名称或路径精确）——分类修正与用途标记共用。</summary>
+    private static bool SameTarget(FeedbackEntry f, string name, string path)
+        => f.Scope != "software" &&
+           ((!string.IsNullOrEmpty(name) && f.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(path) && f.ExecutablePath.Equals(path, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>用户标记的用途（v0.4.0）；未标记返回 null，调用方回落到规则判定。</summary>
+    public WorkloadKind? FindWorkload(string name, string path)
+        => _entries.FirstOrDefault(f => f.ReportedWorkload.HasValue && SameTarget(f, name, path))?.ReportedWorkload;
+
+    /// <summary>设置/清除用途标记：同一目标只保留一条（重复标记是替换，不是叠加）。</summary>
+    public void SetWorkload(string name, string path, WorkloadKind? kind)
+    {
+        _entries.RemoveAll(f => f.ReportedWorkload.HasValue && SameTarget(f, name, path));
+        if (kind is { } k)
+        {
+            _entries.Add(new FeedbackEntry
+            {
+                ProcessName = name,
+                ExecutablePath = path,
+                ReportedWorkload = k,
+                Scope = "process",
+                UserNote = "右键标记用途",
+                Status = "applied"
+            });
+        }
+        Save();
+    }
     public FeedbackEntry? Find(string name, string path, string publisher)
     {
         // 进程级：名称或路径精确匹配。**不再按发布者泛匹配**——一条"腾讯=游戏"曾会误伤全部腾讯应用。
-        var processHit = _entries.FirstOrDefault(f =>
-            f.Scope != "software" &&
-            ((!string.IsNullOrEmpty(name) && f.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)) ||
-             (!string.IsNullOrEmpty(path) && f.ExecutablePath.Equals(path, StringComparison.OrdinalIgnoreCase))));
+        var processHit = _entries.FirstOrDefault(f => SameTarget(f, name, path));
         if (processHit != null) return processHit;
 
         // 软件级：exe 落在该软件的安装目录下才算命中（配合程序清单使用）

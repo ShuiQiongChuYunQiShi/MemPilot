@@ -134,6 +134,20 @@ public class ProcessInfo
     public (int pid, DateTime start) StateKey => (Pid, StartTime);
 }
 
+/// <summary>用途枚举的中文短标签（单一来源：WorkloadClassifier.DisplayName 也走这里）。</summary>
+public static class WorkloadText
+{
+    public static string Of(WorkloadKind kind) => kind switch
+    {
+        WorkloadKind.Work => "工作",
+        WorkloadKind.Entertainment => "娱乐",
+        WorkloadKind.Ai => "AI",
+        WorkloadKind.System => "系统",
+        WorkloadKind.Other => "其他",
+        _ => "未知",
+    };
+}
+
 public class ThreadInfo
 {
     public int Tid { get; set; }
@@ -224,6 +238,11 @@ public class FeedbackEntry
     public bool MarkCleanable { get; set; }
     public bool MarkKeep { get; set; }
     public bool MarkSystem { get; set; }
+    /// <summary>用途标记（v0.4.0）：右键「标记用途」写入；null = 未标记，走规则判定。</summary>
+    public WorkloadKind? ReportedWorkload { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string WorkloadMarkText => ReportedWorkload is { } w ? WorkloadText.Of(w) : "";
 
     // 展示用（v0.3.7）：表格里显示本地时间与中文范围/效果，而不是原始 UTC 与枚举名
     [System.Text.Json.Serialization.JsonIgnore]

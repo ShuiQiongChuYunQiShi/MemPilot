@@ -184,6 +184,8 @@ public partial class MainViewModel : INotifyPropertyChanged
         Feedback = feedback;
         _workloadFilter = config.Config.WorkloadFilter ?? "";
         GpuMonitor = new GpuMonitor(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
+        _workloadRules = WorkloadRules.LoadOrCreate(ConfigStore.DataDirectory);
+        _workloadLookup = p => Feedback.FindWorkload(p.Name, p.ExecutablePath);
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
                          ?? new ProgramCatalogService();
@@ -269,7 +271,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     Classification.Classify(p, svcByPid, protectedNames);
                     // a mode KeepPattern pins the process from auto-actions, not from manual ones
                     p.ModeKeep = ModeManager.ShouldKeep(p);
-                    WorkloadClassifier.Apply(p); // v0.3.1 用途维度（展示/排序用，不构成处置依据）
+                    WorkloadClassifier.Apply(p, _workloadRules, _workloadLookup); // v0.4.0：用户标记 > 强类别 > 外置名单（展示/排序用，不构成处置依据）
                 }
                 classifyMs = swC.ElapsedMilliseconds;
 
@@ -324,6 +326,22 @@ public partial class MainViewModel : INotifyPropertyChanged
             IsBusy = false;
             _refreshGate.Release();
         }
+    }
+
+    /// <summary>
+    /// 右键「标记用途」（v0.4.0）：写入反馈库（同一目标替换），下一轮刷新即生效。
+    /// kind=null 表示清除标记、回到规则判定。用途仍然只影响展示/筛选，不构成处置依据。
+    /// </summary>
+    public void MarkWorkload(ProcessInfo p, WorkloadKind? kind)
+    {
+        if (p == null) return;
+        Feedback.SetWorkload(p.Name, p.ExecutablePath, kind);
+        FeedbackEntries.Clear();
+        foreach (var f in Feedback.All()) FeedbackEntries.Add(f);
+        Status = kind is { } k
+            ? $"已标记 {p.Name} 用途为「{WorkloadText.Of(k)}」（下次刷新生效，可在反馈页撤销）。"
+            : $"已清除 {p.Name} 的用途标记，回到规则判定。";
+        _ = RefreshAsync();
     }
 
     /// <summary>把显存快照填进进程（进程页「显存」列用）。采集不可用时全部保持 false，UI 显示 "-"。</summary>
