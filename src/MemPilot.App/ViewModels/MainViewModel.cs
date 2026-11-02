@@ -67,6 +67,11 @@ public partial class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool _aiSessionActive;
+    public bool AiSessionActive { get => _aiSessionActive; private set { _aiSessionActive = value; OnPropertyChanged(); } }
+    private string _aiSessionText = "暂无 AI 会话记录（显存 ≥8GB 持续 90 秒即判定为会话）。";
+    public string AiSessionText { get => _aiSessionText; private set { _aiSessionText = value; OnPropertyChanged(); } }
+
     private List<GpuAdapterInfo> _gpu = new();
     private GpuMemorySnapshot? _lastGpuMem;
     public string GpuSummaryText => _gpu.Count == 0 ? "GPU 信息不可用" : string.Join("  |  ", _gpu.Select(g => g.Summary));
@@ -108,37 +113,97 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     private AppMode _currentMode = AppMode.Resident;
+    private DateTime _lastModeSwitchUtc = DateTime.MinValue;
+    private string _lastModeTarget = "";
+    private readonly List<DateTime> _modeSwitchTimes = new();
+
     public AppMode CurrentMode
     {
         get => _currentMode;
-        set
+        set => SetMode(value, "ui");
+    }
+
+    /// <summary>
+    /// 模式切换统一入口（v0.5.0）：带来源归因（ui / startup / engine），并抑制 60 秒内同目标重复切换。
+    /// 数据依据：51 条审计全标 Manual、其中 15 次挤在 20 分钟内——无法归因就无法判断是 UI 误触还是别处调用。
+    /// startup 是「恢复上次模式」，不是一次切换：只更新字段与通知，不写审计、不落盘、不触发挂起恢复。
+    /// </summary>
+    public void SetMode(AppMode mode, string source)
+    {
+        if (_currentMode == mode) return;
+
+        if (source == "startup")
         {
-            if (_currentMode == value) return;
-            var previous = _currentMode;
-            _currentMode = value;
-            ConfigStore.Config.CurrentMode = value;
-            ConfigStore.Save();
-            // 手动/自动模式切换留痕：复盘与习惯学习都依赖这条事件（此前切换无任何记录）
-            Audit.Log(new AuditEntry
-            {
-                Action = "ModeSwitch",
-                Target = $"{previous} → {value}",
-                Level = "Manual",
-                Result = ModeManager.Profile.Name
-            });
-            OnPropertyChanged();
+            _currentMode = mode;
+            _lastModeTarget = mode.ToString();
+            OnPropertyChanged(nameof(CurrentMode));
             OnPropertyChanged(nameof(CurrentModeText));
             OnPropertyChanged(nameof(ModeDescription));
-            if (ConfigStore.Config.ResumeSuspendedOnModeChange)
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var decision = ModeSwitchPolicy.Decide(_lastModeTarget, mode.ToString(), _lastModeSwitchUtc, now, _modeSwitchTimes);
+        bool engineDriven = source == "engine";
+
+        // 引擎侧已有自己的滞回（连续 2 轮 + 60s 冷却），这里不再抑制，只记录；
+        // UI 侧重复点击同一目标则忽略并留痕（真机密集簇的来源待这条日志确认）。
+        if (!engineDriven && !decision.Apply)
+        {
+            Decisions.Log(new DecisionEntry
             {
-                var records = Cleanup.Suspended.LiveRecords();
-                foreach (var rec in records)
-                    Cleanup.Resume(rec.Pid, rec.Name);
-                if (records.Count > 0)
-                {
-                    SuspendedProcesses.Clear();
-                    Status = $"模式已切换，恢复了 {records.Count} 个挂起进程。";
-                }
+                Kind = "ModeSwitchSuppressed",
+                Target = mode.ToString(),
+                Decision = "忽略",
+                Reason = $"同一目标 60 秒内重复切换（来源 {source}）"
+            });
+            return;
+        }
+
+        var previous = _currentMode;
+        _currentMode = mode;
+        _lastModeSwitchUtc = now;
+        _lastModeTarget = mode.ToString();
+        _modeSwitchTimes.Add(now);
+        if (_modeSwitchTimes.Count > 20) _modeSwitchTimes.RemoveRange(0, _modeSwitchTimes.Count - 20);
+
+        if (!engineDriven)
+        {
+            ConfigStore.Config.CurrentMode = mode;
+            ConfigStore.Save();
+        }
+
+        Audit.Log(new AuditEntry
+        {
+            Action = "ModeSwitch",
+            Target = $"{previous} → {mode}",
+            Level = engineDriven ? "Auto" : "Manual",
+            Result = source
+        });
+
+        if (decision.Storm)
+            Decisions.Log(new DecisionEntry
+            {
+                Kind = "ModeSwitchStorm",
+                Target = mode.ToString(),
+                Decision = "提示",
+                Reason = $"10 分钟内切换超过 {ModeSwitchPolicy.StormThreshold} 次（来源 {source}）"
+            });
+
+        OnPropertyChanged(nameof(CurrentMode));
+        OnPropertyChanged(nameof(CurrentModeText));
+        OnPropertyChanged(nameof(ModeDescription));
+
+        // 引擎侧自己已经做过挂起恢复（ApplySceneDecision），这里只处理 UI 切换
+        if (!engineDriven && ConfigStore.Config.ResumeSuspendedOnModeChange)
+        {
+            var records = Cleanup.Suspended.LiveRecords();
+            foreach (var rec in records)
+                Cleanup.Resume(rec.Pid, rec.Name);
+            if (records.Count > 0)
+            {
+                SuspendedProcesses.Clear();
+                Status = $"模式已切换，恢复了 {records.Count} 个挂起进程。";
             }
         }
     }
@@ -205,18 +270,51 @@ public partial class MainViewModel : INotifyPropertyChanged
         };
         Engine.ModeChanged += (s, e) =>
         {
-            _currentMode = e.Mode;
-            OnPropertyChanged(nameof(CurrentMode));
-            OnPropertyChanged(nameof(CurrentModeText));
+            SetMode(e.Mode, "engine");
             ReloadDecisions();
         };
+
+        // v0.5.0：AI 会话只观测与记录，不做任何处置（处置留给下一轮租约）
+        GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
+        {
+            Engine.AiSessionActive = started;
+            AiSessionActive = started;
+            double peakGb = summary.PeakUsedBytes / 1073741824.0;
+            double sharedGb = summary.PeakSharedBytes / 1073741824.0;
+            if (started)
+            {
+                AiSessionText = $"AI 会话进行中：显存 {peakGb:F1} GB（主导 {summary.DominantName}）";
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "AiSession",
+                    Target = summary.DominantName,
+                    Decision = "开始",
+                    Reason = $"显存 {peakGb:F1} GB（共享 {sharedGb:F1} GB）；判定阈值 8GB、最近 5 个 30 秒样本中 ≥3 个"
+                });
+                RaiseAlert("AI 生成会话", $"检测到 AI 生成会话：显存 {peakGb:F1} GB（主导 {summary.DominantName}）。只记录，不处置。");
+                AlertRaised?.Invoke("AI 生成会话", $"显存 {peakGb:F1} GB（{summary.DominantName}）", false);
+            }
+            else
+            {
+                AiSessionText = $"上次 AI 会话：{summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB";
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "AiSession",
+                    Target = summary.DominantName,
+                    Decision = "结束",
+                    Reason = $"时长 {summary.Duration.TotalMinutes:F0} 分钟；峰值显存 {peakGb:F1} GB（共享 {sharedGb:F1} GB）；" +
+                             $"主导进程出现过 {summary.PidCount} 个 PID"
+                });
+                RaiseAlert("AI 会话结束", $"时长 {summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB（{summary.DominantName}）。");
+            }
+        });
         OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
         ProgramCatalogInfo = ProgramCatalog.Count > 0
             ? $"程序清单：{ProgramCatalog.Count} 条（{ProgramCatalog.BuiltUtc.ToLocalTime():MM-dd HH:mm}）"
             : "程序清单：尚未构建（后台构建中…）";
         if (ProgramCatalog.Count == 0) _ = Task.Run(BuildProgramCatalogInBackground);
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
-        CurrentMode = config.Config.CurrentMode;
+        SetMode(config.Config.CurrentMode, "startup");
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
         foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);

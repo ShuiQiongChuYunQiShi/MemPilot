@@ -18,6 +18,7 @@ public partial class MainViewModel
     public ObservableCollection<TopUsageRow> TopUsageItems { get; } = new();
     public ObservableCollection<ActionUsageRow> ActionUsageItems { get; } = new();
     public ObservableCollection<GpuHistoryRow> GpuUsageItems { get; } = new();
+    public ObservableCollection<AiSessionRow> AiSessionItems { get; } = new();
     private string _historySummary = "";
     public string HistorySummary { get => _historySummary; private set { _historySummary = value; OnPropertyChanged(); } }
 
@@ -43,6 +44,15 @@ public partial class MainViewModel
     {
         public string Action { get; set; } = "";
         public int Count { get; set; }
+    }
+    /// <summary>AI 会话段（v0.5.0，历史页显存卡片下方）。</summary>
+    public sealed class AiSessionRow
+    {
+        public string StartText { get; set; } = "";
+        public string DurationText { get; set; } = "";
+        public string PeakText { get; set; } = "";
+        public string DominantText { get; set; } = "";
+        public int PidCount { get; set; }
     }
 
     private DateTime _lastHistoryLoadUtc = DateTime.MinValue;
@@ -153,6 +163,21 @@ public partial class MainViewModel
             GpuHistoryAreaPoints = gpuArea;
             GpuUsageItems.Clear();
             foreach (var row in gpuHist.Top) GpuUsageItems.Add(row);
+
+            // 会话段：最近 10 段，新→旧；最后一段若无 EndUtc 标「进行中」
+            AiSessionItems.Clear();
+            foreach (var session in gpuHist.Sessions.AsEnumerable().Reverse().Take(10))
+            {
+                var minutes = (session.EndUtc ?? DateTime.UtcNow) - session.StartUtc;
+                AiSessionItems.Add(new AiSessionRow
+                {
+                    StartText = session.StartUtc.ToLocalTime().ToString("MM-dd HH:mm"),
+                    DurationText = $"{minutes.TotalMinutes:F0} 分钟" + (session.EndUtc.HasValue ? "" : "（进行中）"),
+                    PeakText = $"{session.PeakUsedBytes / 1073741824.0:F1} GB",
+                    DominantText = session.DominantName,
+                    PidCount = session.PidCount
+                });
+            }
             GpuHistorySummary = gpuHist.SampleCount == 0
                 ? "（还没有显存采样——工具运行 30 秒后出现第一条；若一直为空说明 GPU 计数器不可用）"
                 : $"24 小时 {gpuHist.SampleCount} 条采样"

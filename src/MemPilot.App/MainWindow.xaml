@@ -409,6 +409,7 @@
                                 <StackPanel>
                                     <TextBlock Text="时段画像" Style="{StaticResource SectionTitle}"/>
                                     <TextBlock Text="{Binding HabitHintText}" Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                    <TextBlock Text="{Binding AiSessionText}" Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>
 
@@ -804,6 +805,16 @@
                                     </DataGrid.Columns>
                                 </DataGrid>
                                 <TextBlock Text="这张表是将来「AI 生成前申请显存、结束后归还」的验收基线：先看清谁在吃、吃多少、什么时候吃。" FontSize="10" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0"/>
+                                <TextBlock Text="AI 会话段（显存 ≥8GB 且最近 5 个样本中 ≥3 个达标，单点回落不打断）" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,12,0,6"/>
+                                <DataGrid ItemsSource="{Binding AiSessionItems}" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="200">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="开始" Binding="{Binding StartText}" Width="110"/>
+                                        <DataGridTextColumn Header="时长" Binding="{Binding DurationText}" Width="110"/>
+                                        <DataGridTextColumn Header="峰值显存" Binding="{Binding PeakText}" Width="100"/>
+                                        <DataGridTextColumn Header="主导进程" Binding="{Binding DominantText}" Width="150"/>
+                                        <DataGridTextColumn Header="PID 数" Binding="{Binding PidCount}" Width="70"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
                             </StackPanel>
                         </Border>
                         <Grid>
@@ -1097,6 +1108,7 @@
                                 <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoJunkSweep" Content="自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；Windows 服务、受保护进程永不触碰）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoJunkSweepOrphansOnly" Content="低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾" Margin="16,3"/>
+                                <CheckBox x:Name="SetAutoCommitRelief" Content="提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）" Margin="0,3"/>
                                 <CheckBox x:Name="SetShowAlerts" Content="重要提示触达（托盘气泡 + 主页横幅；取消勾选 = 仅写决策日志）" Margin="0,3"/>
                                 <Button Content="应用低风险自动档（自动优化 + 仅清孤儿残留，清理仍只 L1）" Click="ApplyLowRiskPreset_Click" Style="{StaticResource PrimaryBtn}" Margin="0,6,0,0" HorizontalAlignment="Left"/>
                                 <CheckBox x:Name="SetSkipFullscreen" Content="前台全屏（游戏）时跳过系统级清理" IsChecked="True" Margin="16,3"/>

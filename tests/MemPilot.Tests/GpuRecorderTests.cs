@@ -93,6 +93,31 @@ public class GpuRecorderTests : IDisposable
     }
 
     [Fact]
+    public void UnknownProcessNames_AreResolvedByCacheOrSkipped()
+    {
+        var rec = new GpuRecorder(_dir, 30);
+        var snap = new GpuMemorySnapshot { AdapterAvailable = true, AdapterDedicatedBytes = 1L << 30 };
+        snap.ProcessDedicatedAvailable = true;
+        snap.ProcessDedicated[7] = 512L << 20;   // 不在 procs 里，但缓存里有
+        snap.ProcessDedicated[8] = 256L << 20;   // 缓存也没有 → 应被跳过
+
+        var sample = rec.Write(snap, new List<ProcessInfo>(), Adapters(), null, 30, DateTime.UtcNow,
+            pid => pid == 7 ? "cached.exe" : null);
+
+        Assert.Single(sample.Top);
+        Assert.Equal("cached.exe", sample.Top[0].N);
+        Assert.Equal(7, sample.Top[0].I);
+    }
+
+    [Fact]
+    public void GpuPercent_IsNullWhenNotAvailable()
+    {
+        var rec = new GpuRecorder(_dir, 30);
+        var sample = rec.Write(Snap(1L << 30), Procs(), Adapters(), null, 30, DateTime.UtcNow);
+        Assert.Null(sample.Top[0].P);   // 不写 -1 占位
+    }
+
+    [Fact]
     public void Prune_DeletesFilesOlderThanRetention()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "history"));

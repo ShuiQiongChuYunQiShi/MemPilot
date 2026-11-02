@@ -20,6 +20,13 @@ public sealed class GpuMonitor : IDisposable
     private Timer? _timer;
     private int _ticking;
     private bool _reportedUnavailable;
+    private readonly Dictionary<int, string> _pidNames = new();
+
+    /// <summary>AI 会话检测（v0.5.0）：N-of-M + 滞回，只观测不处置。</summary>
+    public AiSessionDetector Session { get; } = new();
+    public bool AiSessionActive => Session.Active;
+    /// <summary>会话开始/结束（summary, started）。30 秒采样驱动，池线程触发。</summary>
+    public event Action<AiSessionSummary, bool>? AiSessionChanged;
     private int _intervalSeconds = 30;
     private Func<bool> _enabled = () => true;
     private Func<IReadOnlyList<ProcessInfo>>? _procs;
@@ -63,13 +70,22 @@ public sealed class GpuMonitor : IDisposable
             if (!_enabled()) return;
             var snap = _mem.Sample();
             LastSnapshot = snap;
+            var procs = _procs?.Invoke() ?? Array.Empty<ProcessInfo>();
+            foreach (var p in procs) _pidNames[p.Pid] = p.Name;      // 名称缓存：进程快照缺项时兜底
+            if (_pidNames.Count > 4096) _pidNames.Clear();
             var adapters = _info.GetAdapters(snap); // 10s 缓存 + PDH 兜底
             Last = _recorder.Write(snap,
-                _procs?.Invoke() ?? Array.Empty<ProcessInfo>(),
+                procs,
                 adapters,
                 _gpuPercent?.Invoke(),
                 _intervalSeconds,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                pid => _pidNames.TryGetValue(pid, out var n) ? n : null);
+
+            // AI 会话检测（用刚写出的样本，保证与会话历史一致）
+            var update = Session.Push(Last.Used, Last.Total, Last.T, Last.Top);
+            if (update.Event != AiSessionEvent.None)
+                AiSessionChanged?.Invoke(update.Summary!, update.Event == AiSessionEvent.Started);
             LastError = snap.Available ? "" : (_mem.LastDiag.Length > 0 ? _mem.LastDiag : "gpu memory unavailable");
             if (!snap.Available && !_reportedUnavailable)
             {

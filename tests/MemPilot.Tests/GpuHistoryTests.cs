@@ -68,6 +68,27 @@ public class GpuHistoryTests
     }
 
     [Fact]
+    public void Sessions_AreReplayed_WithSingleDipTolerance()
+    {
+        const long gib = 1024L * 1024 * 1024;
+        var samples = new List<GpuSample>();
+        long[] series = { 15, 15, 15, 1, 15, 15, 1, 1, 1 };
+        for (int i = 0; i < series.Length; i++)
+            samples.Add(new GpuSample
+            {
+                T = new DateTime(2026, 11, 1, 2, 0, 0, DateTimeKind.Utc).AddSeconds(30 * i),
+                Used = series[i] * gib,
+                Total = 16 * gib,
+                Top = new List<GpuSampleProc> { new() { N = "python", I = 100 + i, D = series[i] * gib } }
+            });
+
+        var r = GpuHistory.Build(samples);
+        Assert.Single(r.Sessions);
+        Assert.Equal(15 * gib, r.Sessions[0].PeakUsedBytes);
+        Assert.Equal("python", r.Sessions[0].DominantName);
+    }
+
+    [Fact]
     public void Events_AreCountedSeparately()
     {
         var s1 = S(1L << 30, 16L << 30); s1.Event = "gpu-spike";

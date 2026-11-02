@@ -47,6 +47,7 @@ public partial class MainWindow : Window
         SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
+        SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
@@ -115,6 +116,7 @@ public partial class MainWindow : Window
         _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
+        _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;

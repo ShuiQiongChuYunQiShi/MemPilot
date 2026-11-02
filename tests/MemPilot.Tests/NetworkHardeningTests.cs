@@ -59,6 +59,22 @@ public class NetworkHardeningTests : IDisposable
     }
 
     [Fact]
+    public async Task Lookup_WithoutEndpointOrKey_ShortCircuits()
+    {
+        var store = new ConfigStore(_dir);
+        store.Config.OnlineLookupEnabled = true;      // 开关开着但什么都没配
+        store.Config.OnlineLookupEndpoint = "";
+        store.Config.OnlineLookupApiKey = "";
+
+        var svc = new OnlineLookupService { Config = store.Config };
+        var p = new ProcessInfo { Pid = 1, Name = "x.exe", ExecutablePath = Path.Combine(_dir, "missing.exe") };
+        var res = await svc.LookupAsync(p);
+
+        Assert.Equal("not_configured", res.Status);
+        Assert.Contains("未配置", res.Summary);
+    }
+
+    [Fact]
     public async Task Lookup_RejectsPlainHttpEndpoint()
     {
         var store = new ConfigStore(_dir);

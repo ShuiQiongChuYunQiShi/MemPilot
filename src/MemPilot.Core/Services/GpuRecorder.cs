@@ -12,7 +12,7 @@ public class GpuSampleProc
     public int I { get; set; }            // pid（回溯时用来对上具体实例；重启后 pid 会复用，仅作线索）
     public long D { get; set; }           // 专用显存（Local Usage）
     public long S { get; set; }           // 共享显存（Non Local Usage）
-    public double P { get; set; } = -1;   // GPU%（-1 = 不可用）
+    public double? P { get; set; }        // GPU%（null = 该进程不在 GPU Engine 列表，不写）
 }
 
 /// <summary>一条显存采样（默认 30 秒一条，与内存采样分文件）。</summary>
@@ -77,7 +77,7 @@ public sealed class GpuRecorder
     /// <summary>写一条样本并返回它（Monitor 用它做 Last/诊断）。</summary>
     public GpuSample Write(GpuMemorySnapshot mem, IReadOnlyList<ProcessInfo> procs,
         IReadOnlyList<GpuAdapterInfo> adapters, IReadOnlyDictionary<int, double>? gpuPercent,
-        int intervalSeconds, DateTime nowUtc)
+        int intervalSeconds, DateTime nowUtc, Func<int, string?>? nameResolver = null)
     {
         int gapSec = _lastSampleUtc == DateTime.MinValue
             ? 0
@@ -97,13 +97,25 @@ public sealed class GpuRecorder
             Top = mem.ProcessDedicated
                 .OrderByDescending(kv => kv.Value)
                 .Take(5)
-                .Select(kv => new GpuSampleProc
+                .Select(kv => new
                 {
-                    N = byPid.TryGetValue(kv.Key, out var p) ? p.Name : $"pid {kv.Key}",
-                    I = kv.Key,
-                    D = kv.Value,
-                    S = mem.ProcessShared.GetValueOrDefault(kv.Key),
-                    P = gpuPercent != null && gpuPercent.TryGetValue(kv.Key, out var g) ? Math.Round(g, 1) : -1
+                    Pid = kv.Key,
+                    // v0.5.0：进程快照里没有的 pid 用 monitor 的缓存名兜底；仍未知就跳过，
+                    // 不再写 "pid 12345" 这种匿名条目（真机 28 条，回溯时毫无用处）
+                    Name = byPid.TryGetValue(kv.Key, out var p) ? p.Name : nameResolver?.Invoke(kv.Key),
+                    Dedicated = kv.Value,
+                    Shared = mem.ProcessShared.GetValueOrDefault(kv.Key),
+                    Gpu = gpuPercent != null && gpuPercent.TryGetValue(kv.Key, out var g) && g >= 0
+                        ? (double?)Math.Round(g, 1) : null
+                })
+                .Where(x => !string.IsNullOrEmpty(x.Name))
+                .Select(x => new GpuSampleProc
+                {
+                    N = x.Name!,
+                    I = x.Pid,
+                    D = x.Dedicated,
+                    S = x.Shared,
+                    P = x.Gpu
                 }).ToList()
         };
 

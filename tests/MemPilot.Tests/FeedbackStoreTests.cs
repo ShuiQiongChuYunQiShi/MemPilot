@@ -46,6 +46,24 @@ public class FeedbackStoreTests : IDisposable
     }
 
     [Fact]
+    public void EmptyEntries_ArePurgedOnLoad()
+    {
+        var dir = Path.Combine(TestTmp.Dir, "mt-tests-fbpurge-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "feedback.json"), """
+            [ { "Id": "11111111-1111-1111-1111-111111111111", "ProcessName": "", "ExecutablePath": "" },
+              { "Id": "22222222-2222-2222-2222-222222222222", "ProcessName": "wps", "MarkKeep": true } ]
+            """);
+            var store = new FeedbackStore(dir);
+            Assert.Single(store.All());
+            Assert.Equal("wps", store.All()[0].ProcessName);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    [Fact]
     public void EmptyEntry_NeverMatchesAnyProcess()
     {
         var store = new FeedbackStore(_dir);

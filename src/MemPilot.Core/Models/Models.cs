@@ -401,6 +401,9 @@ public class AppConfig
     public bool AutoJunkSweepEnabled { get; set; } = false;
     // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
+    // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，
+    // 先清低优先级备用列表；2 分钟后仍告急才压缩"安全子集"（绝不碰工作/游戏/前台/忙碌进程）。
+    public bool AutoCommitReliefEnabled { get; set; } = true;
     // 重要提示触达（托盘气泡 + 主页横幅）；false = 仅写决策日志
     public bool ShowAlerts { get; set; } = true;
     // 场景识别影子模式：只记录"如果自动切换会切到哪"，不动作（默认开，校准期用）

@@ -14,7 +14,19 @@ public class FeedbackStore
         _path = Path.Combine(dataDir, "feedback.json");
         Load();
     }
-    private void Load() => _entries = JsonFileStore.Load<List<FeedbackEntry>>(_path) ?? new();
+    private void Load()
+    {
+        _entries = JsonFileStore.Load<List<FeedbackEntry>>(_path) ?? new();
+        // v0.5.0：清掉"无名称、无路径、无任何标记"的空记录（真机 feedback.json 里有一条，
+        // 它永远匹配不到任何进程，只会让人误以为反馈生效了）
+        int removed = _entries.RemoveAll(e =>
+            string.IsNullOrWhiteSpace(e.ProcessName) &&
+            string.IsNullOrWhiteSpace(e.ExecutablePath) &&
+            !e.MarkKeep && !e.MarkCleanable && !e.MarkSystem &&
+            e.ReportedWorkload == null);
+        // 注意：这是数据清洗，不是故障——不要写进 Diag（否则 diag.log 会被"正常清理"污染）
+        if (removed > 0) Save();
+    }
     public void Save() => JsonFileStore.Save(_path, _entries, JsonFileStore.Pretty);
     public void Add(FeedbackEntry e) { _entries.Add(e); Save(); }
     /// <summary>撤销一条反馈（v0.3.7）：标记错了必须能撤回，否则用户只能重装数据目录。</summary>

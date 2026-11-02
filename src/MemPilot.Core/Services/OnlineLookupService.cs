@@ -86,6 +86,14 @@ public class OnlineLookupService
             }
         }
 
+        // v0.5.0：端点与密钥都没配时直接返回，别去读 exe 算 SHA256（真机配置就是这样，白算了很多次）
+        if (string.IsNullOrWhiteSpace(Config.OnlineLookupEndpoint) && string.IsNullOrWhiteSpace(Config.OnlineLookupApiKey))
+        {
+            res.Status = "not_configured";
+            res.Summary = "未配置查询端点（设置 → 联网查询）；已跳过哈希计算";
+            return res;
+        }
+
         string hash = "";
         try
         {

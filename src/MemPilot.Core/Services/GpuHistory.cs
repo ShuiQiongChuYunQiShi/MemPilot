@@ -59,6 +59,19 @@ public static class GpuHistory
             }
         }
 
+        // 会话段：与实时检测共用 AiSessionDetector，保证"历史看到的"和"当时记的"一致
+        var detector = new AiSessionDetector();
+        foreach (var s in samples.OrderBy(x => x.T))
+        {
+            var update = detector.Push(s.Used, s.Total, s.T, s.Top);
+            if (update.Event == AiSessionEvent.Ended && update.Summary != null)
+            {
+                result.Sessions.Add(update.Summary);
+                if (result.Sessions.Count > 20) result.Sessions.RemoveAt(0);
+            }
+        }
+        if (detector.Active && detector.Current is { } ongoing) result.Sessions.Add(ongoing);
+
         result.Top = byName
             .OrderByDescending(kv => kv.Value.Item1)
             .Take(10)
@@ -87,4 +100,6 @@ public sealed class GpuHistoryResult
     public string Source { get; set; } = "";
     public List<GpuHistoryRow> Top { get; set; } = new();
     public List<GpuHistoryPoint> Points { get; } = new();
+    /// <summary>AI 会话段（v0.5.0，用同一个检测器离线回放；最多保留最近 20 段）。</summary>
+    public List<AiSessionSummary> Sessions { get; } = new();
 }
