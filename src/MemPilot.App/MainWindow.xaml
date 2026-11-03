@@ -259,6 +259,45 @@
             <Setter Property="FontSize" Value="{StaticResource FsCaption}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
         </Style>
+        <!-- v0.6.0：导航分组小标题（非 TabItem，SelectionChanged 自然忽略） -->
+        <Style x:Key="NavGroup" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="Margin" Value="18,12,0,4"/>
+        </Style>
+        <!-- 工具栏按钮：等高、轻底、hover 高亮（基于 GhostBtn 视觉） -->
+        <Style x:Key="ToolBtn" TargetType="Button" BasedOn="{StaticResource GhostBtn}">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="ToolToggle" TargetType="ToggleButton">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource ControlFg}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{DynamicResource ChipBg}" CornerRadius="{StaticResource RadiusChip}"
+                                Padding="{TemplateBinding Padding}" BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChipHoverBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavActiveBg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource NavActiveFg}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -269,7 +308,8 @@
         <TabControl x:Name="RootTabs" Grid.Row="0" SelectionChanged="TabControl_SelectionChanged">
 
             <!-- ============ 主页 ============ -->
-            <TabItem Header="🏠  主页" Style="{StaticResource NavTab}">
+            <TextBlock Text="核心" Style="{StaticResource NavGroup}"/>
+            <TabItem Header="🏠  主页" Tag="home" Style="{StaticResource NavTab}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="20,18,20,20" HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
@@ -450,15 +490,16 @@
             </TabItem>
 
             <!-- ============ 进程 ============ -->
-            <TabItem Header="📋  进程" Style="{StaticResource NavTab}">
+            <TabItem Header="📋  进程" Tag="process" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <DockPanel Margin="0,0,0,6">
-                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                            <TextBox x:Name="SearchBox" Width="240" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,4"/>
+                        <TextBlock DockPanel.Dock="Right" Text="右键 = 处置 · 双击 = 定位文件" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="SearchBox" Width="200" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,5" VerticalContentAlignment="Center"/>
                             <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="按用途筛选（工作/娱乐/AI/系统/其他/未知）" SelectionChanged="WorkloadFilter_Changed">
                                 <ComboBoxItem Content="全部用途" Tag=""/>
                                 <ComboBoxItem Content="工作" Tag="工作"/>
@@ -468,14 +509,14 @@
                                 <ComboBoxItem Content="其他" Tag="其他"/>
                                 <ComboBoxItem Content="未知" Tag="未知"/>
                             </ComboBox>
-                            <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" VerticalAlignment="Center"/>
-                            <Button x:Name="ColumnMenuButton" Content="列设置 ▾" Margin="8,0,0,0" VerticalAlignment="Center" Click="ColumnMenu_Click">
+                            <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Style="{StaticResource ToolToggle}" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" Margin="0,0,8,0"/>
+                            <Button x:Name="ColumnMenuButton" Content="列设置 ▾" Style="{StaticResource ToolBtn}" Click="ColumnMenu_Click">
                                 <Button.ContextMenu>
                                     <ContextMenu Opened="ColumnMenu_Opened">
                                         <MenuItem Header="所属程序" Tag="所属程序" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="显存" Tag="显存" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="内存增长" Tag="内存增长" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="线程" Tag="线程" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="线程数" Tag="线程数" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="子进程" Tag="子进程" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="窗口标题" Tag="窗口标题" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="厂商" Tag="厂商" IsCheckable="True" Click="ColumnToggle_Click"/>
@@ -487,17 +528,13 @@
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>
-                        </StackPanel>
-                        <TextBlock DockPanel.Dock="Right" Text="右键 = 处置 · 双击 = 定位文件" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <Ellipse Width="10" Height="10" Fill="{DynamicResource SystemRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
-                            <TextBlock Text="系统/保护" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
-                            <Ellipse Width="10" Height="10" Fill="{DynamicResource GameRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
-                            <TextBlock Text="游戏" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
-                            <Ellipse Width="10" Height="10" Fill="{DynamicResource AiRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
-                            <TextBlock Text="AI" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource TextSecondary}"/>
-                            <Ellipse Width="10" Height="10" Fill="{DynamicResource UnknownRowBg}" Stroke="{DynamicResource BorderBrush}" Margin="0,0,4,0"/>
-                            <TextBlock Text="未识别" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
+                            <Rectangle Width="1" Height="22" Fill="{DynamicResource BorderBrush}" Margin="10,0" VerticalAlignment="Center"/>
+                            <!-- v0.6.0：图例升级为筛选芯片（互斥；全部=清空） -->
+                            <ToggleButton x:Name="ChipAll" Content="全部" Style="{StaticResource ToolToggle}" IsChecked="True" Click="CategoryChip_Click" Margin="0,0,4,0"/>
+                            <ToggleButton x:Name="ChipSystem" Content="系统·保护" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click" Margin="0,0,4,0"/>
+                            <ToggleButton x:Name="ChipGame" Content="游戏" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click" Margin="0,0,4,0"/>
+                            <ToggleButton x:Name="ChipAi" Content="AI" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click" Margin="0,0,4,0"/>
+                            <ToggleButton x:Name="ChipUnknown" Content="未识别" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click"/>
                         </StackPanel>
                     </DockPanel>
                     <DataGrid x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="2" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
@@ -524,6 +561,7 @@
                                 <MenuItem Header="L4 强制结束（需确认）" Click="CtxL4_Click"/>
                                 <Separator/>
                                 <MenuItem Header="恢复挂起" Click="CtxResumeProcess_Click"/>
+                                <MenuItem Header="线程 ▸ 管理线程（TID 级挂起/恢复）" Click="ManageThreads_Click"/>
                                 <Separator/>
                                 <MenuItem Header="降低内存优先级" Click="CtxMemPriorityLow_Click"/>
                                 <MenuItem Header="恢复内存优先级" Click="CtxMemPriorityNormal_Click"/>
@@ -566,7 +604,7 @@
                             <DataGridTextColumn Header="空闲(min)" Binding="{Binding IdleMinutes, StringFormat=F0}" Width="65"/>
                             <DataGridTextColumn Header="内存增长" Binding="{Binding MemoryGrowthBytes, Converter={StaticResource SignedBytes}}" Width="85"/>
                             <DataGridTextColumn Header="子进程" Binding="{Binding ChildPids.Count}" Width="55"/>
-                            <DataGridTextColumn Header="线程" Binding="{Binding Memory.ThreadCount}" Width="50"/>
+                            <DataGridTextColumn Header="线程数" Binding="{Binding Memory.ThreadCount}" Width="55"/>
                             <DataGridTextColumn Header="所属程序" Binding="{Binding ProgramDisplayName}" Width="150"/>
                             <DataGridTextColumn Header="厂商" Binding="{Binding Company}" Width="130"/>
                             <DataGridTextColumn Header="窗口标题" Binding="{Binding MainWindowTitle}" Width="150"/>
@@ -581,7 +619,7 @@
             </TabItem>
 
             <!-- ============ 可清理 ============ -->
-            <TabItem Header="🧹  可清理" Style="{StaticResource NavTab}">
+            <TabItem Header="🧹  可清理" Tag="cleanup" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -661,7 +699,7 @@
             </TabItem>
 
             <!-- ============ 腾内存 ============ -->
-            <TabItem Header="🚀  腾内存" Style="{StaticResource NavTab}">
+            <TabItem Header="🚀  腾内存" Tag="makeroom" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -707,7 +745,7 @@
             </TabItem>
 
             <!-- ============ 挂起/处置 ============ -->
-            <TabItem Header="⏸️  挂起/处置" Style="{StaticResource NavTab}">
+            <TabItem Header="⏸️  挂起/处置" Tag="suspend" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -737,7 +775,8 @@
             </TabItem>
 
             <!-- ============ 决策日志 ============ -->
-            <TabItem Header="🧠  决策日志" Style="{StaticResource NavTab}">
+            <TextBlock Text="观测" Style="{StaticResource NavGroup}"/>
+            <TabItem Header="🧠  决策日志" Tag="decisions" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -757,7 +796,7 @@
             </TabItem>
 
             <!-- ============ 历史 ============ -->
-            <TabItem Header="📊  历史" Style="{StaticResource NavTab}">
+            <TabItem Header="📊  历史" Tag="history" Style="{StaticResource NavTab}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="14,14,14,20" MaxWidth="900" HorizontalAlignment="Left">
                         <Border Style="{StaticResource Card}">
@@ -866,7 +905,7 @@
             </TabItem>
 
             <!-- ============ 操作审计 ============ -->
-            <TabItem Header="📜  操作审计" Style="{StaticResource NavTab}">
+            <TabItem Header="📜  操作审计" Tag="audit" Style="{StaticResource NavTab}">
                 <DataGrid Margin="14,14,14,0" ItemsSource="{Binding AuditEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc}" Width="160"/>
@@ -882,38 +921,40 @@
             </TabItem>
 
             <!-- ============ 线程 ============ -->
-            <TabItem Header="🧵  线程" Style="{StaticResource NavTab}">
+            <!-- ============ 模式 ============ -->
+            <TabItem Header="💬  反馈记录" Tag="feedback" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBox x:Name="ThreadSearchBox" Width="260" Margin="0,0,8,0" Padding="6,4" KeyUp="ThreadSearch_KeyUp"/>
-                        <TextBlock Text="按 PID 或 TID 过滤（回车应用）" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}"/>
-                    </StackPanel>
-                    <DataGrid Grid.Row="1" x:Name="ThreadGrid" ItemsSource="{Binding Threads}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding FeedbackEntries.Count, StringFormat=已记录 {0} 条 · 右键行可撤销}"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                   Text="在「进程」页右键进程即可标记（保留 / 可清理 / 系统 / 用途）；本页只做查看与撤销，数据只存本机。"/>
+                    </DockPanel>
+                    <DataGrid Grid.Row="1" x:Name="FeedbackGrid" ItemsSource="{Binding FeedbackEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="挂起线程" Click="CtxSuspendThread_Click"/>
-                                <MenuItem Header="恢复线程" Click="CtxResumeThread_Click"/>
+                                <MenuItem Header="撤销这条反馈（删除标记）" Click="DeleteFeedback_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="PID" Binding="{Binding OwnerPid}" Width="60"/>
-                            <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="70"/>
-                            <DataGridTextColumn Header="状态" Binding="{Binding State}" Width="80"/>
-                            <DataGridTextColumn Header="等待原因" Binding="{Binding WaitReason}" Width="120"/>
-                            <DataGridTextColumn Header="优先级" Binding="{Binding Priority}" Width="60"/>
-                            <DataGridTextColumn Header="CPU 时间" Binding="{Binding TotalCpuTime}" Width="100"/>
-                            <DataGridTextColumn Header="启动时间" Binding="{Binding StartTime}" Width="140"/>
+                            <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="100"/>
+                            <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150"/>
+                            <DataGridTextColumn Header="分类" Binding="{Binding ReportedCategory, Converter={StaticResource CatText}}" Width="120"/>
+                            <DataGridTextColumn Header="效果" Binding="{Binding EffectText}" Width="160"/>
+                            <DataGridTextColumn Header="用途" Binding="{Binding WorkloadMarkText}" Width="60"/>
+                            <DataGridTextColumn Header="范围" Binding="{Binding ScopeText}" Width="60"/>
+                            <DataGridTextColumn Header="备注" Binding="{Binding UserNote}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
             </TabItem>
 
-            <!-- ============ 模式 ============ -->
-            <TabItem Header="🎚️  模式" Style="{StaticResource NavTab}">
+            <TextBlock Text="高级" Style="{StaticResource NavGroup}"/>
+            <TabItem Header="🎚️  模式" Tag="mode" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <StackPanel MaxWidth="900" HorizontalAlignment="Left">
                         <Border Style="{StaticResource Card}">
@@ -970,81 +1011,8 @@
                     </StackPanel>
                 </Grid>
             </TabItem>
-
-            <!-- ============ 反馈 ============ -->
-            <TabItem Header="💬  反馈" Style="{StaticResource NavTab}">
-                <Grid Margin="14,14,14,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- 说明：之前这段文字和输入框都落在 Grid 第 0 行，视觉上叠在一起 -->
-                    <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Text="这些反馈做什么" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
-                            <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap"
-                                       Text="告诉分类器「这个进程该怎么对待」：标记需保留 → 永不进清理候选；标记可清理 → 只需 2 轮观察即可成为候选；标记为系统 → 视为受保护。反馈只保存在本机（%APPDATA%\MemPilot\feedback.json），不上传，下一次刷新生效。最方便的用法是在「进程」页右键那个进程直接标记。"/>
-                            <TextBlock Text="{Binding FeedbackEntries.Count, StringFormat=已记录 {0} 条 · 右键表格行可撤销}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Grid Grid.Row="1" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="170"/>
-                            <ColumnDefinition Width="220"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                            <TextBlock Text="进程名（必填，或填路径）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                            <TextBox x:Name="FbName" Padding="6,4" Margin="0,2,0,0" ToolTip="与任务管理器一致，例如 wegame.exe"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                            <TextBlock Text="可执行文件路径（可选；填了按路径精确匹配，软件级反馈按目录匹配）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                            <TextBox x:Name="FbPath" Padding="6,4" Margin="0,2,0,0"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
-                            <TextBlock Text="把它归类为" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                            <ComboBox x:Name="FbCategory" Margin="0,2,0,0"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="3">
-                            <TextBlock Text="备注（可选，只给自己看）" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                            <TextBox x:Name="FbNote" Padding="6,4" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <DataGrid Grid.Row="2" x:Name="FeedbackGrid" ItemsSource="{Binding FeedbackEntries}" AutoGenerateColumns="False" IsReadOnly="True">
-                        <DataGrid.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="撤销这条反馈（删除标记）" Click="DeleteFeedback_Click"/>
-                            </ContextMenu>
-                        </DataGrid.ContextMenu>
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="100"/>
-                            <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150"/>
-                            <DataGridTextColumn Header="分类" Binding="{Binding ReportedCategory, Converter={StaticResource CatText}}" Width="120"/>
-                            <DataGridTextColumn Header="效果" Binding="{Binding EffectText}" Width="160"/>
-                            <DataGridTextColumn Header="用途" Binding="{Binding WorkloadMarkText}" Width="60"/>
-                            <DataGridTextColumn Header="范围" Binding="{Binding ScopeText}" Width="60"/>
-                            <DataGridTextColumn Header="备注" Binding="{Binding UserNote}" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-
-                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="提交反馈" Click="SubmitFeedback_Click" Style="{StaticResource PrimaryBtn}"/>
-                        <CheckBox x:Name="FbKeep" Content="标记需保留" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                        <CheckBox x:Name="FbClean" Content="标记可清理" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                        <CheckBox x:Name="FbSystem" Content="标记为系统进程（受保护）" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="至少填进程名或路径，否则这条反馈不会生效" FontSize="11" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" Margin="14,0,0,0"/>
-                    </StackPanel>
-                </Grid>
-            </TabItem>
-
             <!-- ============ 系统内存清理 ============ -->
-            <TabItem Header="🧼  系统内存清理" Style="{StaticResource NavTab}">
+            <TabItem Header="🧼  系统内存清理" Tag="sysmem" Style="{StaticResource NavTab}">
                 <ScrollViewer Margin="14,14,14,0">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="系统内存区域清理（需要管理员权限）" Style="{StaticResource PageTitle}"/>
@@ -1069,7 +1037,7 @@
             </TabItem>
 
             <!-- ============ 设置 ============ -->
-            <TabItem Header="⚙️  设置" Style="{StaticResource NavTab}">
+            <TabItem Header="⚙️  设置" Tag="settings" Style="{StaticResource NavTab}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20,18,20,20" MaxWidth="820" HorizontalAlignment="Left">
                         <Border Style="{StaticResource Card}">

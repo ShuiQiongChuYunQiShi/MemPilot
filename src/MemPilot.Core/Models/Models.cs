@@ -415,7 +415,7 @@ public class AppConfig
     // 1280 宽窗口下会把「签名/分类依据」挤到视口外，等于把判断依据藏起来（棱镜 ui/table-density）。
     // PID 与名称固定可见（DataGrid FrozenColumnCount=2），不在此列表中生效。
     public List<string> ProcessHiddenColumns { get; set; } = new()
-    { "内存增长", "子进程", "线程", "窗口标题", "厂商", "音频", "模式保留", "签名", "分类依据" };
+    { "内存增长", "子进程", "线程数", "窗口标题", "厂商", "音频", "模式保留", "签名", "分类依据" };
     // 进程页用途筛选："" = 全部；否则为 WorkloadClassifier.DisplayName 的取值（工作/娱乐/AI/系统/其他/未知）
     public string WorkloadFilter { get; set; } = "";
     // 显存采样（v0.3.4）：独立 30 秒节奏，与内存采样分开落盘（gpu-*.jsonl）。

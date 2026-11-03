@@ -187,6 +187,37 @@ public partial class MainWindow : Window
 
     // ---- feedback shortcuts from the process grid ----
 
+    /// <summary>v0.6.0：分类筛选芯片（互斥；全部=清空）。</summary>
+    private void CategoryChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Primitives.ToggleButton tb) return;
+        // 互斥：选中自己、清掉兄弟；点已选中的"全部"无副作用
+        foreach (var name in new[] { "ChipAll", "ChipSystem", "ChipGame", "ChipAi", "ChipUnknown" })
+        {
+            if (FindName(name) is System.Windows.Controls.Primitives.ToggleButton other && !ReferenceEquals(other, tb) && other.IsChecked == true)
+                other.IsChecked = false;
+        }
+        if (!tb.IsChecked.HasValue || tb.IsChecked == false) tb.IsChecked = true; // 点已选中的芯片保持选中
+
+        _vm.CategoryChip = tb.Name switch
+        {
+            "ChipSystem" => "system",
+            "ChipGame" => "game",
+            "ChipAi" => "ai",
+            "ChipUnknown" => "unknown",
+            _ => null
+        };
+    }
+
+    /// <summary>v0.6.0：线程管理从独立页降级为右键入口（TID 级挂起/恢复）。</summary>
+    private void ManageThreads_Click(object sender, RoutedEventArgs e)
+    {
+        var p = GetSelectedProcess();
+        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        var win = new ThreadWindow(p, _vm.ProcessService) { Owner = this };
+        win.Show();
+    }
+
     /// <summary>右键「标记用途」（v0.4.0）：人工纠正优先于规则，下一轮刷新即生效。</summary>
     private void CtxWorkload_Click(object sender, RoutedEventArgs e)
     {

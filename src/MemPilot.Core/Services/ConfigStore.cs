@@ -36,6 +36,9 @@ public class ConfigStore
         Config = JsonFileStore.Load<AppConfig>(_path) ?? new AppConfig();
         // v0.3.8：API 密钥加密存储；老配置是明文，原样读入，下次 Save 自动升级为密文
         Config.OnlineLookupApiKey = Dpapi.Unprotect(Config.OnlineLookupApiKey);
+        // v0.6.0：「线程」列改名「线程数」——老配置里存的旧名做一次幂等迁移，否则列显隐静默失效
+        for (int i = 0; i < Config.ProcessHiddenColumns.Count; i++)
+            if (Config.ProcessHiddenColumns[i] == "线程") Config.ProcessHiddenColumns[i] = "线程数";
     }
 
     public void Save()

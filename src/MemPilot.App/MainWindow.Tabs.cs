@@ -61,36 +61,33 @@ public partial class MainWindow : Window
 
     // ---- home navigation ----
 
-    private void SwitchToTab(string headerPrefix)
+    /// <summary>v0.6.0：路由键从 emoji 前缀改为稳定 Tag（改 Header 文字/图标不再破坏路由）。</summary>
+    private void SwitchToTab(string key)
     {
         foreach (var item in RootTabs.Items.OfType<TabItem>())
         {
-            var header = item.Header?.ToString();
-            if (header == null) continue;
-            if (header.Replace(" ", "").StartsWith(headerPrefix, StringComparison.Ordinal))
-            {
-                RootTabs.SelectedItem = item;
-                return;
-            }
+            if (Equals(item.Tag, key)) { RootTabs.SelectedItem = item; return; }
         }
     }
 
-    private void GoClean_Click(object sender, RoutedEventArgs e) => SwitchToTab("🧹");
-    private void GoDecisions_Click(object sender, RoutedEventArgs e) => SwitchToTab("🧠");
+    private void GoClean_Click(object sender, RoutedEventArgs e) => SwitchToTab("cleanup");
+    private void GoDecisions_Click(object sender, RoutedEventArgs e) => SwitchToTab("decisions");
 
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.OriginalSource is not TabControl) return;
-        var header = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Header?.ToString()?.Replace(" ", "") ?? "";
-        // 页签感知：VM 只重建当前可见页签的集合（性能优化，见 UpdateCollections 注释）
-        var key = header.StartsWith("🏠") ? "🏠" : header.StartsWith("📋") ? "📋" : header.StartsWith("🧹") ? "🧹"
-                : header.StartsWith("⏸") ? "⏸" : header.StartsWith("🧠") ? "🧠" : "other";
+        var tag = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Tag?.ToString() ?? "";
+        // 页签感知：VM 只重建当前可见页签的集合（性能优化，见 UpdateCollections 注释）。
+        // 这里把稳定 Tag 翻译成 TabRebuildPolicy 的键（Core 不感知 UI 文案）。
+        var key = tag switch
+        {
+            "home" => "🏠", "process" => "📋", "cleanup" => "🧹",
+            "suspend" => "⏸", "decisions" => "🧠", _ => "other"
+        };
         _vm.OnTabActivated(key);
-        if (header.StartsWith("🧵")) _vm.RebuildThreads();
-        else if (header.StartsWith("🎚")) InitModeTab();
-        else if (header.StartsWith("💬")) InitFeedbackTab();
-        else if (header.StartsWith("⚙")) InitSettingsTab();
-        else if (header.StartsWith("📊")) _vm.LoadHistory();
+        if (tag == "mode") InitModeTab();
+        else if (tag == "settings") InitSettingsTab();
+        else if (tag == "history") _vm.LoadHistory();
     }
     private void InitModeTab()
     {
@@ -98,14 +95,6 @@ public partial class MainWindow : Window
         _modeTabInit = true;
         foreach (var kv in _config.Config.ModeProfiles)
             ModeList.Items.Add(new ListBoxItem { Content = $"{kv.Value.Name} ({kv.Key})", Tag = kv.Key });
-    }
-
-    private void InitFeedbackTab()
-    {
-        if (FbCategory == null || FbCategory.Items.Count > 0) return;
-        foreach (ProcessCategory c in Enum.GetValues(typeof(ProcessCategory)))
-            FbCategory.Items.Add(c);
-        FbCategory.SelectedItem = ProcessCategory.ThirdPartyApp;
     }
 
     // ---- suspended tab ----
@@ -129,40 +118,6 @@ public partial class MainWindow : Window
         {
             _vm.Status = "启动失败：exe 路径不存在或已被移动。";
             _tray?.ShowBalloon("重启失败", "exe 路径不存在或已被移动。", warning: true);
-        }
-    }
-
-    // ---- thread tab ----
-
-    private void ThreadSearch_KeyUp(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (e.Key != System.Windows.Input.Key.Enter) return;
-        var q = ThreadSearchBox.Text.Trim();
-        if (string.IsNullOrEmpty(q))
-        {
-            _vm.RebuildThreads();
-            return;
-        }
-        var view = System.Windows.Data.CollectionViewSource.GetDefaultView(_vm.Threads);
-        view.Filter = o => o is ThreadInfo t &&
-            (t.OwnerPid.ToString() == q || t.Tid.ToString() == q);
-    }
-
-    private void CtxSuspendThread_Click(object sender, RoutedEventArgs e)
-    {
-        if (ThreadGrid.SelectedItem is ThreadInfo ti)
-        {
-            try { _vm.ProcessService.SuspendThread(ti.Tid); _vm.Status = $"线程 {ti.Tid} 已挂起。"; }
-            catch (Exception ex) { _vm.Status = "线程挂起失败: " + ex.Message; }
-        }
-    }
-
-    private void CtxResumeThread_Click(object sender, RoutedEventArgs e)
-    {
-        if (ThreadGrid.SelectedItem is ThreadInfo ti)
-        {
-            try { _vm.ProcessService.ResumeThread(ti.Tid); _vm.Status = $"线程 {ti.Tid} 已恢复。"; }
-            catch (Exception ex) { _vm.Status = "线程恢复失败: " + ex.Message; }
         }
     }
 
@@ -205,38 +160,6 @@ public partial class MainWindow : Window
         _vm.ConfigStore.Save();
         _vm.Engine.SampleForeground(); // no-op; rules apply on the next engine tick
         MessageBox.Show($"已保存 {profile.Name} 的规则（下一个刷新周期生效）。", "完成");
-    }
-
-    private void SubmitFeedback_Click(object sender, RoutedEventArgs e)
-    {
-        // 空表单会写进一条永远匹配不到任何进程的记录（v0.3.6 真机见过一条），
-        // 所以这里必须校验：至少要有进程名或路径。
-        var name = (FbName.Text ?? "").Trim();
-        var path = (FbPath.Text ?? "").Trim().Trim('"');
-        if (name.Length == 0 && path.Length == 0)
-        {
-            _vm.Status = "请至少填写进程名或路径——空反馈不会匹配任何进程，等于没提交。";
-            FbName.Focus();
-            return;
-        }
-
-        var entry = new FeedbackEntry
-        {
-            ProcessName = name,
-            ExecutablePath = path,
-            ReportedCategory = FbCategory.SelectedItem is ProcessCategory c ? c : ProcessCategory.Unknown,
-            UserNote = (FbNote.Text ?? "").Trim(),
-            MarkKeep = FbKeep.IsChecked == true,
-            MarkCleanable = FbClean.IsChecked == true,
-            MarkSystem = FbSystem.IsChecked == true,
-            Scope = "process"
-        };
-        _vm.AddFeedback(entry);
-        // 不用模态弹窗（用户偏好）：状态栏 + 清空表单，列表里立刻能看到这一行
-        FbName.Text = ""; FbPath.Text = ""; FbNote.Text = "";
-        FbKeep.IsChecked = false; FbClean.IsChecked = false; FbSystem.IsChecked = false;
-        _vm.Status = $"已记录反馈：{entry.ProcessName} → {entry.EffectText}（下次刷新生效，右键该行可撤销）。";
-        _ = _vm.RefreshAsync();
     }
 
     /// <summary>撤销一条反馈（v0.3.7）：标记错了要能撤回，否则只能去改 feedback.json。</summary>

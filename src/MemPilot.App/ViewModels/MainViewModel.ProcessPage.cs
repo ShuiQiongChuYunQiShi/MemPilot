@@ -34,6 +34,20 @@ public partial class MainViewModel
     }
     private readonly HashSet<int> _collapsedPids = new();
 
+    /// <summary>分类筛选芯片（v0.6.0）：null=全部；game/system/ai/unknown。</summary>
+    private string? _categoryChip;
+    public string? CategoryChip
+    {
+        get => _categoryChip;
+        set
+        {
+            if (_categoryChip == value) return;
+            _categoryChip = value;
+            OnPropertyChanged();
+            ApplyFilter();
+        }
+    }
+
     /// <summary>用途名单（v0.4.0，来自 %APPDATA%\MemPilot\workload-rules.json；改文件后重启生效）。</summary>
     private readonly WorkloadRules _workloadRules;
     private readonly Func<ProcessInfo, WorkloadKind?> _workloadLookup;
@@ -88,21 +102,6 @@ public partial class MainViewModel
 
     /// <summary>Thread rows are built on demand (thread tab) — one syscall per thread makes
     /// this far too expensive to run inside the refresh loop.</summary>
-    public void RebuildThreads()
-    {
-        var snapshot = _lastProcs;
-        Task.Run(() => ProcessService.EnumerateAllThreads(snapshot))
-            .ContinueWith(t =>
-            {
-                var list = t.Exception == null ? t.Result : new List<ThreadInfo>();
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    Threads.Clear();
-                    foreach (var th in list) Threads.Add(th);
-                });
-            });
-    }
-
     private void ApplyFilter()
     {
         IEnumerable<ProcessInfo> src = Processes;
@@ -114,6 +113,24 @@ public partial class MainViewModel
         // 用途筛选先于树构建：树里只留命中的节点，避免"筛了工作却还看到游戏父节点"
         if (!string.IsNullOrEmpty(_workloadFilter))
             src = src.Where(p => WorkloadClassifier.DisplayName(p.Workload) == _workloadFilter);
+        // v0.6.0 分类芯片：系统·保护 / 游戏 / AI / 未识别（互斥，null=全部）
+        switch (_categoryChip)
+        {
+            case "system":
+                src = src.Where(p => p.IsProtected ||
+                    p.Category is ProcessCategory.SystemCritical or ProcessCategory.SystemService
+                        or ProcessCategory.Driver or ProcessCategory.SecuritySoftware);
+                break;
+            case "game":
+                src = src.Where(p => p.Category is ProcessCategory.Game or ProcessCategory.GameLauncher);
+                break;
+            case "ai":
+                src = src.Where(p => p.Category == ProcessCategory.AiImageVideo);
+                break;
+            case "unknown":
+                src = src.Where(p => p.Category == ProcessCategory.Unknown);
+                break;
+        }
         if (TreeMode) src = ProcessTreeBuilder.Build(src, _collapsedPids);
         // swap the whole collection instead of Clear+Add: one Reset notification beats
         // 500 Add notifications every refresh (the periodic-jank fix)
