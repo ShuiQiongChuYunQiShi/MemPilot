@@ -17,6 +17,9 @@ public partial class ResidentEngine
     /// <summary>AI 会话是否活跃（由 VM 从 GpuMonitor 会话事件同步过来）；活跃时不做任何压缩。</summary>
     public bool AiSessionActive { get; set; }
 
+    /// <summary>提交告急且允许 L3 时，向 UI 请求确认（候选进程, 预计释放提交字节）。UI 决定是否关闭。</summary>
+    public event Action<IReadOnlyList<ProcessInfo>, long>? CommitReliefL3Suggested;
+
     /// <summary>
     /// 提交兜底：数据依据是 11-01 02:30（提交余量 0.3%、物理可用仍 31%）——只看可用% 的旧逻辑不会动手。
     /// 一级清备用列表（零进程风险）；2 分钟后仍 &lt;5% 才降级到"安全子集"压缩（TrimSelection）。
@@ -47,23 +50,45 @@ public partial class ResidentEngine
             LastAction = _lastReliefAction,
             ForegroundFullscreen = ForegroundFullscreen,
             AiSessionActive = AiSessionActive,
-            GameBusy = gameBusy
+            GameBusy = gameBusy,
+            AllowL3 = _config.Config.CommitReliefL3Enabled
         });
         if (action == ReliefAction.None) return;
 
         long before = mem.AvailablePhysicalBytes;
+        var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
         string detail;
+        string level;
         if (action == ReliefAction.PurgeStandby)
         {
+            level = "L0Purge";
             _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
             detail = $"清理低优先级备用列表（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB，10 分钟增长 {growthGb:F1} GB）";
         }
+        else if (action == ReliefAction.RequestL3 && CommitReliefL3Suggested != null)
+        {
+            // 唯一能真正降低提交计数的动作：结束闲置后台。候选限制 8 个、只来自安全子集。
+            var candidates = safeSet.Take(8).ToList();
+            long reclaim = candidates.Sum(p => p.Memory.PrivateBytes);
+            if (candidates.Count == 0)
+            {
+                level = "L1Trim";
+                var r0 = _cleanup.TrimWorkingSets(safeSet);
+                detail = $"没有可关闭的闲置后台，退回安全子集压缩 {r0.Trimmed} 个（物理可用 +{r0.FreedBytes / 1048576.0:F0} MB；注意：压缩不降提交）";
+            }
+            else
+            {
+                level = "L3Request";
+                detail = $"请求确认：优雅关闭 {candidates.Count} 个闲置后台（预计释放提交 {reclaim / 1048576.0:F0} MB；提交余量 {commitFreePct:F1}%）";
+                CommitReliefL3Suggested(candidates, reclaim);
+            }
+        }
         else
         {
-            var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
-            var safe = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
-            var r = _cleanup.TrimWorkingSets(safe);
-            detail = $"安全子集压缩 {r.Trimmed} 个低负载进程（排除 {procs.Count - safe.Count} 个：工作/游戏/前台/忙碌/系统），回收 {r.FreedBytes / 1048576.0:F0} MB";
+            level = "L1Trim";
+            var r = _cleanup.TrimWorkingSets(safeSet);
+            detail = $"安全子集压缩 {r.Trimmed} 个低负载进程（排除 {procs.Count - safeSet.Count} 个：工作/游戏/前台/忙碌/系统），回收 {r.FreedBytes / 1048576.0:F0} MB（仅物理，不降提交）";
         }
 
         var after = _probe.GetSystemMemory();
@@ -74,7 +99,7 @@ public partial class ResidentEngine
         {
             Action = "CommitRelief",
             Target = action.ToString(),
-            Level = action == ReliefAction.TrimSafe ? "L1Trim" : "L0Purge",
+            Level = level,
             Result = detail,
             MemoryBeforeBytes = before,
             MemoryAfterBytes = after.AvailablePhysicalBytes,

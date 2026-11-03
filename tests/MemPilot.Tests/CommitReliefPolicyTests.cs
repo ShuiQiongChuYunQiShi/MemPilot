@@ -13,7 +13,8 @@ public class CommitReliefPolicyTests
 
     private static ReliefInputs Input(double commitFreePct = 0.3, double growthGb = 0,
         double freeGb = 10.5, bool confirmed = true, DateTime? lastUtc = null,
-        ReliefAction last = ReliefAction.None, bool fullscreen = false, bool ai = false, bool gameBusy = false)
+        ReliefAction last = ReliefAction.None, bool fullscreen = false, bool ai = false, bool gameBusy = false,
+        bool allowL3 = false)
         => new()
         {
             CommitFreePct = commitFreePct,
@@ -25,7 +26,8 @@ public class CommitReliefPolicyTests
             LastAction = last,
             ForegroundFullscreen = fullscreen,
             AiSessionActive = ai,
-            GameBusy = gameBusy
+            GameBusy = gameBusy,
+            AllowL3 = allowL3
         };
 
     [Fact]
@@ -83,6 +85,20 @@ public class CommitReliefPolicyTests
             CommitReliefPolicy.Decide(surge with { LastActionUtc = Now.AddMinutes(-5), LastAction = ReliefAction.PurgeStandby }));
         Assert.Equal(ReliefAction.PurgeStandby,
             CommitReliefPolicy.Decide(surge with { LastActionUtc = Now.AddMinutes(-11), LastAction = ReliefAction.PurgeStandby }));
+    }
+
+    [Fact]
+    public void WithL3Allowed_EscalationRequestsConfirmation_NotBlindTrim()
+    {
+        // 压缩/清缓存降不了提交（实测），允许 L3 时改为请求确认
+        Assert.Equal(ReliefAction.RequestL3,
+            CommitReliefPolicy.Decide(Input(lastUtc: Now.AddMinutes(-2), last: ReliefAction.PurgeStandby, allowL3: true)));
+        // L3 被拒/请求后同样进入 15 分钟冷却，避免反复弹窗
+        Assert.Equal(ReliefAction.None,
+            CommitReliefPolicy.Decide(Input(lastUtc: Now.AddMinutes(-5), last: ReliefAction.RequestL3, allowL3: true)));
+        // AI 会话期间即使允许 L3 也不请求（不打扰生成任务）
+        Assert.Equal(ReliefAction.None,
+            CommitReliefPolicy.Decide(Input(lastUtc: Now.AddMinutes(-2), last: ReliefAction.PurgeStandby, allowL3: true, ai: true)));
     }
 
     [Fact]

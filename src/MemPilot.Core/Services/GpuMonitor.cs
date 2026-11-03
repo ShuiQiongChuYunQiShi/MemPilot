@@ -31,6 +31,7 @@ public sealed class GpuMonitor : IDisposable
     private Func<bool> _enabled = () => true;
     private Func<IReadOnlyList<ProcessInfo>>? _procs;
     private Func<IReadOnlyDictionary<int, double>>? _gpuPercent;
+    private Func<double?>? _commitFreePct;
 
     /// <summary>最近一条样本（主页/诊断可读）。</summary>
     public GpuSample? Last { get; private set; }
@@ -46,8 +47,10 @@ public sealed class GpuMonitor : IDisposable
 
     public void Start(int intervalSeconds, Func<bool> enabled,
         Func<IReadOnlyList<ProcessInfo>>? procs = null,
-        Func<IReadOnlyDictionary<int, double>>? gpuPercent = null)
+        Func<IReadOnlyDictionary<int, double>>? gpuPercent = null,
+        Func<double?>? commitFreePct = null)
     {
+        _commitFreePct = commitFreePct;
         _intervalSeconds = Math.Clamp(intervalSeconds, MinIntervalSeconds, MaxIntervalSeconds);
         _enabled = enabled ?? (() => true);
         _procs = procs;
@@ -83,7 +86,7 @@ public sealed class GpuMonitor : IDisposable
                 pid => _pidNames.TryGetValue(pid, out var n) ? n : null);
 
             // AI 会话检测（用刚写出的样本，保证与会话历史一致）
-            var update = Session.Push(Last.Used, Last.Total, Last.T, Last.Top);
+            var update = Session.Push(Last.Used, Last.Total, Last.T, Last.Top, _commitFreePct?.Invoke());
             if (update.Event != AiSessionEvent.None)
                 AiSessionChanged?.Invoke(update.Summary!, update.Event == AiSessionEvent.Started);
             LastError = snap.Available ? "" : (_mem.LastDiag.Length > 0 ? _mem.LastDiag : "gpu memory unavailable");

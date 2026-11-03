@@ -51,6 +51,7 @@ public partial class MainViewModel
         public string StartText { get; set; } = "";
         public string DurationText { get; set; } = "";
         public string PeakText { get; set; } = "";
+        public string CommitText { get; set; } = "";
         public string DominantText { get; set; } = "";
         public int PidCount { get; set; }
     }
@@ -174,6 +175,7 @@ public partial class MainViewModel
                     StartText = session.StartUtc.ToLocalTime().ToString("MM-dd HH:mm"),
                     DurationText = $"{minutes.TotalMinutes:F0} 分钟" + (session.EndUtc.HasValue ? "" : "（进行中）"),
                     PeakText = $"{session.PeakUsedBytes / 1073741824.0:F1} GB",
+                    CommitText = session.PeakCommitFreePct is { } cf ? $"{cf:F1}%" : "—",
                     DominantText = session.DominantName,
                     PidCount = session.PidCount
                 });

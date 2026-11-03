@@ -48,6 +48,7 @@ public partial class MainWindow : Window
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
+        SetCommitReliefL3.IsChecked = _config.Config.CommitReliefL3Enabled;
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
@@ -117,6 +118,7 @@ public partial class MainWindow : Window
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
+        _config.Config.CommitReliefL3Enabled = SetCommitReliefL3.IsChecked == true;
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;

@@ -275,6 +275,45 @@ public partial class MainViewModel : INotifyPropertyChanged
         };
 
         // v0.5.0：AI 会话只观测与记录，不做任何处置（处置留给下一轮租约）
+        // v0.5.1：提交告急且用户允许时，征得同意后优雅关闭闲置后台（唯一能降低提交计数的动作）
+        Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (candidates.Count == 0) return;
+                var names = string.Join("、", candidates.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
+                var more = candidates.Count > 6 ? $" 等 {candidates.Count} 个" : "";
+                var msg = "提交内存告急（余量 <5%）。\n\n可通过优雅关闭以下闲置后台来真正释放提交内存：\n" + names + more +
+                          "\n\n预计释放 " + (reclaimBytes / 1048576.0).ToString("F0") + " MB。它们会收到正常关闭请求，不会被强制结束。\n继续？";
+                if (System.Windows.MessageBox.Show(msg, "提交内存告急", System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxImage.Warning) != System.Windows.MessageBoxResult.Yes)
+                {
+                    Status = "已忽略本次提交兜底（不会关闭任何进程；压缩只能释放物理内存，降不了提交）。";
+                    return;
+                }
+                _ = Task.Run(async () =>
+                {
+                    int ok = 0;
+                    foreach (var p in candidates)
+                    {
+                        var r = Cleanup.Execute(p, CleanupActionLevel.L3GracefulClose,
+                            ConfigStore.Config.GracefulCloseTimeoutSeconds);
+                        if (r.Success) ok++;
+                        Decisions.Log(new DecisionEntry
+                        {
+                            Kind = "CommitRelief",
+                            Target = $"{p.Name} (PID {p.Pid})",
+                            Decision = r.Success ? "L3 已关闭" : "L3 失败",
+                            Reason = $"用户确认后释放提交；结果: {r.Message}"
+                        });
+                    }
+                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
+                    {
+                        Status = $"提交兜底：已优雅关闭 {ok}/{candidates.Count} 个闲置后台。";
+                        await RefreshAsync();
+                    });
+                });
+            });
+
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
         {
             Engine.AiSessionActive = started;
@@ -303,6 +342,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     Target = summary.DominantName,
                     Decision = "结束",
                     Reason = $"时长 {summary.Duration.TotalMinutes:F0} 分钟；峰值显存 {peakGb:F1} GB（共享 {sharedGb:F1} GB）；" +
+                             (summary.PeakCommitFreePct is { } cf ? $"峰值提交余量 {cf:F1}%；" : "") +
                              $"主导进程出现过 {summary.PidCount} 个 PID"
                 });
                 RaiseAlert("AI 会话结束", $"时长 {summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB（{summary.DominantName}）。");
@@ -337,7 +377,14 @@ public partial class MainViewModel : INotifyPropertyChanged
         GpuMonitor.Start(ConfigStore.Config.GpuSampleIntervalSeconds,
             () => ConfigStore.Config.GpuSamplingEnabled && ConfigStore.Config.GpuSampleIntervalSeconds > 0,
             () => _lastProcs,
-            () => Engine.LastGpuPercent);
+            () => Engine.LastGpuPercent,
+            () =>
+            {
+                var s = SysMem;
+                return s.TotalCommitLimitBytes > 0
+                    ? (s.TotalCommitLimitBytes - s.TotalCommittedBytes) * 100.0 / s.TotalCommitLimitBytes
+                    : null;
+            });
     }
 
     /// <summary>One refresh cycle. Runs enumeration/classification on a background thread,

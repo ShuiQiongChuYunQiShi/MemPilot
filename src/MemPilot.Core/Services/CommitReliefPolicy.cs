@@ -8,6 +8,8 @@ public enum ReliefAction
     PurgeStandby,
     /// <summary>二级：对"安全子集"做 L1 工作集压缩（等价于温和 trim，不结束进程）。</summary>
     TrimSafe,
+    /// <summary>二级（可选）：请求用户确认后，对安全子集做 L3 优雅关闭——这是唯一能真正降低提交计数的动作。</summary>
+    RequestL3,
 }
 
 public readonly struct ReliefInputs
@@ -22,6 +24,7 @@ public readonly struct ReliefInputs
     public bool ForegroundFullscreen { get; init; }
     public bool AiSessionActive { get; init; }
     public bool GameBusy { get; init; }           // 游戏类进程活跃（CPU/GPU）
+    public bool AllowL3 { get; init; }            // 用户是否允许"确认后结束闲置后台"
 }
 
 /// <summary>
@@ -63,14 +66,16 @@ public static class CommitReliefPolicy
             ? TimeSpan.MaxValue
             : i.NowUtc - i.LastActionUtc;
 
-        if (i.LastAction == ReliefAction.TrimSafe)
+        if (i.LastAction is ReliefAction.TrimSafe or ReliefAction.RequestL3)
             return sinceLast < TrimCooldown ? ReliefAction.None : ReliefAction.PurgeStandby; // 冷却后重新从一级开始
 
         if (i.LastAction == ReliefAction.PurgeStandby)
         {
             // 刚清过备用列表：2 分钟后复查仍告急才升级压缩
             if (sinceLast < EscalateAfter) return ReliefAction.None;
-            if (critical && sinceLast >= EscalateAfter) return ReliefAction.TrimSafe;
+            // v0.5.1：压缩/清缓存只释放物理内存，降不了提交；用户允许时改为请求 L3 确认
+            if (critical && sinceLast >= EscalateAfter)
+                return i.AllowL3 ? ReliefAction.RequestL3 : ReliefAction.TrimSafe;
             return sinceLast >= PurgeRepeat ? ReliefAction.PurgeStandby : ReliefAction.None;
         }
 
