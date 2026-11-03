@@ -407,6 +407,10 @@ public class AppConfig
     // 提交告急时是否允许「征得同意后优雅关闭闲置后台」来真正释放提交内存。
     // 默认关：L3 会关掉程序，必须由用户逐次确认（压缩/清缓存已被实测证明降不了提交）。
     public bool CommitReliefL3Enabled { get; set; } = false;
+    // 租约 API（v0.7.0）：本地 HTTP + Bearer 令牌，AI 任务开跑前申请内存、结束归还。
+    // 只绑 127.0.0.1；令牌落盘 lease-token.txt，设置页可见/可重新生成。
+    public bool LeaseApiEnabled { get; set; } = true;
+    public int LeaseApiPort { get; set; } = 52717;
     // 重要提示触达（托盘气泡 + 主页横幅）；false = 仅写决策日志
     public bool ShowAlerts { get; set; } = true;
     // 场景识别影子模式：只记录"如果自动切换会切到哪"，不动作（默认开，校准期用）

@@ -1,0 +1,163 @@
+using MemPilot.Models;
+
+namespace MemPilot.Services;
+
+/// <summary>租约申请（AI 任务开跑前发出）。</summary>
+public sealed class LeaseRequest
+{
+    public double TargetAvailableGb { get; set; } = 8;
+    public int TtlSeconds { get; set; } = 3600;
+    public string Requester { get; set; } = "";
+}
+
+/// <summary>租约状态：active → released / expired。软租约只压缩"安全子集"，没有需要恢复的东西。</summary>
+public sealed class LeaseInfo
+{
+    public string Id { get; set; } = "";
+    public double TargetAvailableGb { get; set; }
+    public double AchievedAvailableGb { get; set; }
+    public double BeforeAvailableGb { get; set; }
+    public double AfterAvailableGb { get; set; }
+    public DateTime StartUtc { get; set; }
+    public DateTime ExpiresUtc { get; set; }
+    public string State { get; set; } = "active";   // active / released / expired
+    public string Requester { get; set; } = "";
+    public string Details { get; set; } = "";
+    public DateTime? EndUtc { get; set; }
+    public double ShortfallGb => Math.Max(0, TargetAvailableGb - AchievedAvailableGb);
+}
+
+/// <summary>软腾挪执行结果（由调用方注入：清备用列表 + 安全子集压缩，实测量）。</summary>
+public sealed record LeaseReliefResult(double BeforeGb, double AfterGb, string Details);
+
+/// <summary>
+/// 单活跃租约状态机（v0.7.0 M1，纯逻辑）。
+///
+/// 语义照搬码头 `res lease`：申请 → 返回**实测达成量**（不是承诺量）；占用期守护（可用内存跌破
+/// 授予值 1GB 以上 → 告警一次）；归还 = 主动 DELETE 或 TTL 到期。软租约只做 L1/备用列表，
+/// 没有挂起需要恢复，所以"归还"只是记账与告警解除。
+/// </summary>
+public sealed class LeaseManager
+{
+    private readonly object _lock = new();
+    private LeaseInfo? _current;
+    private bool _guardAlerted;
+
+    /// <summary>授予时承诺的"可用内存下限"——守护线 = AfterGb（实测值）- 1GB。</summary>
+    public const double GuardErosionGb = 1.0;
+    public const int MaxTtlSeconds = 24 * 3600;
+    public const int DefaultTtlSeconds = 3600;
+
+    /// <summary>租约事件（开始/结束/守护告警），由调用方接决策日志与横幅。</summary>
+    public event Action<LeaseInfo, string>? LeaseEvent;
+
+    /// <summary>当前活跃租约；TTL 到期自动转 expired 并发事件。</summary>
+    public LeaseInfo? Current(DateTime nowUtc)
+    {
+        lock (_lock)
+        {
+            if (_current == null) return null;
+            if (_current.State == "active" && nowUtc >= _current.ExpiresUtc)
+            {
+                _current.State = "expired";
+                LeaseEvent?.Invoke(_current, "过期");
+            }
+            return _current.State == "active" ? _current : null;
+        }
+    }
+
+    /// <summary>申请。已有活跃租约返回 null（单活跃模型，调用方映射 409）。</summary>
+    public LeaseInfo? Acquire(LeaseRequest req, LeaseReliefResult relief, DateTime nowUtc)
+    {
+        if (req == null) return null;
+        lock (_lock)
+        {
+            if (_current != null && _current.State == "active" && nowUtc < _current.ExpiresUtc) return null;
+            var ttl = Math.Clamp(req.TtlSeconds <= 0 ? DefaultTtlSeconds : req.TtlSeconds, 30, MaxTtlSeconds);
+            _current = new LeaseInfo
+            {
+                Id = Guid.NewGuid().ToString("N")[..12],
+                TargetAvailableGb = Math.Max(0.5, req.TargetAvailableGb),
+                BeforeAvailableGb = relief.BeforeGb,
+                AfterAvailableGb = relief.AfterGb,
+                AchievedAvailableGb = relief.AfterGb,
+                StartUtc = nowUtc,
+                ExpiresUtc = nowUtc.AddSeconds(ttl),
+                State = "active",
+                Requester = req.Requester ?? "",
+                Details = relief.Details
+            };
+            _guardAlerted = false;
+            LeaseEvent?.Invoke(_current, "开始");
+            return _current;
+        }
+    }
+
+    /// <summary>归还（主动 DELETE）。id 不匹配返回 null。</summary>
+    public LeaseInfo? Release(string id, DateTime nowUtc, string reason = "归还")
+    {
+        lock (_lock)
+        {
+            if (_current == null || _current.State != "active" ||
+                !string.Equals(_current.Id, id, StringComparison.Ordinal)) return null;
+            _current.State = "released";
+            _current.EndUtc = nowUtc;
+            LeaseEvent?.Invoke(_current, reason);
+            var done = _current;
+            return done;
+        }
+    }
+
+    /// <summary>占用期守护：可用内存跌破授予值 - 1GB → 告警一次（不重复刷）。</summary>
+    public LeaseInfo? CheckGuard(SystemMemoryInfo mem, DateTime nowUtc)
+    {
+        var cur = Current(nowUtc);
+        if (cur == null) { _guardAlerted = false; return null; }
+        double availGb = mem.AvailablePhysicalBytes / 1073741824.0;
+        if (availGb < cur.AfterAvailableGb - GuardErosionGb && !_guardAlerted)
+        {
+            _guardAlerted = true;
+            var copy = Clone(cur);
+            copy.Details = $"租约被侵蚀：可用 {availGb:F1} GB < 授予下限 {cur.AfterAvailableGb - GuardErosionGb:F1} GB";
+            LeaseEvent?.Invoke(copy, "守护告警");
+            return copy;
+        }
+        return null;
+    }
+
+    private static LeaseInfo Clone(LeaseInfo s) => new()
+    {
+        Id = s.Id, TargetAvailableGb = s.TargetAvailableGb, AchievedAvailableGb = s.AchievedAvailableGb,
+        BeforeAvailableGb = s.BeforeAvailableGb, AfterAvailableGb = s.AfterAvailableGb,
+        StartUtc = s.StartUtc, ExpiresUtc = s.ExpiresUtc, State = s.State,
+        Requester = s.Requester, Details = s.Details
+    };
+}
+
+/// <summary>租约 API 令牌的存取（明文落盘 lease-token.txt；仅本机可用，权限即用户目录）。</summary>
+public static class LeaseTokenStore
+{
+    public static string PathFor(string dataDir) => Path.Combine(dataDir, "lease-token.txt");
+
+    public static string LoadOrCreate(string dataDir)
+    {
+        try
+        {
+            var path = PathFor(dataDir);
+            if (File.Exists(path))
+            {
+                var t = File.ReadAllText(path).Trim();
+                if (t.Length >= 16) return t;
+            }
+            return Regenerate(dataDir);
+        }
+        catch { return Guid.NewGuid().ToString("N"); }
+    }
+
+    public static string Regenerate(string dataDir)
+    {
+        var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N")[..8];
+        try { File.WriteAllText(PathFor(dataDir), token); } catch { }
+        return token;
+    }
+}

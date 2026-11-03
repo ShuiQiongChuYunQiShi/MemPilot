@@ -73,6 +73,20 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] 中文名收敛到 `WorkloadText.Of`（Models），`WorkloadClassifier.DisplayName` 委托它，避免两处各写一份。
 - 测试 239→248：规则加载/覆盖/空数组回落/损坏回落/自定义生效/用户标记优先/按路径匹配/替换与清除。
 
+### v0.7.0 — 租约 API M1（2026-11-04，数据驱动）
+
+用户设想的"AI 代理通知 MemPilot 让路"落地为本地 HTTP 租约：**单活跃 + 实测达成量 + TTL + 驻守告警**。
+安全边界：只绑 127.0.0.1 + Bearer 令牌（lease-token.txt），软策略与提交兜底同一套安全子集排除规则。
+
+- [x] `LeaseManager`（纯逻辑）：申请/归还/过期状态机；返回**实测达成量**；单活跃（二次申请 409）；TTL 钳制 30s–24h；占用期可用跌破授予下限 1GB → 守护告警一次。
+- [x] `LeaseApiService`：TcpListener 手写最小 HTTP（不依赖 HttpListener URLACL），只绑 127.0.0.1；Bearer 鉴权；端点 GET /api/status、POST /api/lease、GET /api/lease、DELETE /api/lease/{id}；JSON camelCase。
+- [x] 软执行器：清低优先级备用列表 + 压缩安全子集（与 CommitRelief 同一排除规则），实测前后可用写进租约；显存无法凭空释放，/api/status 如实报告（租约 M1 只承诺可用内存）。
+- [x] 设置页「租约 API」卡：开关/端口/令牌展示/重新生成；VM.Shutdown 停监听。
+- [x] `tools/lease-example.py` 调用示例；README 功能段。
+- 测试 295→309（LeaseManager 6 + LeaseApi 8：鉴权 401/流程/409/400/404/归还后再申请）。
+
+**M2 待办（下轮）**：L2 挂起式硬租约（归还恢复）、includeForeground/includeAudio 参数位、码头 cap 注册（mem-lease）、会话状态持久化（重启不切断 AI 会话段）。
+
 ### v0.5.1 — 提交兜底纠偏：L3 可选释放 + 会话补提交峰值（2026-11-03）
 
 1.5 天真实日志暴露了 v0.5.0 的认知错误：**压缩工作集/清备用列表不能降低提交内存**——11-02 18:33 压缩后物理可用 +2.5GB，提交余量仍 6.7%→7.3%；20:26 同样。真正的提交释放只有"结束进程"或"页面文件自动扩容"（12:39 那次是 limit 从 44.7→55.4GB）。

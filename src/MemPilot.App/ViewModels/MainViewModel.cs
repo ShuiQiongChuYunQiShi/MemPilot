@@ -72,6 +72,12 @@ public partial class MainViewModel : INotifyPropertyChanged
     private string _aiSessionText = "暂无 AI 会话记录（显存 ≥8GB 持续 90 秒即判定为会话）。";
     public string AiSessionText { get => _aiSessionText; private set { _aiSessionText = value; OnPropertyChanged(); } }
 
+    /// <summary>租约管理器 + 本地 API（v0.7.0）。</summary>
+    public LeaseManager LeaseManager { get; }
+    public LeaseApiService LeaseApi { get; }
+    private string _leaseToken = "";
+    public string LeaseToken => _leaseToken;
+
     private List<GpuAdapterInfo> _gpu = new();
     private GpuMemorySnapshot? _lastGpuMem;
     public string GpuSummaryText => _gpu.Count == 0 ? "GPU 信息不可用" : string.Join("  |  ", _gpu.Select(g => g.Summary));
@@ -250,6 +256,14 @@ public partial class MainViewModel : INotifyPropertyChanged
         _workloadFilter = config.Config.WorkloadFilter ?? "";
         GpuMonitor = new GpuMonitor(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
         _workloadRules = WorkloadRules.LoadOrCreate(ConfigStore.DataDirectory);
+        _leaseToken = LeaseTokenStore.LoadOrCreate(ConfigStore.DataDirectory);
+        LeaseManager = new LeaseManager();
+        LeaseApi = new LeaseApiService(
+            () => ProcessService.GetSystemMemory(),
+            ExecuteLeaseRelief,
+            LeaseManager,
+            () => _leaseToken,
+            () => ConfigStore.Config.LeaseApiPort);
         _workloadLookup = p => Feedback.FindWorkload(p.Name, p.ExecutablePath);
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
@@ -273,6 +287,37 @@ public partial class MainViewModel : INotifyPropertyChanged
             SetMode(e.Mode, "engine");
             ReloadDecisions();
         };
+
+        // v0.7.0：租约事件 → 决策日志 + 横幅/托盘（Start/Expire/Guard）
+        LeaseManager.LeaseEvent += (lease, ev) => SetUi(() =>
+        {
+            double achieved = lease.AchievedAvailableGb;
+            double peak = lease.TargetAvailableGb;
+            switch (ev)
+            {
+                case "开始":
+                    Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
+                        Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB；实测达成 {achieved:F1} GB（详情：{lease.Details}）" });
+                    RaiseAlert("租约生效", $"已为 {lease.Requester} 腾出 {achieved:F1} GB 可用内存（目标 {peak:F1} GB），至 {lease.ExpiresUtc.ToLocalTime():HH:mm}。");
+                    AlertRaised?.Invoke("租约生效", $"{achieved:F1} / {peak:F1} GB", false);
+                    break;
+                case "归还":
+                    Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
+                        Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟）" });
+                    RaiseAlert("租约归还", $"{lease.Requester} 已归还租约。");
+                    break;
+                case "过期":
+                    Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
+                        Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}）" });
+                    break;
+                case "守护告警":
+                    Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "守护告警",
+                        Reason = lease.Details });
+                    RaiseAlert("租约被侵蚀", "可用内存跌破了租约授予的下限——占用方可能在超用。");
+                    AlertRaised?.Invoke("租约被侵蚀", lease.Details, true);
+                    break;
+            }
+        });
 
         // v0.5.0：AI 会话只观测与记录，不做任何处置（处置留给下一轮租约）
         // v0.5.1：提交告急且用户允许时，征得同意后优雅关闭闲置后台（唯一能降低提交计数的动作）
@@ -361,10 +406,48 @@ public partial class MainViewModel : INotifyPropertyChanged
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
 
+    /// <summary>
+    /// 租约的软腾挪执行（v0.7.0）：清低优先级备用列表 + 压缩"安全子集"（与提交兜底同一套排除规则，
+    /// 绝不碰工作/游戏/前台/忙碌进程），返回**实测**前后可用内存。显存无法凭空释放，租约只承诺可用内存。
+    /// </summary>
+    private LeaseReliefResult ExecuteLeaseRelief()
+    {
+        var before = ProcessService.GetSystemMemory();
+        _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+        var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
+        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, Engine.LastForegroundPid, audio);
+        var r = Cleanup.TrimWorkingSets(safe);
+        var after = ProcessService.GetSystemMemory();
+        var detail = $"清理低优先级备用列表 + 压缩安全子集 {r.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个），" +
+                     $"可用 {before.AvailablePhysicalBytes / 1073741824.0:F1} → {after.AvailablePhysicalBytes / 1073741824.0:F1} GB";
+        return new LeaseReliefResult(
+            before.AvailablePhysicalBytes / 1073741824.0,
+            after.AvailablePhysicalBytes / 1073741824.0,
+            detail);
+    }
+
+    private readonly NativeMemoryCleanerService _memCleanerForLease = new();
+
+    /// <summary>重新生成租约令牌（设置页按钮）。</summary>
+    public void RegenerateLeaseToken()
+    {
+        _leaseToken = LeaseTokenStore.Regenerate(ConfigStore.DataDirectory);
+        OnPropertyChanged(nameof(LeaseToken));
+    }
+
+    /// <summary>租约 API 开关变更/端口变更后重启监听（设置保存时调用）。</summary>
+    public void RestartLeaseApi()
+    {
+        LeaseApi.Stop();
+        if (ConfigStore.Config.LeaseApiEnabled)
+            LeaseApi.Start();
+    }
+
     /// <summary>退出前释放资源（v0.3.8，棱镜 backend/resource-lifecycle）：
     /// 显存采样定时器 + PDH 查询句柄 + 引擎定时器。进程退出虽会回收，但 Dispose 存在就该有人调。</summary>
     public void Shutdown()
     {
+        try { LeaseApi.Dispose(); } catch { }
         try { GpuMonitor.Dispose(); } catch { }
         try { GpuMemory.Dispose(); } catch { }
         try { Engine.Stop(); } catch { }
@@ -385,6 +468,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     ? (s.TotalCommitLimitBytes - s.TotalCommittedBytes) * 100.0 / s.TotalCommitLimitBytes
                     : null;
             });
+        RestartLeaseApi();   // v0.7.0：租约 API 监听（127.0.0.1 + 令牌）
     }
 
     /// <summary>One refresh cycle. Runs enumeration/classification on a background thread,
@@ -460,6 +544,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             });
 
             Engine.AfterRefresh(_lastProcs, memOut);
+            LeaseManager.CheckGuard(memOut, DateTime.UtcNow);   // v0.7.0：占用期守护
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)

@@ -49,6 +49,9 @@ public partial class MainWindow : Window
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
         SetCommitReliefL3.IsChecked = _config.Config.CommitReliefL3Enabled;
+        SetLeaseApi.IsChecked = _config.Config.LeaseApiEnabled;
+        SetLeasePort.Text = _config.Config.LeaseApiPort.ToString();
+        SetLeaseToken.Text = _vm.LeaseToken;
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
@@ -67,6 +70,13 @@ public partial class MainWindow : Window
     }
 
     private void RefreshShadowCalibration_Click(object sender, RoutedEventArgs e) => _vm.RefreshShadowCalibration();
+
+    private void RegenerateLeaseToken_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.RegenerateLeaseToken();
+        SetLeaseToken.Text = _vm.LeaseToken;
+        _vm.Status = "租约令牌已重新生成——记得同步给调用方。";
+    }
 
     // ---- 显存采样设置（v0.3.4）----
 
@@ -119,6 +129,9 @@ public partial class MainWindow : Window
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
         _config.Config.CommitReliefL3Enabled = SetCommitReliefL3.IsChecked == true;
+        _config.Config.LeaseApiEnabled = SetLeaseApi.IsChecked == true;
+        if (int.TryParse(SetLeasePort.Text, out var leasePort) && leasePort is >= 1024 and <= 65535)
+            _config.Config.LeaseApiPort = leasePort;
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;
