@@ -14,6 +14,8 @@ public enum MemoryArea
     StandbyList,
     StandbyListLowPriority,
     SystemFileCache,
+    /// <summary>页合并列表（Win8+，v0.9.0 补）。</summary>
+    CombinedMemory,
     WorkingSet
 }
 
@@ -23,6 +25,8 @@ public class NativeMemoryCleanerService
     private const int SystemMemoryListInformation = 80;
     // SystemFileCacheInformation = 21
     private const int SystemFileCacheInformation = 21;
+    // SystemCombinePhysicalMemoryInformation = 130（Win8+ 页合并列表，常在几个 GB 量级）
+    private const int SystemCombinePhysicalMemoryInformation = 130;
 
     [DllImport("ntdll.dll")]
     private static extern int NtSetSystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength);
@@ -96,6 +100,8 @@ public class NativeMemoryCleanerService
                     return CleanStandbyList(true);
                 case MemoryArea.SystemFileCache:
                     return CleanSystemFileCache();
+                case MemoryArea.CombinedMemory:
+                    return CleanCombinedMemory();
                 case MemoryArea.WorkingSet:
                     return CleanWorkingSet();
                 default:
@@ -194,11 +200,37 @@ public class NativeMemoryCleanerService
         catch (Exception ex) { return (false, ex.Message); }
     }
 
+    /// <summary>v0.9.0：只压缩调用方给的安全子集；null 表示"全机"（仅保留给显式高危入口）。</summary>
+    public void SetWorkingSetAllowList(IReadOnlyCollection<int>? pids) => _workingSetAllowList = pids;
+
+    private IReadOnlyCollection<int>? _workingSetAllowList;
+
+    /// <summary>
+    /// 页合并列表清理（Win8+）。对标 memreduct 的 SystemCombinePhysicalMemoryInformation——
+    /// 这块是"同内容页去重"的缓存，不回收时可能占几个 GB（v0.9.0 补，三轮复盘对标发现）。
+    /// </summary>
+    private (bool, string) CleanCombinedMemory()
+    {
+        try
+        {
+            // 结构长度为 0 即"清空合并列表"（Windows 语义：不要求传入参数）
+            int status = NtSetSystemInformation(SystemCombinePhysicalMemoryInformation, IntPtr.Zero, 0);
+            if (status == 0) return (true, "Combined Memory (page combining) trimmed");
+            return (false, $"NtSetSystemInformation returned {status}");
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
     private (bool, string) CleanWorkingSet()
     {
         int count = 0;
+        // 三轮复盘 P0：旧实现遍历全部进程直接 EmptyWorkingSet（含游戏/系统/自己）。
+        // 现在只有调用方显式给白名单时才动，未设置一律拒绝（fail-closed）。
+        if (_workingSetAllowList == null)
+            return (false, "未提供安全候选集，已拒绝执行（WorkingSet 清理需要显式进程名单）");
         foreach (var proc in Process.GetProcesses())
         {
+            if (!_workingSetAllowList.Contains(proc.Id)) continue;
             try
             {
                 var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_INFORMATION | 0x0100, false, proc.Id);

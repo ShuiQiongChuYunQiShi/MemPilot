@@ -72,6 +72,22 @@ public class CleanupEngine
 
     public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec, bool escalateToKill = false)
     {
+        // v0.9.0（三轮复盘 P0）：执行前按 (pid, startTime) 复检目标进程，防 PID 复用杀错。
+        // 腾挪计划从生成到执行可能隔几分钟，期间原进程退出、PID 被别的进程复用是真实风险。
+        // 只对"改变进程状态"的级别校验（L1 压缩影响很小，不阻塞）。
+        if (level >= CleanupActionLevel.L2Suspend && !IsStillSameProcess(p))
+        {
+            var msg = $"目标已不是原进程（PID {p.Pid} 可能已被复用或已退出），已拒绝执行";
+            _audit.Log(new AuditEntry
+            {
+                Action = level.ToString(),
+                Target = $"{p.Name} (PID {p.Pid})",
+                Level = level.ToString(),
+                Result = "跳过：" + msg
+            });
+            return new ActionResult(false, msg, false);
+        }
+
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
         string result;
         bool exited = false;
@@ -131,6 +147,21 @@ public class CleanupEngine
             });
         }
         return new ActionResult(result.StartsWith("失败") == false, result, exited);
+    }
+
+    /// <summary>
+    /// 目标是否仍是快照里那个进程：PID 相同且启动时间一致（PID 复用会拿到不同 startTime）。
+    /// 快照里 StartTime 未知（提权进程读不到）时放行——不能因为读不到就永远不能处置。
+    /// </summary>
+    private static bool IsStillSameProcess(ProcessInfo p)
+    {
+        if (p.StartTime == DateTime.MinValue) return true;   // 采集时就拿不到，无法比对
+        try
+        {
+            using var live = System.Diagnostics.Process.GetProcessById(p.Pid);
+            return live.StartTime == p.StartTime;
+        }
+        catch { return false; }   // 进程已退出 / 无法打开 → 不能确认是同一个
     }
 
     public ActionResult Resume(int pid, string name)

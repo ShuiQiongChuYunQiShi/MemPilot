@@ -41,16 +41,28 @@ public class ConfigStore
             if (Config.ProcessHiddenColumns[i] == "线程") Config.ProcessHiddenColumns[i] = "线程数";
     }
 
+    private readonly object _saveLock = new();
+
     public void Save()
     {
-        // 只在落盘这一刻加密，内存里始终是明文（UI/请求都用明文），避免到处解密
-        var plain = Config.OnlineLookupApiKey;
-        try
+        // v0.9.0：深拷贝后再加密序列化——旧实现把内存里的 key 临时改成密文，
+        // 同一时刻引擎线程发 HTTP 会读到 "dpapi:..." 当密钥；ModalProfiles 字典被 UI 并发改也会让序列化抛异常。
+        lock (_saveLock)
         {
-            Config.OnlineLookupApiKey = Dpapi.Protect(plain);
-            JsonFileStore.Save(_path, Config, JsonFileStore.Pretty);
+            AppConfig snapshot;
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(Config, JsonFileStore.Compact);
+                snapshot = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(json, JsonFileStore.Compact) ?? new AppConfig();
+            }
+            catch (Exception ex)
+            {
+                Helpers.Diag.Record("config:snapshot", ex);
+                return;
+            }
+            snapshot.OnlineLookupApiKey = Dpapi.Protect(snapshot.OnlineLookupApiKey);
+            JsonFileStore.Save(_path, snapshot, JsonFileStore.Pretty);
         }
-        finally { Config.OnlineLookupApiKey = plain; }
     }
     private void EnsureDefaults()
     {

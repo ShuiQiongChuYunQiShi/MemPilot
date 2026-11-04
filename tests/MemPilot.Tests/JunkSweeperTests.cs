@@ -29,12 +29,30 @@ public class JunkSweeperTests
             whitelist ?? Array.Empty<string>(), minAgeSeconds: 120);
 
     [Fact]
-    public void BloatwareHeadless_IsKilled()
+    public void BloatwareHeadless_IsGracefullyClosed_NeverKilled()
     {
+        // v0.9.0：自动清扫永不 L4（UI 的"低风险模式"文案曾与静默强杀矛盾）
         var plan = Plan(new() { P(1, "wetype_update", ProcessCategory.Bloatware) });
         var item = Assert.Single(plan);
-        Assert.Equal(CleanupActionLevel.L4ForceKill, item.Action);
+        Assert.Equal(CleanupActionLevel.L3GracefulClose, item.Action);
         Assert.Contains("垃圾常驻", item.Reason);
+        Assert.DoesNotContain("直接结束", item.Reason);
+    }
+
+    [Fact]
+    public void Sweeper_NeverEmitsL4_ForAnyInput()
+    {
+        // 硬约束：任何输入下都不允许产生 L4（强杀只能人工在进程页做）
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "wetype_update", ProcessCategory.Bloatware),
+            P(2, "QQLiveService", ProcessCategory.ThirdPartyApp),
+            P(3, "someorphan", ProcessCategory.BackgroundService),
+            P(4, "windowedupdater", ProcessCategory.Bloatware, window: true),
+        };
+        var plan = JunkSweeper.BuildPlan(procs, 99, new HashSet<int>(), Array.Empty<string>(), minAgeSeconds: 0);
+        Assert.NotEmpty(plan);
+        Assert.All(plan, i => Assert.NotEqual(CleanupActionLevel.L4ForceKill, i.Action));
     }
 
     [Fact]
@@ -56,7 +74,7 @@ public class JunkSweeperTests
         });
         var item = Assert.Single(plan);
         Assert.Equal("QQLiveService", item.Process.Name);
-        Assert.Equal(CleanupActionLevel.L4ForceKill, item.Action);
+        Assert.Equal(CleanupActionLevel.L3GracefulClose, item.Action);
         Assert.Contains("宿主 qqlive 已退出", item.Reason);
     }
 

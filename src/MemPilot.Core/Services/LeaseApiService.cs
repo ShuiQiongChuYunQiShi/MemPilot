@@ -167,15 +167,26 @@ public sealed class LeaseApiService : IDisposable
             if (req == null || req.TargetAvailableGb <= 0)
                 return (400, """{"error":"targetAvailableGb must be > 0"}""");
 
-            if (_manager.Current(now) != null)
-                return (409, """{"error":"lease_active"}""");
-
             var policy = string.Equals(req.Policy, "hard", StringComparison.OrdinalIgnoreCase)
                 ? LeasePolicy.Hard : LeasePolicy.Soft;
-            var (relief, suspended) = _reliefExecutor(req, policy);
-            var lease = _manager.Acquire(req, relief, now, policy, suspended);
+
+            // v0.9.0：先原子占位再执行腾挪。旧顺序（检查→腾挪→Acquire）在并发下会让
+            // 第二个请求的 relief 已经挂起进程、却因 Acquire 失败而无人记账 → 那些进程永不恢复。
+            var reserved = _manager.TryReserve(req, now);
+            if (reserved == null)
+                return (409, """{"error":"lease_active"}""");
+
+            (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) result;
+            try { result = _reliefExecutor(req, policy); }
+            catch (Exception ex)
+            {
+                _manager.AbortReservation(reserved.Id);
+                return (500, JsonSerializer.Serialize(new { error = "relief_failed", detail = ex.Message }, Json));
+            }
+
+            var lease = _manager.CompleteReservation(reserved.Id, result.relief, DateTime.UtcNow, policy, result.suspended);
             return lease == null
-                ? (409, """{"error":"lease_active"}""")
+                ? (500, """{"error":"reservation_lost"}""")
                 : (200, JsonSerializer.Serialize(lease, Json));
         }
 

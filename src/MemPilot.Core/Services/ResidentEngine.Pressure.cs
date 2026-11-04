@@ -123,7 +123,9 @@ public partial class ResidentEngine
         foreach (var p in procs)
         {
             if (p.MemoryGrowthBytes < ThresholdBytes) continue;
-            if (_lastGrowthLogUtc.TryGetValue(p.StateKey, out var last) && (now - last).TotalMinutes < 30) continue;
+            // v0.9.0 降噪：同一进程每天最多 1 条（实测 290 条 GrowthWatch 里同一 PID 重复 18 次，
+            // 且从不动作——它只是提示）。想看增长趋势请去历史页。
+            if (_lastGrowthLogUtc.TryGetValue(p.StateKey, out var last) && (now - last).TotalHours < 24) continue;
             _lastGrowthLogUtc[p.StateKey] = now;
             _decisions.Log(new DecisionEntry
             {

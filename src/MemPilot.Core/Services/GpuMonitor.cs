@@ -70,7 +70,17 @@ public sealed class GpuMonitor : IDisposable
         if (Interlocked.Exchange(ref _ticking, 1) == 1) return;
         try
         {
-            if (!_enabled()) return;
+            if (!_enabled())
+            {
+                // v0.9.0：采样被关掉时若会话仍"进行中"，会永久置 AiSessionActive=true，
+                // 而 CommitReliefPolicy 见到它就一律不动作 → 提交兜底静默失效直到重启。
+                if (Session.Active && Session.Current is { } open)
+                {
+                    open.EndUtc = DateTime.UtcNow;
+                    AiSessionChanged?.Invoke(open, false);
+                }
+                return;
+            }
             var snap = _mem.Sample();
             LastSnapshot = snap;
             var procs = _procs?.Invoke() ?? Array.Empty<ProcessInfo>();

@@ -120,7 +120,6 @@ public partial class ResidentEngine
         EvaluateScene(procs);
         if (cfg.AutoCleanupEnabled && cfg.CurrentMode is AppMode.Development or AppMode.Game or AppMode.AiGeneration)
             AutoCleanup(procs);
-        if (cfg.AutoOptimizeEnabled) AutoOptimize(mem);
         WatchMemoryGrowth(procs);
         WatchCommitPressure(mem);
         WatchCommitRelief(procs, mem);   // v0.5.0：提交余量兜底（分级 + 安全子集）

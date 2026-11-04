@@ -29,10 +29,15 @@ public partial class App : Application
         _singleInstance = new Mutex(true, @"Local\MemPilot.SingleInstance", out var isNew);
         if (!isNew)
         {
-            // quiet: signal the running instance to show itself on its own dispatcher.
-            // Never touch the other process's window cross-process: SW_RESTORE on a
-            // WPF window that WPF believes is hidden renders a frozen black frame.
-            _showSignal?.Set();
+            // v0.9.0 修：旧代码在这里调 `_showSignal?.Set()`，但该字段只在下面（第一实例分支）
+            // 才赋值 → 恒为 null，第二实例什么也没做就退出了（用户看到"双击没反应"）。
+            // 正确做法是打开已存在的那颗命名事件再 Set。
+            try
+            {
+                using var signal = EventWaitHandle.OpenExisting(ShowSignalName);
+                signal.Set();
+            }
+            catch (Exception ex) { TryLogCrash(ex); }
             Shutdown();
             return;
         }

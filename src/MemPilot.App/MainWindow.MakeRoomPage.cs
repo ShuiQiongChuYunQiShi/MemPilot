@@ -5,7 +5,7 @@ public partial class MainWindow : Window
     private async void HotkeyActivateMakeRoom()
     {
         ShowWindow();
-        SwitchToTab("🚀");
+        SwitchToTab("makeroom");
         await BuildMakeRoomFromHomeAsync();
     }
 
@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     private void OnCompactMakeRoom()
     {
         ShowWindow();
-        SwitchToTab("🚀");
+        SwitchToTab("makeroom");
         _ = BuildMakeRoomFromHomeAsync();
     }
 
@@ -38,7 +38,7 @@ public partial class MainWindow : Window
     {
         if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = "请先在主页填写需要的内存（GB）。"; return; }
         // home CTA keeps the same safety: build the plan, review it on the 腾内存 page before executing
-        SwitchToTab("🚀"); // realize the tab's controls first
+        SwitchToTab("makeroom"); // realize the tab's controls first
         if (TargetAvailGB != null) TargetAvailGB.Text = targetGB.ToString("0.#");
         await BuildAndShowPlanAsync(targetGB);
     }
@@ -57,6 +57,12 @@ public partial class MainWindow : Window
         _vm.Status = "正在生成腾挪计划...";
         var plan = await _vm.BuildMakeRoomPlanAsync(req);
         _currentPlan = plan;
+        // 页签懒加载：控件未实体化时不要 NRE（v0.9.0 修：路由键错曾导致这里空引用崩溃）
+        if (PlanGrid == null || MakeRoomSummary == null || ExecutePlanBtn == null)
+        {
+            _vm.Status = $"腾挪计划已生成（{plan.Items.Count} 项），请切到「腾内存」页查看。";
+            return;
+        }
         PlanGrid.ItemsSource = plan.Items;
         MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : "  ⚠ 计划不足以覆盖目标，请勾选允许 L4 或降低目标。");
         ExecutePlanBtn.IsEnabled = plan.Items.Count > 0;

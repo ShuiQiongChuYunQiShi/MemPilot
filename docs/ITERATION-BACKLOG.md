@@ -73,6 +73,35 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] 中文名收敛到 `WorkloadText.Of`（Models），`WorkloadClassifier.DisplayName` 委托它，避免两处各写一份。
 - 测试 239→248：规则加载/覆盖/空数组回落/损坏回落/自定义生效/用户标记优先/按路径匹配/替换与清除。
 
+### v0.9.0 — 三轮复盘整改：修 8 个真 bug + 降噪 + 真实负载验证（2026-11-04）
+
+三轮深度复盘（代码全量 / 9 天运行数据 / GitHub top5 源码级对标）的整改。
+
+**修掉 8 个真 bug（每个都有守卫测试）：**
+
+| # | 缺陷 | 根因 |
+|---|---|---|
+| 1 | 热键 CTRL+SHIFT+M 与主页「生成计划」**必崩** | v0.6.0 路由改 Tag 后，MakeRoomPage 仍传 emoji `"🚀"` → 页签不实例化 → `PlanGrid` 空引用 |
+| 2 | 自动清扫**静默 L4 强杀** | `JunkSweeper` 对无窗口垃圾直接 L4，而 UI 文案写"不会结束进程" |
+| 3 | 单实例唤起**是死代码** | 第二实例对恒为 null 的 `_showSignal` 调 `Set()` |
+| 4 | kill/suspend 无 PID 复检 | 腾挪计划生成→执行可能隔几分钟，PID 复用会杀错 |
+| 5 | 租约并发**泄漏挂起进程** | `检查→腾挪→Acquire` 顺序下，第二个请求已挂起却无人记账 |
+| 6 | `CleanWorkingSet` **零筛选全机压缩** | 遍历所有进程（含游戏/系统/自己），与 README「前台永不处置」矛盾 |
+| 7 | 关 GPU 采样 → **提交兜底永久失效** | `AiSessionActive` 永久 true，`CommitReliefPolicy` 见到就一律不动作 |
+| 8 | `ConfigStore.Save` **改写内存 key** | 写盘期间把内存里的 key 换成密文，引擎线程可能读到 `dpapi:...` |
+
+- [x] 全部修复 + `RegressionGuardTests` 10 条静态守卫（关键词/结构断言，防回归）。
+- [x] **降噪**：GrowthWatch 同 PID 由 30 分钟改为**每天 1 条**；AutoOptimize 从独立计时触发**合并进 CommitRelief**（实测 215 次执行里 198 次零收益）；DecisionLog 上限 1000→**5000**（原 82% 已用，两天内会丢最早证据）。
+- [x] AI 会话**重入冷却 5 分钟**（真机曾把同一任务记成 3 段）。
+- [x] **补页合并回收**（`SystemCombinePhysicalMemoryInformation`，Win8+）——对标 memreduct 时发现我们唯一缺的系统级手段；其余七种核对后本就已实现（探针误判）。
+- [x] **租约真实负载验证** `tools/lease-load-test.py`：soft 与 hard 两条链路全通；hard 实测**挂起 8 个 → 归还 8/8 恢复**、`suspended.json` 清零、**守护告警方位被真实触发**（占用 8GB 后可用跌破授予下限）。这是租约上线以来第一次被非自测负载验证。
+- [x] **瘦身实测（结论：不动）**：`PublishReadyToRun` 让单文件从 62.1MB **涨到 67.3MB**；`PublishTrimmed` 被 SDK 直接拒绝（`NETSDK1168: 启用剪裁时，不支持或不推荐使用 WPF`）。→ WPF 形态有硬地板，65MB 无法通过构建参数优化，只能等 NativeAOT 服务形态（已记入路线图）。
+- 测试 327→338。
+
+**GitHub 对标结论（2026-11-04 抓取）**：System Informer 16.4k / Mem Reduct 11.1k / LibreHardwareMonitor 9.3k / LiteMonitor 6.8k / WinMemoryCleaner 5.2k。
+我们的**品类独占**：租约 API + 场景感知（五家全无）；**最强项**：安全分级（memreduct 连白名单都不做，我们四重豁免+审计）；
+**结构性劣势**：体积 62MB/90MB vs 373KB/471KB、无 LICENSE/未签名导致零传播、无内核驱动看不到提权进程。
+
 ### v0.8.0 — 租约 M2：硬租约（挂起 + 自动恢复）（2026-11-04）
 
 M1 的软租约只能把页面挪到页面文件（实测降不了提交），真正的"让路"需要挂起。

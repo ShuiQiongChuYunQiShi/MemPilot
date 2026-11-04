@@ -178,8 +178,30 @@ public partial class MainWindow : Window
         if (ChkStandbyList.IsChecked == true) areas.Add(MemoryArea.StandbyList);
         if (ChkStandbyListLow.IsChecked == true) areas.Add(MemoryArea.StandbyListLowPriority);
         if (ChkSystemFileCache.IsChecked == true) areas.Add(MemoryArea.SystemFileCache);
+        if (ChkCombinedMemory?.IsChecked == true) areas.Add(MemoryArea.CombinedMemory);
         if (ChkWorkingSet.IsChecked == true) areas.Add(MemoryArea.WorkingSet);
         if (areas.Count == 0) { MessageBox.Show("请至少选择一个区域。", "提示"); return; }
+
+        // v0.9.0：WorkingSet 是全机/候选集压缩，给安全子集 + 全屏拒绝
+        if (areas.Contains(MemoryArea.WorkingSet))
+        {
+            if (_vm.Engine.ForegroundFullscreen)
+            {
+                MessageBox.Show("当前有前台全屏程序（游戏/视频），已拒绝压缩工作集——会造成明显卡顿。", "已拒绝", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            var audio = new HashSet<int>(_vm.Processes.Where(p => p.AudioActive).Select(p => p.Pid));
+            var safe = TrimSelection.BuildSafeTrimSet(_vm.Processes.ToList(), _vm.Engine.LastForegroundPid, audio);
+            if (safe.Count == 0)
+            {
+                MessageBox.Show("没有可安全压缩的进程（工作/游戏/前台进程全部排除）。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (MessageBox.Show($"将只压缩 {safe.Count} 个低负载后台进程（排除 {_vm.Processes.Count - safe.Count} 个工作/游戏/前台/忙碌进程）。继续？",
+                    "确认压缩工作集", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            _memCleaner.SetWorkingSetAllowList(safe.Select(p => p.Pid).ToList());
+        }
         if (areas.Contains(MemoryArea.StandbyList) &&
             MessageBox.Show("完整清理备用列表会清掉文件缓存，游戏运行时会造成卡顿。确认继续？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             return;

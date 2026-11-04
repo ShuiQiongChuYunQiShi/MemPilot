@@ -101,7 +101,7 @@ public partial class MainWindow : Window
         SetAutoJunkSweep.IsChecked = true;
         SetAutoJunkSweepOrphansOnly.IsChecked = true;
         SaveSettings_Click(sender, e); // 复用保存路径：落盘并重启引擎
-        _vm.Status = "已应用低风险自动档：自动优化 + 仅清孤儿残留（清理仍只 L1，不会结束进程）。";
+        _vm.Status = "已应用低风险自动档：只清孤儿残留，动作为 L1 压缩或 L3 优雅关闭（永不强制结束）。";
     }
 
     // ---- 未识别复核队列（P3.3）：人工核实后写入反馈库，分类器下一轮生效 ----

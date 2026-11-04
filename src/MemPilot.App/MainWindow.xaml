@@ -1024,7 +1024,8 @@
                         <CheckBox x:Name="ChkStandbyList" Content="Standby List（备用列表 - 完整，游戏运行时慎用）" Margin="0,4"/>
                         <CheckBox x:Name="ChkStandbyListLow" Content="Standby List (Low Priority)（低优先级备用列表 - 推荐）" Margin="0,4"/>
                         <CheckBox x:Name="ChkSystemFileCache" Content="System File Cache（系统文件缓存）" Margin="0,4"/>
-                        <CheckBox x:Name="ChkWorkingSet" Content="Working Set（工作集 - 所有进程，逐进程压缩，无需管理员）" Margin="0,4"/>
+                        <CheckBox x:Name="ChkCombinedMemory" Content="Combined Memory（页合并列表，Win8+，常占数 GB）" Margin="0,4"/>
+                        <CheckBox x:Name="ChkWorkingSet" Content="Working Set（工作集 - 只压安全子集，排除工作/游戏/前台进程）" Margin="0,4"/>
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button Content="清理选中区域" Click="CleanMemoryAreas_Click" Style="{StaticResource DangerBtn}"/>
                             <Button Content="压缩全部进程工作集（无需管理员）" Click="TrimAllWs_Click" Style="{StaticResource PrimaryBtn}" Margin="8,0,0,0" ToolTip="逐进程回收工作集：只压缩不结束，跳过后台忙碌/受保护进程"/>
@@ -1075,8 +1076,8 @@
                                 <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
-                                <CheckBox x:Name="SetAutoJunkSweep" Content="自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；Windows 服务、受保护进程永不触碰）" Margin="0,3"/>
-                                <CheckBox x:Name="SetAutoJunkSweepOrphansOnly" Content="低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾" Margin="16,3"/>
+                                <CheckBox x:Name="SetAutoJunkSweep" Content="自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；最多优雅关闭，永不强制结束）" Margin="0,3"/>
+                                <CheckBox x:Name="SetAutoJunkSweepOrphansOnly" Content="低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾（动作为 L1 或 L3，无 L4）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoCommitRelief" Content="提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）" Margin="0,3"/>
                                 <CheckBox x:Name="SetCommitReliefL3" Content="提交告急时允许「征得同意后优雅关闭闲置后台」来释放提交（唯一真正有效的动作；每次都会弹窗确认，AI 会话/游戏期间不做）" Margin="16,3"/>
                                 <CheckBox x:Name="SetShowAlerts" Content="重要提示触达（托盘气泡 + 主页横幅；取消勾选 = 仅写决策日志）" Margin="0,3"/>

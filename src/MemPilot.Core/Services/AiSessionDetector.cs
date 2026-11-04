@@ -67,6 +67,11 @@ public sealed class AiSessionDetector
 
         if (_current == null)
         {
+            // v0.9.0：重入保护——真机出现同一任务记了 3 次"开始"才等到 1 次"结束"，
+            // 因为采样窗口被清空后会重新攒够 quorum。这里加一个"结束后冷却窗口"，
+            // 避免刚结束就立刻再开一段（同一个任务被切成多段）。
+            if (_lastEndUtc.HasValue && (utc - _lastEndUtc.Value).TotalMinutes < CooldownMinutes)
+                return new AiSessionUpdate(AiSessionEvent.None, null);
             if (_used.Count < _quorum || high < _quorum) return new AiSessionUpdate(AiSessionEvent.None, null);
             _current = new AiSessionSummary
             {
@@ -93,6 +98,7 @@ public sealed class AiSessionDetector
             _current.EndUtc = utc;
             var done = Clone(_current);
             _current = null;
+            _lastEndUtc = utc;
             _used.Clear(); // 结束后重新攒窗口，避免残留高位样本立刻触发新会话
             return new AiSessionUpdate(AiSessionEvent.Ended, done);
         }
@@ -101,6 +107,9 @@ public sealed class AiSessionDetector
     }
 
     private readonly HashSet<int> _dominantPids = new();
+    private DateTime? _lastEndUtc;
+    /// <summary>结束后冷却：这段时间内不再开新会话（防同一任务被切成多段）。</summary>
+    public const int CooldownMinutes = 5;
 
     private void Absorb(IReadOnlyList<GpuSampleProc>? top)
     {

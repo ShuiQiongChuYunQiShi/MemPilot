@@ -52,10 +52,13 @@ public static class JunkSweeper
                 evidence = "host-relation";
             }
 
+            // v0.9.0：自动清扫**永不出 L4**——旧实现对无窗口垃圾直接强杀，
+            // 而 UI 的「低风险模式」文案写的是"不会结束进程"，两者自相矛盾（三轮复盘 P0）。
+            // 现在最多 L3 优雅关闭（程序有机会保存数据），需要强杀一律由人工在进程页操作。
             if (p.HasVisibleWindow)
                 plan.Add(new JunkSweepItem(p, CleanupActionLevel.L1Trim, reason + "；有窗口，仅回收工作集", evidence));
             else
-                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L4ForceKill, reason + "；无窗口，直接结束", evidence));
+                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L3GracefulClose, reason + "；无窗口，优雅关闭（不强制结束）", evidence));
         }
         return plan;
     }

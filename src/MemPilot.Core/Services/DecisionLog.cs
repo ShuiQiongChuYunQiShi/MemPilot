@@ -13,7 +13,8 @@ namespace MemPilot.Services;
 /// </summary>
 public class DecisionLog
 {
-    private const int MaxEntries = 1000;
+    // v0.9.0：1000 条时已用 82%（818/1000），两天内会丢最早记录；抬到 5000（约 1.1MB）
+    private const int MaxEntries = 5000;
     private readonly string _path;
     private readonly List<DecisionEntry> _entries = new();
     private readonly object _lock = new();

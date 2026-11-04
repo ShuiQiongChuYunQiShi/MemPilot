@@ -121,6 +121,68 @@ public sealed class LeaseManager
         }
     }
 
+    private bool _reserving;
+
+    /// <summary>
+    /// 占位式申请（v0.9.0 修并发泄漏）：先原子占位，再让调用方去执行腾挪，最后回填结果。
+    /// 旧实现是「检查 null → 执行 relief → Acquire」，两个并发 POST 都能通过检查，
+    /// 第二个 Acquire 返回 null 但它的 relief 已经挂起了进程 → 那批进程不在任何账本里，永不恢复。
+    /// </summary>
+    public LeaseInfo? TryReserve(LeaseRequest req, DateTime nowUtc)
+    {
+        lock (_lock)
+        {
+            if (_reserving) return null;
+            if (_current != null && _current.State == "active" && nowUtc < _current.ExpiresUtc) return null;
+            _reserving = true;
+            var ttl = Math.Clamp(req.TtlSeconds <= 0 ? DefaultTtlSeconds : req.TtlSeconds, 30, MaxTtlSeconds);
+            _current = new LeaseInfo
+            {
+                Id = Guid.NewGuid().ToString("N")[..12],
+                TargetAvailableGb = Math.Max(0.5, req.TargetAvailableGb),
+                StartUtc = nowUtc,
+                ExpiresUtc = nowUtc.AddSeconds(ttl),
+                State = "reserving",
+                Requester = req.Requester ?? "",
+                Details = "腾挪中…"
+            };
+            return _current;
+        }
+    }
+
+    /// <summary>腾挪完成，回填实测结果并转 active。</summary>
+    public LeaseInfo? CompleteReservation(string id, LeaseReliefResult relief, DateTime nowUtc,
+        LeasePolicy policy, List<LeaseSuspendedProcess>? suspended)
+    {
+        lock (_lock)
+        {
+            _reserving = false;
+            if (_current == null || !string.Equals(_current.Id, id, StringComparison.Ordinal)) return null;
+            _current.State = "active";
+            _current.BeforeAvailableGb = relief.BeforeGb;
+            _current.AfterAvailableGb = relief.AfterGb;
+            _current.AchievedAvailableGb = relief.AfterGb;
+            _current.Details = relief.Details;
+            _current.Policy = policy == LeasePolicy.Hard ? "hard" : "soft";
+            _current.Suspended = suspended ?? new List<LeaseSuspendedProcess>();
+            _guardAlerted = false;
+            LeaseEvent?.Invoke(_current, "开始");
+            return _current;
+        }
+    }
+
+    /// <summary>腾挪失败/取消：释放占位。</summary>
+    public void AbortReservation(string id)
+    {
+        lock (_lock)
+        {
+            _reserving = false;
+            if (_current != null && string.Equals(_current.Id, id, StringComparison.Ordinal) &&
+                _current.State == "reserving")
+                _current = null;
+        }
+    }
+
     /// <summary>归还（主动 DELETE）。id 不匹配返回 null。</summary>
     public LeaseInfo? Release(string id, DateTime nowUtc, string reason = "归还")
     {
