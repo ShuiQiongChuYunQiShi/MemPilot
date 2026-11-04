@@ -26,7 +26,7 @@ namespace MemPilot.Services;
 public sealed class LeaseApiService : IDisposable
 {
     private readonly Func<SystemMemoryInfo> _mem;
-    private readonly Func<LeaseReliefResult> _reliefExecutor;
+    private readonly Func<LeaseRequest, LeasePolicy, (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended)> _reliefExecutor;
     private readonly LeaseManager _manager;
     private readonly Func<string> _token;
     private readonly Func<int> _port;
@@ -34,8 +34,16 @@ public sealed class LeaseApiService : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
 
-    /// <summary>对外 JSON 一律 camelCase（调用方是 AI 脚本，习惯 JS 风格）。</summary>
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    /// <summary>
+    /// 对外 JSON 一律 camelCase（调用方是 AI 脚本，习惯 JS 风格）。
+    /// PropertyNameCaseInsensitive 必须开：否则请求里的 "policy"/"targetAvailableGb" 匹配不到属性，
+    /// 会静默回落成默认值（v0.8.0 实测踩到：hard 策略被解析成 soft）。
+    /// </summary>
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
 
     public LeaseManager Manager => _manager;
     public bool Running => _listener != null;
@@ -44,7 +52,7 @@ public sealed class LeaseApiService : IDisposable
 
     public LeaseApiService(
         Func<SystemMemoryInfo> mem,
-        Func<LeaseReliefResult> reliefExecutor,
+        Func<LeaseRequest, LeasePolicy, (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended)> reliefExecutor,
         LeaseManager manager,
         Func<string> token,
         Func<int> port)
@@ -154,7 +162,7 @@ public sealed class LeaseApiService : IDisposable
         if (method == "POST" && path == "/api/lease")
         {
             LeaseRequest? req;
-            try { req = JsonSerializer.Deserialize<LeaseRequest>(body); }
+            try { req = JsonSerializer.Deserialize<LeaseRequest>(body, Json); }
             catch { return (400, """{"error":"bad_json"}"""); }
             if (req == null || req.TargetAvailableGb <= 0)
                 return (400, """{"error":"targetAvailableGb must be > 0"}""");
@@ -162,8 +170,10 @@ public sealed class LeaseApiService : IDisposable
             if (_manager.Current(now) != null)
                 return (409, """{"error":"lease_active"}""");
 
-            var relief = _reliefExecutor();
-            var lease = _manager.Acquire(req, relief, now);
+            var policy = string.Equals(req.Policy, "hard", StringComparison.OrdinalIgnoreCase)
+                ? LeasePolicy.Hard : LeasePolicy.Soft;
+            var (relief, suspended) = _reliefExecutor(req, policy);
+            var lease = _manager.Acquire(req, relief, now, policy, suspended);
             return lease == null
                 ? (409, """{"error":"lease_active"}""")
                 : (200, JsonSerializer.Serialize(lease, Json));

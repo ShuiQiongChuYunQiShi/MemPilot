@@ -8,6 +8,8 @@ public sealed class LeaseRequest
     public double TargetAvailableGb { get; set; } = 8;
     public int TtlSeconds { get; set; } = 3600;
     public string Requester { get; set; } = "";
+    /// <summary>soft（默认，只压缩）/ hard（允许挂起安全子集，归还时恢复）。</summary>
+    public string Policy { get; set; } = "soft";
 }
 
 /// <summary>租约状态：active → released / expired。软租约只压缩"安全子集"，没有需要恢复的东西。</summary>
@@ -24,6 +26,10 @@ public sealed class LeaseInfo
     public string Requester { get; set; } = "";
     public string Details { get; set; } = "";
     public DateTime? EndUtc { get; set; }
+    /// <summary>实际生效的策略：soft / hard。</summary>
+    public string Policy { get; set; } = "soft";
+    /// <summary>硬租约挂起的进程（归还时逐个恢复）。</summary>
+    public List<LeaseSuspendedProcess> Suspended { get; set; } = new();
     public double ShortfallGb => Math.Max(0, TargetAvailableGb - AchievedAvailableGb);
 }
 
@@ -51,23 +57,43 @@ public sealed class LeaseManager
     /// <summary>租约事件（开始/结束/守护告警），由调用方接决策日志与横幅。</summary>
     public event Action<LeaseInfo, string>? LeaseEvent;
 
+    /// <summary>
+    /// 同步恢复钩子（v0.8.0）：硬租约结束**之前**必须把挂起的进程恢复回来，
+    /// 且必须在 API 返回响应之前完成——否则调用方拿到的是"未恢复"的账本
+    /// （实测：决策日志说恢复 8 个、HTTP 响应写 0 个，因为事件走的 UI 线程是异步的）。
+    /// </summary>
+    public Func<LeaseInfo, (int restored, int failed)>? RestoreHook { get; set; }
+
     /// <summary>当前活跃租约；TTL 到期自动转 expired 并发事件。</summary>
     public LeaseInfo? Current(DateTime nowUtc)
     {
+        LeaseInfo? expired = null;
         lock (_lock)
         {
             if (_current == null) return null;
             if (_current.State == "active" && nowUtc >= _current.ExpiresUtc)
             {
                 _current.State = "expired";
-                LeaseEvent?.Invoke(_current, "过期");
+                _current.EndUtc = nowUtc;
+                expired = _current;
             }
-            return _current.State == "active" ? _current : null;
+            else return _current.State == "active" ? _current : null;
         }
+        // 锁外做恢复：恢复要结束/唤醒进程，不该占着租约锁
+        FinishLease(expired!, "过期");
+        return null;
+    }
+
+    /// <summary>统一收尾：先同步恢复挂起的进程，再发事件（顺序很重要，见 RestoreHook 注释）。</summary>
+    private void FinishLease(LeaseInfo lease, string ev)
+    {
+        try { RestoreHook?.Invoke(lease); } catch { }
+        LeaseEvent?.Invoke(lease, ev);
     }
 
     /// <summary>申请。已有活跃租约返回 null（单活跃模型，调用方映射 409）。</summary>
-    public LeaseInfo? Acquire(LeaseRequest req, LeaseReliefResult relief, DateTime nowUtc)
+    public LeaseInfo? Acquire(LeaseRequest req, LeaseReliefResult relief, DateTime nowUtc,
+        LeasePolicy policy = LeasePolicy.Soft, List<LeaseSuspendedProcess>? suspended = null)
     {
         if (req == null) return null;
         lock (_lock)
@@ -85,7 +111,9 @@ public sealed class LeaseManager
                 ExpiresUtc = nowUtc.AddSeconds(ttl),
                 State = "active",
                 Requester = req.Requester ?? "",
-                Details = relief.Details
+                Details = relief.Details,
+                Policy = policy == LeasePolicy.Hard ? "hard" : "soft",
+                Suspended = suspended ?? new List<LeaseSuspendedProcess>()
             };
             _guardAlerted = false;
             LeaseEvent?.Invoke(_current, "开始");
@@ -96,16 +124,17 @@ public sealed class LeaseManager
     /// <summary>归还（主动 DELETE）。id 不匹配返回 null。</summary>
     public LeaseInfo? Release(string id, DateTime nowUtc, string reason = "归还")
     {
+        LeaseInfo done;
         lock (_lock)
         {
             if (_current == null || _current.State != "active" ||
                 !string.Equals(_current.Id, id, StringComparison.Ordinal)) return null;
             _current.State = "released";
             _current.EndUtc = nowUtc;
-            LeaseEvent?.Invoke(_current, reason);
-            var done = _current;
-            return done;
+            done = _current;
         }
+        FinishLease(done, reason);
+        return done;
     }
 
     /// <summary>占用期守护：可用内存跌破授予值 - 1GB → 告警一次（不重复刷）。</summary>
@@ -130,7 +159,15 @@ public sealed class LeaseManager
         Id = s.Id, TargetAvailableGb = s.TargetAvailableGb, AchievedAvailableGb = s.AchievedAvailableGb,
         BeforeAvailableGb = s.BeforeAvailableGb, AfterAvailableGb = s.AfterAvailableGb,
         StartUtc = s.StartUtc, ExpiresUtc = s.ExpiresUtc, State = s.State,
-        Requester = s.Requester, Details = s.Details
+        Requester = s.Requester, Details = s.Details, EndUtc = s.EndUtc,
+        Policy = s.Policy,
+        // 深拷贝：归还/过期事件里恢复流程会改写 Restored/RestoreNote，
+        // 如果共享同一个 list，API 返回的副本就看不到这些结果（v0.8.0 实测踩到：日志说恢复 8，接口说 0）
+        Suspended = s.Suspended.Select(x => new LeaseSuspendedProcess
+        {
+            Pid = x.Pid, StartTime = x.StartTime, Name = x.Name,
+            PrivateBytes = x.PrivateBytes, Restored = x.Restored, RestoreNote = x.RestoreNote
+        }).ToList()
     };
 }
 

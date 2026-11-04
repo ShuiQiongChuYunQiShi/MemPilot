@@ -73,6 +73,24 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] 中文名收敛到 `WorkloadText.Of`（Models），`WorkloadClassifier.DisplayName` 委托它，避免两处各写一份。
 - 测试 239→248：规则加载/覆盖/空数组回落/损坏回落/自定义生效/用户标记优先/按路径匹配/替换与清除。
 
+### v0.8.0 — 租约 M2：硬租约（挂起 + 自动恢复）（2026-11-04）
+
+M1 的软租约只能把页面挪到页面文件（实测降不了提交），真正的"让路"需要挂起。
+M2 增加 `policy: "hard"`：额度不够时挂起安全子集里"足够闲"的进程，归还/过期时逐个恢复。
+
+- [x] `LeaseHardPlanner`（纯函数）：候选 = 安全子集 + **额外够闲**（无窗口 或 空闲 ≥10 分钟）；按私有提交降序；按缺口截断；上限 8 个（永不一次挂一片）。
+- [x] `LeaseManager` 扩展：`LeasePolicy`、`LeaseSuspendedProcess` 账本（PID+StartTime 防复用）、归还/过期带挂起列表。
+- [x] API：`POST /api/lease` 接受 `policy`（soft 默认 / hard），响应带 `policy` 与 `suspended`。
+- [x] 回归恢复：归还/过期事件里 `RestoreLeaseSuspended` 逐个 Resume，已退出的标「无需恢复」，写决策日志与状态栏。
+- [x] **修两个真 bug**（都是真机/测试当场抓到）：
+  ① 请求 JSON 默认大小写敏感 → `"policy":"hard"` 静默回落成 soft；已开 `PropertyNameCaseInsensitive`。
+  ② 恢复时序错：恢复原本挂在 UI 线程的异步事件里，HTTP 响应早已返回 → 日志说恢复 8 个、接口写 0 个。
+  改为 `LeaseManager.RestoreHook` **同步钩子**，在归还/过期发事件**之前**完成恢复；并用深拷贝隔离账本。
+- 测试 309→325（硬租约选择器 15 条：够闲两条件/工作与游戏排除/前台发声受保护忙/降序/缺口截断/上限/空输入）。
+- 真机验证（v0.8.0）：`policy:"hard"` 申请 26GB → 挂起 8 个闲置进程（QQ×3 / wetype_update / DeepSeek Harness 等）→ `DELETE` 归还 **8/8 恢复**、`suspended.json` 清零、crash.log 零增量。
+
+**M3 待办**：码头 `mem-lease` cap 注册、`includeForeground`/`includeAudio` 参数位、AI 会话状态持久化、租约历史进历史页。
+
 ### v0.7.0 — 租约 API M1（2026-11-04，数据驱动）
 
 用户设想的"AI 代理通知 MemPilot 让路"落地为本地 HTTP 租约：**单活跃 + 实测达成量 + TTL + 驻守告警**。

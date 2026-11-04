@@ -83,6 +83,45 @@ public class LeaseManagerTests
     }
 
     [Fact]
+    public void RestoreHook_RunsBeforeEvent_SoResponseSeesResults()
+    {
+        var m = new LeaseManager();
+        var order = new List<string>();
+        var suspended = new List<LeaseSuspendedProcess>
+        { new() { Pid = 7, Name = "idle.exe", StartTime = Now, PrivateBytes = 1L << 30 } };
+
+        // 钩子模拟"恢复进程"：改写账本里的 Restored
+        m.RestoreHook = lease =>
+        {
+            order.Add("restore");
+            int ok = 0;
+            foreach (var s in lease.Suspended) { s.Restored = true; s.RestoreNote = "进程已恢复"; ok++; }
+            return (ok, 0);
+        };
+        m.LeaseEvent += (l, ev) => { if (ev == "归还") order.Add("event:" + l.Suspended.Count(s => s.Restored)); };
+
+        var lease = m.Acquire(Req(), Relief(7), Now, LeasePolicy.Hard, suspended)!;
+        var released = m.Release(lease.Id, Now.AddMinutes(1))!;
+
+        Assert.Equal(new[] { "restore", "event:1" }, order);   // 先恢复，事件才看得到结果
+        Assert.True(released.Suspended[0].Restored);            // 返回给调用方的账本已更新
+        Assert.Equal("进程已恢复", released.Suspended[0].RestoreNote);
+    }
+
+    [Fact]
+    public void Expiry_AlsoRunsRestoreHook()
+    {
+        var m = new LeaseManager();
+        int calls = 0;
+        m.RestoreHook = lease => { calls++; return (0, 0); };
+        var suspended = new List<LeaseSuspendedProcess> { new() { Pid = 9, Name = "x.exe", StartTime = Now } };
+        m.Acquire(Req(ttl: 60), Relief(7), Now, LeasePolicy.Hard, suspended);
+
+        Assert.Null(m.Current(Now.AddMinutes(2)));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public void Ttl_IsClamped()
     {
         var m = new LeaseManager();
@@ -102,6 +141,7 @@ public class LeaseApiTests : IDisposable
     private readonly int _port;
     private const string Token = "test-token-0123456789abcdef";
     private int _reliefCalls;
+    private LeasePolicy _lastPolicy = LeasePolicy.Soft;
 
     public LeaseApiTests()
     {
@@ -113,7 +153,15 @@ public class LeaseApiTests : IDisposable
                 TotalCommitLimitBytes = (long)(55.4 * 1024 * 1024 * 1024),
                 TotalCommittedBytes = (long)(38.0 * 1024 * 1024 * 1024)
             },
-            reliefExecutor: () => { _reliefCalls++; return new LeaseReliefResult(2, 8.2, "fake relief"); },
+            reliefExecutor: (req, policy) =>
+            {
+                _reliefCalls++;
+                _lastPolicy = policy;
+                var suspended = policy == LeasePolicy.Hard
+                    ? new List<LeaseSuspendedProcess> { new() { Pid = 4242, Name = "idle.exe", StartTime = DateTime.UtcNow } }
+                    : new List<LeaseSuspendedProcess>();
+                return (new LeaseReliefResult(2, 8.2, "fake relief"), suspended);
+            },
             manager: _manager,
             token: () => Token,
             port: () => 0);   // 随机端口
@@ -212,6 +260,33 @@ public class LeaseApiTests : IDisposable
         Assert.Contains("released", body);
         var (s2, b2) = await Call("POST", "/api/lease", """{"targetAvailableGb":6}""");
         Assert.Equal(200, s2);   // 归还后可再次申请
+    }
+
+    [Fact]
+    public async Task HardPolicy_SuspendsAndReportsList()
+    {
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":8,"policy":"hard","requester":"ai"}""");
+        Assert.Equal(200, status);
+        Assert.Equal(LeasePolicy.Hard, _lastPolicy);
+        Assert.Contains("\"policy\":\"hard\"", body);
+        Assert.Contains("\"suspended\":", body);
+
+        var id = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+        var (s2, b2) = await Call("DELETE", $"/api/lease/{id}");
+        Assert.Equal(200, s2);
+        Assert.Contains("4242", b2);                 // 挂起列表随归还返回，调用方可见
+        var (s3, _) = await Call("GET", "/api/lease");
+        Assert.Equal(404, s3);                       // 归还后无活跃租约
+    }
+
+    [Fact]
+    public async Task DefaultPolicy_IsSoft()
+    {
+        var (_, body) = await Call("POST", "/api/lease", """{"targetAvailableGb":6}""");
+        Assert.Equal(LeasePolicy.Soft, _lastPolicy);
+        Assert.Contains("\"policy\":\"soft\"", body);
+        Assert.Contains("\"suspended\":[]", body);
     }
 
     [Fact]

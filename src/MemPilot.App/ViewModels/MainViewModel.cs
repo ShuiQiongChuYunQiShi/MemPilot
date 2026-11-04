@@ -288,6 +288,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             ReloadDecisions();
         };
 
+        // 归还/过期前先同步恢复挂起的进程（HTTP 响应要带恢复结果）
+        LeaseManager.RestoreHook = RestoreLeaseSuspended;
+
         // v0.7.0：租约事件 → 决策日志 + 横幅/托盘（Start/Expire/Guard）
         LeaseManager.LeaseEvent += (lease, ev) => SetUi(() =>
         {
@@ -297,18 +300,19 @@ public partial class MainViewModel : INotifyPropertyChanged
             {
                 case "开始":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
-                        Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB；实测达成 {achieved:F1} GB（详情：{lease.Details}）" });
+                        Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB（策略 {lease.Policy}，挂起 {lease.Suspended.Count} 个）；实测达成 {achieved:F1} GB（{lease.Details}）" });
                     RaiseAlert("租约生效", $"已为 {lease.Requester} 腾出 {achieved:F1} GB 可用内存（目标 {peak:F1} GB），至 {lease.ExpiresUtc.ToLocalTime():HH:mm}。");
                     AlertRaised?.Invoke("租约生效", $"{achieved:F1} / {peak:F1} GB", false);
                     break;
                 case "归还":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
-                        Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟）" });
+                        Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟，策略 {lease.Policy}）" });
                     RaiseAlert("租约归还", $"{lease.Requester} 已归还租约。");
                     break;
                 case "过期":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
-                        Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}）" });
+                        Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}，策略 {lease.Policy}）" });
+                    RaiseAlert("租约过期", "TTL 到期，已自动结束并恢复挂起进程。");
                     break;
                 case "守护告警":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "守护告警",
@@ -410,20 +414,95 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// 租约的软腾挪执行（v0.7.0）：清低优先级备用列表 + 压缩"安全子集"（与提交兜底同一套排除规则，
     /// 绝不碰工作/游戏/前台/忙碌进程），返回**实测**前后可用内存。显存无法凭空释放，租约只承诺可用内存。
     /// </summary>
-    private LeaseReliefResult ExecuteLeaseRelief()
+    private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(
+        LeaseRequest req, LeasePolicy policy)
     {
         var before = ProcessService.GetSystemMemory();
-        _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
-        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, Engine.LastForegroundPid, audio);
-        var r = Cleanup.TrimWorkingSets(safe);
+        var fg = Engine.LastForegroundPid;
+
+        // 一级：清低优先级备用列表（零风险）
+        _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+
+        // 二级：安全子集压缩
+        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio);
+        var trim = Cleanup.TrimWorkingSets(safe);
+        var detail = $"压缩安全子集 {trim.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个）";
+
+        var suspended = new List<LeaseSuspendedProcess>();
+        if (policy == LeasePolicy.Hard)
+        {
+            // 三级：还不够目标额度就挂起安全子集里"足够闲"的进程（可恢复，归还时逐个恢复）
+            double availGb = ProcessService.GetSystemMemory().AvailablePhysicalBytes / 1073741824.0;
+            double needGb = req.TargetAvailableGb - availGb;
+            if (needGb > 0)
+            {
+                long needBytes = (long)(needGb * 1073741824.0);
+                var candidates = LeaseHardPlanner.PickSuspendCandidates(_lastProcs, fg, audio, DateTime.Now);
+                var picked = LeaseHardPlanner.TakeForShortfall(candidates, needBytes);
+                int ok = 0;
+                foreach (var p in picked)
+                {
+                    try
+                    {
+                        Cleanup.Execute(p, CleanupActionLevel.L2Suspend, 0);
+                        suspended.Add(new LeaseSuspendedProcess
+                        {
+                            Pid = p.Pid, StartTime = p.StartTime, Name = p.Name,
+                            PrivateBytes = p.Memory.PrivateBytes
+                        });
+                        ok++;
+                    }
+                    catch (Exception ex) { Diag.Record("lease:suspend", ex); }
+                }
+                detail += $"；挂起 {ok} 个闲置进程（可恢复）";
+            }
+        }
+
         var after = ProcessService.GetSystemMemory();
-        var detail = $"清理低优先级备用列表 + 压缩安全子集 {r.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个），" +
-                     $"可用 {before.AvailablePhysicalBytes / 1073741824.0:F1} → {after.AvailablePhysicalBytes / 1073741824.0:F1} GB";
-        return new LeaseReliefResult(
+        detail = $"{detail}；可用 {before.AvailablePhysicalBytes / 1073741824.0:F1} → " +
+                 $"{after.AvailablePhysicalBytes / 1073741824.0:F1} GB";
+        return (new LeaseReliefResult(
             before.AvailablePhysicalBytes / 1073741824.0,
             after.AvailablePhysicalBytes / 1073741824.0,
-            detail);
+            detail), suspended);
+    }
+
+    /// <summary>
+    /// v0.8.0：恢复硬租约挂起的进程。**同步执行**（由 LeaseManager.RestoreHook 在归还/过期前调用），
+    /// 保证 HTTP 响应里带上恢复结果；UI 更新另外 marshal。
+    /// </summary>
+    private (int restored, int failed) RestoreLeaseSuspended(LeaseInfo lease)
+    {
+        if (lease.Suspended.Count == 0) return (0, 0);
+        int restored = 0, failed = 0;
+        foreach (var s in lease.Suspended)
+        {
+            try
+            {
+                if (s.Restored) { restored++; continue; }              // 避免重置已恢复的
+                var live = Cleanup.Suspended.LiveRecords().Any(r => r.Pid == s.Pid);
+                if (!live)
+                {
+                    s.RestoreNote = "进程已退出，无需恢复";
+                    continue;
+                }
+                var r = Cleanup.Resume(s.Pid, s.Name);
+                s.Restored = r.Success;
+                s.RestoreNote = r.Message;
+                if (r.Success) restored++; else failed++;
+            }
+            catch (Exception ex) { failed++; s.RestoreNote = ex.Message; }
+        }
+
+        int total = lease.Suspended.Count;
+        SetUi(() => Status = $"租约结束，已恢复 {restored} 个挂起进程" + (failed > 0 ? $"（{failed} 个失败）" : "") + "。");
+        Decisions.Log(new DecisionEntry
+        {
+            Kind = "Lease", Target = lease.Id, Decision = "恢复",
+            Reason = $"硬租约挂起的 {total} 个进程中恢复 {restored} 个" + (failed > 0 ? $"，失败 {failed}" : "")
+        });
+        return (restored, failed);
     }
 
     private readonly NativeMemoryCleanerService _memCleanerForLease = new();

@@ -48,14 +48,16 @@ def main() -> None:
         print(f"注意：目标 8GB 只凑到了 {lease.get('achievedAvailableGb')} GB（缺口 "
               f"{lease.get('shortfallGb')} GB）——任务可能仍会内存吃紧。")
     lease_id = lease["id"]
-    print(f"租约 {lease_id} 生效：可用 {lease['afterAvailableGb']} GB（申请前 {lease['beforeAvailableGb']} GB）")
+    print(f"租约 {lease_id} 生效（{lease['policy']}）：可用 {lease['afterAvailableGb']} GB"
+          f"（申请前 {lease['beforeAvailableGb']} GB），挂起 {len(lease.get('suspended') or [])} 个进程")
 
     try:
         print("（这里跑你的 AI 任务……示例只睡 3 秒）")
         time.sleep(3)
     finally:
         status, released = _call("DELETE", f"/api/lease/{lease_id}")
-        print("归还：", status, released.get("state"))
+        restored = [p for p in (released.get("suspended") or []) if p.get("restored")]
+        print("归还：", status, released.get("state"), f"（已恢复 {len(restored)} 个挂起进程）")
 
 
 if __name__ == "__main__":
