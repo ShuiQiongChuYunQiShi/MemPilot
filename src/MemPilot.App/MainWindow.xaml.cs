@@ -23,15 +23,26 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RegisterKeyBindings();   // v0.11.0：Esc/F5/Ctrl+F 全局键
         var dataDir = App.ResolveDataDir();
         _config = new ConfigStore(dataDir);
         var audit = new AuditLogger(dataDir);
         var feedback = new FeedbackStore(dataDir);
         _vm = new MainViewModel(_config, audit, feedback);
         DataContext = _vm;
-        // 告警触达：引擎的 Alert 事件 → 托盘气泡（主页横幅由 VM 内部处理）
+        // 告警触达：引擎的 Alert 事件 → 托盘气球（主页横幅由 VM 内部处理）。
+        // v0.11.0（UX 摸排 P1-3 通知分级）：按标题前缀做 30 分钟冷却——
+        // 提交告急在阈值附近抖动时曾会反复弹（实测 04:39/07:18/10:01 每小时一条）；
+        // 冷却后同类告警只写决策日志，不再打扰。
         _vm.AlertRaised += (title, message, warning) =>
-            Dispatcher.InvokeAsync(() => _tray?.ShowBalloon(title, message, warning));
+            Dispatcher.InvokeAsync(() =>
+            {
+                var key = title.Split('（')[0].Split('-')[0].Trim();
+                if (_lastBalloonUtc.TryGetValue(key, out var last) &&
+                    (DateTime.UtcNow - last).TotalMinutes < 30) return;
+                _lastBalloonUtc[key] = DateTime.UtcNow;
+                _tray?.ShowBalloon(title, message, warning);
+            });
 
         SyncModeRadios(_vm.CurrentMode);
 
@@ -130,6 +141,8 @@ public partial class MainWindow : Window
     /// at a slower cadence and skips rebuilding UI collections — the engine keeps deciding,
     /// only the tray numbers stay fresh. A memory manager must not be the memory hog.</summary>
     private DateTime _lastSelfTrimUtc = DateTime.MinValue;
+    /// <summary>托盘气球按标题前缀的 30 分钟冷却（v0.11.0 通知分级）。</summary>
+    private readonly Dictionary<string, DateTime> _lastBalloonUtc = new();
     private int _promoteAttempts;
 
     /// <summary>Windows 11 defaults new tray icons into the hidden overflow ("^"). Promote

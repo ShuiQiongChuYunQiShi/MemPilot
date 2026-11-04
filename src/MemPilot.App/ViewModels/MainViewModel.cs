@@ -227,7 +227,53 @@ public partial class MainViewModel : INotifyPropertyChanged
     };
 
     private string _status = "就绪";
-    public string Status { get => _status; set => SetUi(() => _status = value); }
+    /// <summary>
+    /// 动作反馈（v0.11.0 P0-1）：写入即进入 60 秒保留窗口，刷新循环不会覆盖它。
+    /// 绝大多数写入点（64 处）都是用户操作的结果，理应可见——只有刷新循环两处
+    /// 改用 <see cref="RefreshStatus"/> 写入。
+    /// </summary>
+    public string Status
+    {
+        get => _status;
+        set => SetUi(() =>
+        {
+            _status = value;
+            _actionStatus = value;
+            _actionStatusUtc = DateTime.UtcNow;
+            OnPropertyChanged(nameof(StatusDisplay));
+            OnPropertyChanged(nameof(HasActionStatus));
+        });
+    }
+
+    /// <summary>刷新循环专用：写周期性噪音文案，不进入动作保留窗口。</summary>
+    public void RefreshStatus(string message) => SetUi(() =>
+    {
+        _status = message;
+        OnPropertyChanged(nameof(StatusDisplay));
+        OnPropertyChanged(nameof(HasActionStatus));
+    });
+
+    // ---- 状态双轨（v0.11.0，UX 摸排 P0-1）----
+    // 故障：刷新循环每 ≤10s 把 Status 覆写两次（"正在枚举…"/"已枚举 N 个…"），
+    // 所有动作反馈（"已标记用途"/"恢复 N 个挂起"/错误）10 秒内被抹掉——用户根本看不到。
+    // 现在动作反馈走 ActionStatus（保留到下一次动作或 60s），刷新噪音留在 Status；
+    // 状态栏 UI 把 ActionStatus 显示为加粗前景段，Status 为次要段。
+    private string _actionStatus = "";
+    private DateTime _actionStatusUtc = DateTime.MinValue;
+    /// <summary>动作反馈（用户操作的结果/错误）。比刷新文案优先显示，60 秒后自动让位。</summary>
+    public string ActionStatus
+    {
+        get => _actionStatus;
+        private set => SetUi(() => { _actionStatus = value; _actionStatusUtc = DateTime.UtcNow; OnPropertyChanged(nameof(HasActionStatus)); });
+    }
+    /// <summary>状态栏是否处于"动作反馈"态（决定 UI 用哪种前景色）。</summary>
+    public bool HasActionStatus => _actionStatus.Length > 0 && (DateTime.UtcNow - _actionStatusUtc).TotalSeconds < 60;
+
+    /// <summary>写一条动作反馈。之后 RefreshStatus 不再覆盖它（见 StatusDisplay）。</summary>
+    public void SetActionStatus(string message) => ActionStatus = message;
+
+    /// <summary>状态栏实际显示的文本：动作反馈优先（60 秒内），否则刷新文案。</summary>
+    public string StatusDisplay => HasActionStatus ? ActionStatus : Status;
 
     private bool _isBusy;
     public bool IsBusy
@@ -236,6 +282,98 @@ public partial class MainViewModel : INotifyPropertyChanged
         set => SetUi(() => { _isBusy = value; OnPropertyChanged(nameof(BusyText)); });
     }
     public string BusyText => IsBusy ? "⟳ 刷新中" : "空闲";
+
+    private DateTime _lastL3CardUtc = DateTime.MinValue;
+
+    private System.Collections.Generic.IReadOnlyList<ProcessInfo>? _l3Candidates;
+    /// <summary>提交告急 L3 确认卡的候选名单（非模态，主页显示）。</summary>
+    public System.Collections.Generic.IReadOnlyList<ProcessInfo>? CommitReliefCandidates
+    {
+        get => _l3Candidates;
+        private set => SetUi(() => _l3Candidates = value);
+    }
+    public long CommitReliefReclaimMb { get; private set; }
+
+    private bool _l3Pending;
+    /// <summary>是否显示 L3 确认卡。</summary>
+    public bool CommitReliefPending
+    {
+        get => _l3Pending;
+        private set => SetUi(() => _l3Pending = value);
+    }
+
+    /// <summary>L3 确认卡上展示的候选名单文案。</summary>
+    public string CommitReliefNames
+    {
+        get
+        {
+            var c = _l3Candidates;
+            if (c == null || c.Count == 0) return "";
+            var names = string.Join("、", c.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
+            return names + (c.Count > 6 ? $" 等 {c.Count} 个" : "");
+        }
+    }
+
+    /// <summary>用户确认：后台逐个优雅关闭，不阻塞 UI。</summary>
+    public void ConfirmCommitRelief()
+    {
+        var candidates = _l3Candidates;
+        CommitReliefPending = false;
+        if (candidates == null || candidates.Count == 0) return;
+        _ = Task.Run(async () =>
+        {
+            int ok = 0;
+            foreach (var p in candidates)
+            {
+                var r = Cleanup.Execute(p, CleanupActionLevel.L3GracefulClose,
+                    ConfigStore.Config.GracefulCloseTimeoutSeconds);
+                if (r.Success) ok++;
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "CommitRelief",
+                    Target = $"{p.Name} (PID {p.Pid})",
+                    Decision = r.Success ? "L3 已关闭" : "L3 失败",
+                    Reason = $"用户确认后释放提交；结果: {r.Message}"
+                });
+            }
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
+            {
+                SetActionStatus($"提交兜底：已优雅关闭 {ok}/{candidates.Count} 个闲置后台。");
+                await RefreshAsync();
+            });
+        });
+    }
+
+    /// <summary>用户放弃：记决策日志，不动任何进程。</summary>
+    public void DismissCommitRelief()
+    {
+        CommitReliefPending = false;
+        SetActionStatus("已放弃本次提交兜底（不会关闭任何进程；压缩只能释放物理内存，降不了提交）。");
+        Decisions.Log(new DecisionEntry
+        {
+            Kind = "CommitRelief",
+            Target = "L3Request",
+            Decision = "放弃",
+            Reason = "用户在确认卡上选择了放弃"
+        });
+    }
+
+
+    private bool _longOp;
+    private string _longOpText = "";
+    /// <summary>长操作进行中（腾内存执行/清扫/批量处置）。区别于每 10 秒一次的刷新 busy——
+    /// 进度条只在这种时刻亮，否则状态栏又变成新的闪烁噪音。</summary>
+    public bool LongOp
+    {
+        get => _longOp;
+        set => SetUi(() => { _longOp = value; OnPropertyChanged(nameof(LongOpText)); });
+    }
+    /// <summary>长操作的进度文案（"3/12 — python"）。空串时状态栏显示占位。</summary>
+    public string LongOpText
+    {
+        get => _longOpText;
+        set => SetUi(() => _longOpText = value);
+    }
 
     /// <summary>Raised after the UI collections were rebuilt; the view re-applies selection.</summary>
     public event EventHandler? CollectionsRebuilt;
@@ -325,45 +463,41 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         // v0.5.0：AI 会话只观测与记录，不做任何处置（处置留给下一轮租约）
         // v0.5.1：提交告急且用户允许时，征得同意后优雅关闭闲置后台（唯一能降低提交计数的动作）
-        // v0.9.1（复盘 P1）：这里必须用 BeginInvoke 而不是 Invoke（同步）。
-        // Invoke 会让引擎 tick 线程在模态框关闭前一直阻塞 —— 实测 _ticking 保持 true，
-        // 整条刷新/自动清理管线停摆，直到有人点掉对话框（无人值守时就是永久停摆）。
+        // v0.9.1：BeginInvoke 而不是 Invoke——引擎 tick 线程不能被 UI 阻塞
+        // v0.11.0（UX 摸排 P1-3）：模态 MessageBox 改为**主页非模态确认卡**。
+        // 模态框的问题：提交 <5% 时随时弹出抢焦点；无人值守时永远没人点，引擎只能一直等。
+        // 现在渲染成确认卡（候选名单+确认/放弃），30 分钟冷却；用户不在场（托盘模式）则
+        // 记决策日志后自动放弃——引擎从不被 UI 阻塞，安全确认依然存在。
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
             System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (candidates.Count == 0) return;
-                var names = string.Join("、", candidates.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
-                var more = candidates.Count > 6 ? $" 等 {candidates.Count} 个" : "";
-                var msg = "提交内存告急（余量 <5%）。\n\n可通过优雅关闭以下闲置后台来真正释放提交内存：\n" + names + more +
-                          "\n\n预计释放 " + (reclaimBytes / 1048576.0).ToString("F0") + " MB。它们会收到正常关闭请求，不会被强制结束。\n继续？";
-                if (System.Windows.MessageBox.Show(msg, "提交内存告急", System.Windows.MessageBoxButton.YesNo,
-                        System.Windows.MessageBoxImage.Warning) != System.Windows.MessageBoxResult.Yes)
+                if (!UiActive)
                 {
-                    Status = "已忽略本次提交兜底（不会关闭任何进程；压缩只能释放物理内存，降不了提交）。";
+                    Decisions.Log(new DecisionEntry
+                    {
+                        Kind = "CommitRelief",
+                        Target = "L3Request",
+                        Decision = "跳过",
+                        Reason = $"提交告急但用户不在场（托盘模式），已放弃本次优雅关闭请求（候选 {candidates.Count} 个，预计释放 {reclaimBytes / 1048576.0:F0} MB）"
+                    });
                     return;
                 }
-                _ = Task.Run(async () =>
+                if ((DateTime.UtcNow - _lastL3CardUtc).TotalMinutes < 30)
                 {
-                    int ok = 0;
-                    foreach (var p in candidates)
+                    Decisions.Log(new DecisionEntry
                     {
-                        var r = Cleanup.Execute(p, CleanupActionLevel.L3GracefulClose,
-                            ConfigStore.Config.GracefulCloseTimeoutSeconds);
-                        if (r.Success) ok++;
-                        Decisions.Log(new DecisionEntry
-                        {
-                            Kind = "CommitRelief",
-                            Target = $"{p.Name} (PID {p.Pid})",
-                            Decision = r.Success ? "L3 已关闭" : "L3 失败",
-                            Reason = $"用户确认后释放提交；结果: {r.Message}"
-                        });
-                    }
-                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
-                    {
-                        Status = $"提交兜底：已优雅关闭 {ok}/{candidates.Count} 个闲置后台。";
-                        await RefreshAsync();
+                        Kind = "CommitRelief",
+                        Target = "L3Request",
+                        Decision = "跳过",
+                        Reason = "确认卡冷却中（30 分钟内已请求过），未重复打扰"
                     });
-                });
+                    return;
+                }
+                _lastL3CardUtc = DateTime.UtcNow;
+                CommitReliefCandidates = candidates;
+                CommitReliefReclaimMb = (long)(reclaimBytes / 1048576.0);
+                CommitReliefPending = true;
             }));
 
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
@@ -599,7 +733,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         if (!await _refreshGate.WaitAsync(0, ct).ConfigureAwait(false)) return; // a refresh is already running
         try
         {
-            Status = "正在枚举进程...";
+            RefreshStatus("正在枚举进程...");
             IsBusy = true;
 
             long enumMs = 0, classifyMs = 0;
@@ -661,7 +795,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                 _lastGpuMem = gpuMemOut;
                 OnPropertyChanged(nameof(GpuSummaryText));
                 OnPropertyChanged(nameof(GpuMemorySummaryText));
-                Status = $"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。";
+                RefreshStatus($"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。");
             });
 
             Engine.AfterRefresh(_lastProcs, memOut);

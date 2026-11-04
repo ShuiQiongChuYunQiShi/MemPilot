@@ -315,6 +315,8 @@ public class CleanupEngine
             ct.ThrowIfCancellationRequested();
             bool escalate = item.Action == CleanupActionLevel.L3GracefulClose && item.KillIfCloseFails;
             var r = Execute(item.Process, item.Action, gracefulTimeoutSec, escalate);
+            // v0.11.0：逐项回填结果——执行后计划表保留供复查（原来做完就清空，只能去审计页考古）
+            item.ResultText = r.Success ? "成功" : (r.Exited ? "已退出" : $"失败：{r.Message}");
             result.Lines.Add($"{item.ActionText}  {item.Process.Name} (PID {item.Process.Pid})  →  {r.Message}");
             await Task.Delay(200, ct).ConfigureAwait(false);
         }

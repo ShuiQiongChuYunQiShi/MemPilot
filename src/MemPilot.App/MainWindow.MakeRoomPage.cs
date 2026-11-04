@@ -4,9 +4,13 @@ public partial class MainWindow : Window
 {
     private async void HotkeyActivateMakeRoom()
     {
+        // v0.11.0 P1-2：热键只唤起+跳页+聚焦，**不再自动生成 8GB 计划**——
+        // 原来是"先斩后奏"：用户按热键只是想看看，计划已经生成好了（还用硬编码的 8GB）。
         ShowWindow();
         SwitchToTab("makeroom");
-        await BuildMakeRoomFromHomeAsync();
+        await Task.Delay(50); // 等页签实体化
+        TargetAvailGB?.Focus();
+        TargetAvailGB?.SelectAll();
     }
 
     private async Task BuildMakeRoomFromHomeAsync()
@@ -54,21 +58,21 @@ public partial class MainWindow : Window
             AllowKill = AllowKill?.IsChecked == true,
             IncludeTrim = IncludeTrim?.IsChecked != false
         };
-        _vm.Status = "正在生成腾挪计划...";
+        _vm.Status = "正在生成腾内存计划...";
         var plan = await _vm.BuildMakeRoomPlanAsync(req);
         _currentPlan = plan;
         // 页签懒加载：控件未实体化时不要 NRE（v0.9.0 修：路由键错曾导致这里空引用崩溃）
         if (PlanGrid == null || MakeRoomSummary == null || ExecutePlanBtn == null)
         {
-            _vm.Status = $"腾挪计划已生成（{plan.Items.Count} 项），请切到「腾内存」页查看。";
+            _vm.Status = $"腾内存计划已生成（{plan.Items.Count} 项），请切到「腾内存」页查看。";
             return;
         }
         PlanGrid.ItemsSource = plan.Items;
         MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : "  ⚠ 计划不足以覆盖目标，请勾选允许 L4 或降低目标。");
         ExecutePlanBtn.IsEnabled = plan.Items.Count > 0;
         _vm.Status = plan.Items.Count > 0
-            ? "腾挪计划已生成，请核对下面的名单后点「执行计划」。"
-            : "内存已经够用，不需要腾挪。";
+            ? "腾内存计划已生成，请核对下面的名单后点「执行计划」。"
+            : "内存已经够用，不需要腾内存。";
     }
 
     private async void ExecuteMakeRoom_Click(object sender, RoutedEventArgs e)
@@ -79,32 +83,48 @@ public partial class MainWindow : Window
             + (i.ChildCount > 0 ? $"（含 {i.ChildCount} 子进程）" : "")));
         var res = MessageBox.Show($"将执行 {_currentPlan.Items.Count} 项操作：\n\n{lines}\n\n" +
             (_currentPlan.Items.Any(i => i.KillIfCloseFails) ? "部分 L3 项在关闭超时后会升级为强制结束。\n" : "") +
-            "继续？", "确认执行腾挪计划", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            "继续？", "确认执行腾内存计划", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (res != MessageBoxResult.Yes) return;
 
         ExecutePlanBtn.IsEnabled = false;
         CancelPlanBtn.IsEnabled = true;
-        _vm.Status = "正在执行腾挪计划...";
+        _vm.Status = "正在执行腾内存计划...";
         _planCts = new System.Threading.CancellationTokenSource();
+        _vm.LongOp = true;
+        int total = _currentPlan.Items.Count;
         try
         {
-            var result = await _vm.ExecuteMakeRoomAsync(_currentPlan, _planCts.Token);
+            // ExecutePlanAsync 逐项执行并回填 ResultText——轮询它就是真实进度
+            var execTask = _vm.ExecuteMakeRoomAsync(_currentPlan, _planCts.Token);
+            while (!execTask.IsCompleted)
+            {
+                int done = _currentPlan.Items.Count(i => i.ResultText.Length > 0);
+                _vm.LongOpText = $"腾内存 {done}/{total}";
+                await Task.Delay(300);
+            }
+            await execTask;
+            var result = execTask.Result;
             MakeRoomResultText.Text = result.SummaryText;
-            _vm.Status = "腾挪计划执行完毕。" + result.SummaryText;
-            _tray?.ShowBalloon("腾挪完成", result.SummaryText);
+            _vm.Status = "腾内存计划执行完毕。" + result.SummaryText;
+            // 腾内存完成属于通知白名单（用户主动发起的长操作，切走也该知道结果）
+            _tray?.ShowBalloon("腾内存完成", result.SummaryText);
         }
         catch (OperationCanceledException)
         {
-            _vm.Status = "腾挪计划已取消（已执行的项目不可回退，剩余项目未执行）。";
+            _vm.Status = "腾内存计划已取消（已执行的项目不可回退，剩余项目未执行）。";
             MakeRoomResultText.Text = "已取消。";
         }
         finally
         {
+            _vm.LongOp = false;
+            _vm.LongOpText = "";
             _planCts.Dispose();
             _planCts = null;
             CancelPlanBtn.IsEnabled = false;
+            // v0.11.0：不再清空计划表——每项的 ResultText 已回填，保留供复查；
+            // 只有用户点「清空」才清。执行按钮保持禁用，防止对旧计划重复执行。
             _currentPlan = null;
-            PlanGrid.ItemsSource = null;
+            ExecutePlanBtn.IsEnabled = false;
             await _vm.RefreshAsync();
         }
     }

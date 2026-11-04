@@ -159,7 +159,7 @@ public partial class MainWindow : Window
                 hotkeyNote = " 全局热键注册失败（格式如 CTRL+SHIFT+M，或被其他程序占用）。";
         }
         _vm.Status = "设置已保存。" + hotkeyNote;
-        _tray?.ShowBalloon("设置已保存", string.IsNullOrWhiteSpace(hotkeyNote) ? "配置已更新。" : hotkeyNote.Trim(), warning: hotkeyNote.Contains("失败"));
+        // v0.11.0：删除"设置已保存"气球——routine 动作发托盘通知是噪音；热键注册失败等异常已在状态栏/日志可见
     }
 
     // ---- system memory areas ----
@@ -183,7 +183,7 @@ public partial class MainWindow : Window
         {
             if (_vm.Engine.ForegroundFullscreen)
             {
-                MessageBox.Show("当前有前台全屏程序（游戏/视频），已拒绝压缩工作集——会造成明显卡顿。", "已拒绝", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("当前有前台全屏程序（游戏/视频），已拒绝回收工作集——会造成明显卡顿。", "已拒绝", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             var audio = new HashSet<int>(_vm.Processes.Where(p => p.AudioActive).Select(p => p.Pid));
@@ -194,7 +194,7 @@ public partial class MainWindow : Window
                 return;
             }
             if (MessageBox.Show($"将只压缩 {safe.Count} 个低负载后台进程（排除 {_vm.Processes.Count - safe.Count} 个工作/游戏/前台/忙碌进程）。继续？",
-                    "确认压缩工作集", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    "确认回收工作集", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
             _memCleaner.SetWorkingSetAllowList(safe.Select(p => p.Pid).ToList());
         }
@@ -226,15 +226,16 @@ public partial class MainWindow : Window
 
     private void SelectAllAreas_Click(object sender, RoutedEventArgs e)
     {
+        // v0.11.0 P0-4：漏了 ChkCombinedMemory——"全选"只勾 8/9，用户以为全选了其实没有
         ChkCombinedPageList.IsChecked = true; ChkModifiedFileCache.IsChecked = true; ChkModifiedPageList.IsChecked = true;
         ChkRegistryCache.IsChecked = true; ChkStandbyList.IsChecked = true; ChkStandbyListLow.IsChecked = true;
-        ChkSystemFileCache.IsChecked = true; ChkWorkingSet.IsChecked = true;
+        ChkSystemFileCache.IsChecked = true; ChkWorkingSet.IsChecked = true; ChkCombinedMemory.IsChecked = true;
     }
 
     private void DeselectAllAreas_Click(object sender, RoutedEventArgs e)
     {
         ChkCombinedPageList.IsChecked = false; ChkModifiedFileCache.IsChecked = false; ChkModifiedPageList.IsChecked = false;
         ChkRegistryCache.IsChecked = false; ChkStandbyList.IsChecked = false; ChkStandbyListLow.IsChecked = false;
-        ChkSystemFileCache.IsChecked = false; ChkWorkingSet.IsChecked = false;
+        ChkSystemFileCache.IsChecked = false; ChkWorkingSet.IsChecked = false; ChkCombinedMemory.IsChecked = false;
     }
 }

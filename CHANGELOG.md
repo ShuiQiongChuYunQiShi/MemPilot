@@ -4,6 +4,68 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.11.0] — UX overhaul round 1
+
+A full UI/interaction/notification audit produced this batch: 10 layout/logic
+defects fixed, terminology unified, first progress indication, non-modal
+safety confirmation, keyboard support, and empty states.
+
+### Fixed (layout & logic)
+- **Action feedback no longer vanishes.** The refresh loop overwrote the status
+  bar twice per tick (≤10 s), erasing every action result ("marked", "restored
+  N processes", errors). The status bar is now two-track: action feedback is
+  kept for 60 s and shown emphasized; refresh noise is secondary.
+- **Home hero card clipped at 1280 px** (52 px percent figure in a fixed
+  horizontal row + fixed 240 px GPU column). Detail text now wraps, GPU column
+  is bounded `220–300 px`.
+- **Make-room controls overflowed** (2 inputs + 3 checkboxes + 2 labels ≈
+  750 px in one row). Split into target / options / actions rows.
+- Settings-page "select all" skipped `ChkCombinedMemory` (checked 8 of 9).
+- Settings page had a card nested inside a card (program catalog inside online
+  lookup) — separated.
+- `DgHeader` style set `BorderBrush` twice (hardcoded value silently won).
+- `PlanGrid ItemsSource="{Binding}"` was a dead binding.
+- One-click trim wrote its result into a control on a *different* page.
+- Window has `MinWidth=1000 MinHeight=640` (was unbounded — every fixed-width
+  layout broke when resized small).
+- Raw UTC timestamps on the suspend/decisions/audit pages now render local
+  time (`TimeText`).
+
+### Changed
+- **Terminology unified** (`UiTerms`): one name per concept — 腾内存 (page),
+  回收工作集 (L1) / 挂起 (L2) / 优雅关闭 (L3) / 强制结束 (L4),
+  提交余量 (commit free), 保留 vs 保护. Retired: 腾挪, 一键优化, 压缩工作集,
+  提交空闲, 需保留, KeepPatterns/CleanPatterns as visible labels.
+  Guard tests fail the build if a retired term reappears in UI text.
+- **Hotkey (CTRL+SHIFT+M) no longer auto-builds an 8 GB plan** — it shows the
+  page and focuses the input. Plan generation is explicit.
+- **Make-room results are kept** after execution: each row gets a 结果
+  (result) column; the table is only cleared by the 清空 button. Previously
+  the plan grid was wiped on completion — reviewing what ran required the
+  audit page.
+- **Status bar progress bar** (the first in the app): shown only during long
+  operations (make-room execution, sweeps, batch actions) with item counts
+  ("腾内存 3/12") — not during the 10-second refresh, which would have been
+  new flicker.
+
+### Added
+- **Non-modal commit-relief confirmation card** on the home page replaces the
+  modal MessageBox that could pop at any moment when commit free dropped below
+  5%. Same decision (graceful close of idle background processes, never
+  forced), same safety — but it no longer steals focus, has a 30-minute
+  cooldown, and when the user is away (tray mode) the request is declined and
+  logged instead of blocking the engine.
+- **Notification policy**: tray balloons are rate-limited per title (30 min
+  cooldown); "settings saved" and "trim finished" balloons removed (results
+  are visible in the status bar / audit). Balloons remain for memory alerts,
+  lease erosion alerts, mode switches, and user-initiated long operations.
+- **Keyboard support**: `Esc` cancels make-room execution / clears search,
+  `F5` refreshes, `Ctrl+F` jumps to the process search box, `Enter` in the
+  make-room input builds the plan.
+- **Empty states** on the process / cleanup / decisions / audit grids — cold
+  start now explains what is happening and what is normal ("observation period
+  not full yet is expected") instead of a blank grid.
+
 ## [0.10.0] — open-source preparation
 
 ### Fixed

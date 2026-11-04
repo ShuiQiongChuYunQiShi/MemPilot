@@ -287,13 +287,13 @@ public partial class MainWindow : Window
             ExecutablePath = p.ExecutablePath,
             Publisher = p.SignatureSubject,
             ReportedCategory = keep ? p.Category : clean ? ProcessCategory.BackgroundService : p.Category,
-            UserNote = keep ? "右键标记：需保留" : clean ? "右键标记：可清理" : "右键标记：系统进程",
+            UserNote = keep ? "右键标记：保留" : clean ? "右键标记：可清理" : "右键标记：系统进程",
             MarkKeep = keep,
             MarkCleanable = clean,
             MarkSystem = system,
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        _vm.Status = $"已记录：{p.Name} → {(keep ? "需保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。";
+        _vm.Status = $"已记录：{p.Name} → {(keep ? "保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。";
     }
 }

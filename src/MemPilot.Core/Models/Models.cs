@@ -224,6 +224,10 @@ public class AuditEntry
     public long MemoryBeforeBytes { get; set; }
     public long MemoryAfterBytes { get; set; }
     public string Details { get; set; } = "";
+
+    /// <summary>本地时间显示列（v0.11.0：审计页此前直接绑 TimestampUtc 显示 UTC，用户会以为时间不对）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string TimeText => TimestampUtc.ToLocalTime().ToString("MM-dd HH:mm:ss");
 }
 
 /// <summary>One line of "why did the engine do/skip that" — makes automatic behavior explainable.</summary>
@@ -251,6 +255,9 @@ public class DisposalRecord
     public string Action { get; set; } = "";
     public bool Exited { get; set; }
     public string Display => $"{Name} (PID {Pid})  {Action}  {TimestampUtc.ToLocalTime():HH:mm:ss}{(Exited ? "" : "  未确认退出")}";
+    /// <summary>本地时间显示列（v0.11.0：挂起/处置页此前直接绑 TimestampUtc）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string TimeText => TimestampUtc.ToLocalTime().ToString("MM-dd HH:mm:ss");
 }
 
 public class FeedbackEntry
@@ -381,6 +388,12 @@ public class MakeRoomPlanItem
         CleanupActionLevel.L4ForceKill => "L4 强制结束",
         _ => Action.ToString()
     };
+
+    /// <summary>
+    /// 执行结果（v0.11.0）：腾内存执行后**不再清空计划表**——原来做完就把表清了，
+    /// 做了什么只能去审计页考古。现在逐项回填「成功 / 跳过 / 失败：原因」，供复查。
+    /// </summary>
+    public string ResultText { get; set; } = "";
 }
 
 public class MakeRoomPlan

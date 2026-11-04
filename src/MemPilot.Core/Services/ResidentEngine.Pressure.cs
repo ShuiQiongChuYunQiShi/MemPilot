@@ -220,8 +220,8 @@ public partial class ResidentEngine
             {
                 Alert?.Invoke(critical ? "内存告急" : "内存吃紧",
                     critical
-                        ? $"提交余量仅 {commitFreeGb:F1} GB（可用 {freeGb:F1} GB）。主页可一键低风险腾挪。"
-                        : $"提交内存 10 分钟增长 {growthGb:F1} GB，可用降至 {freeGb:F1} GB。主页可一键低风险腾挪。",
+                        ? $"提交余量仅 {commitFreeGb:F1} GB（可用 {freeGb:F1} GB）。主页横幅可一键低风险腾内存。"
+                        : $"提交内存 10 分钟增长 {growthGb:F1} GB，可用降至 {freeGb:F1} GB。主页横幅可一键低风险腾内存。",
                     critical);
             }
             catch { }

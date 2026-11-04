@@ -16,7 +16,7 @@ public partial class MainWindow : Window
         await _vm.RefreshAsync();
         long delta = _vm.SysMem.AvailablePhysicalBytes - before;
         string msg = $"已回收 {targets.Count} 项工作集，可用内存 {(delta >= 0 ? "+" : "")}{delta / 1073741824.0:F1} GB";
-        _tray?.ShowBalloon("一键优化完成", msg);
+        // v0.11.0：完成通知改走 SetActionStatus（60 秒保留），不再发托盘气球
         _vm.Status = msg;
     }
 
@@ -84,13 +84,13 @@ public partial class MainWindow : Window
 
     private async void QuickRelief_Click(object sender, RoutedEventArgs e)
     {
-        _vm.Status = "正在低风险腾挪（压缩工作集 + 清孤儿残留）…";
+        _vm.SetActionStatus("正在低风险腾内存（回收工作集 + 清孤儿残留）…");
         try
         {
             var msg = await _vm.QuickReliefAsync();
             _vm.Status = msg;
         }
-        catch (Exception ex) { _vm.Status = "腾挪失败: " + ex.Message; }
+        catch (Exception ex) { _vm.SetActionStatus("腾内存失败: " + ex.Message); }
     }
 
     private void DismissAlert_Click(object sender, RoutedEventArgs e) => _vm.DismissAlert();
@@ -178,11 +178,13 @@ public partial class MainWindow : Window
         try
         {
             var msg = await _vm.TrimAllWorkingSetsAsync();
+            // v0.11.0 P0-8：不再写系统内存清理页的 CleanResultText——用户在哪个页就在哪看到，
+            // 动作反馈统一走 SetActionStatus（状态栏 60 秒保留）
+            _vm.SetActionStatus(msg);
             SelectionHint.Text = msg;
-            if (CleanResultText != null) CleanResultText.Text = msg; // 系统内存清理页也显示结果
             await _vm.RefreshAsync();
         }
-        catch (Exception ex) { SelectionHint.Text = "压缩失败: " + ex.Message; }
+        catch (Exception ex) { _vm.SetActionStatus("压缩失败: " + ex.Message); }
     }
 
     private async void BatchL1_Click(object sender, RoutedEventArgs e)
