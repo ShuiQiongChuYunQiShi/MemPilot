@@ -43,8 +43,6 @@ public partial class MainWindow : Window
         SetOnlineEnabled.IsChecked = _config.Config.OnlineLookupEnabled;
         SetAutoCleanup.IsChecked = _config.Config.AutoCleanupEnabled;
         SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
-        SetAutoOptimize.IsChecked = _config.Config.AutoOptimizeEnabled;
-        SetAutoOptimizeInterval.IsChecked = _config.Config.AutoOptimizeIntervalEnabled;
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
@@ -123,8 +121,6 @@ public partial class MainWindow : Window
         _config.Config.OnlineLookupEnabled = SetOnlineEnabled.IsChecked == true;
         _config.Config.AutoCleanupEnabled = SetAutoCleanup.IsChecked == true;
         _config.Config.AutoCloseCleanMatches = SetAutoClose.IsChecked == true;
-        _config.Config.AutoOptimizeEnabled = SetAutoOptimize.IsChecked == true;
-        _config.Config.AutoOptimizeIntervalEnabled = SetAutoOptimizeInterval.IsChecked == true;
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;

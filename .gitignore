@@ -12,3 +12,8 @@ TestResults/
 _patch*.py
 .workbuddy/
 .zcode/
+# 开源卫生（v0.10.0）：内部交接文档与一次性脚本不公开
+HANDOFF.md
+add_ctx.py
+*.pfx
+tools/*.pfx

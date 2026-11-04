@@ -95,7 +95,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             {
                 "pdh-adapter" => "PDH 适配器",
                 "pdh-process" => "进程汇总",
-                _ => "DXGI"
+                _ => "DXGI"   // v0.10.0：DXGI 已不再提供适配器用量，理论上不会走到这里
             };
             return total > 0
                 ? $"显存 {ByteFormat.Human(used)} / {ByteFormat.Human(total)}（{used * 100.0 / total:F0}%）· {src}"
@@ -424,13 +424,25 @@ public partial class MainViewModel : INotifyPropertyChanged
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
         var fg = Engine.LastForegroundPid;
 
-        // 一级：清低优先级备用列表（零风险）
-        _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+        // 一级：清低优先级备用列表（零风险）。
+        // v0.10.0：检查权限与返回值——非提权时 NtSetSystemInformation 会失败，
+        // 若不检查就会在租约响应里宣称"已清备用列表"而实际什么也没做。
+        string purgeNote;
+        if (!_memCleanerForLease.IsAdmin())
+        {
+            purgeNote = "未提权，跳过备用列表清理";
+        }
+        else
+        {
+            var purge = _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+            bool ok = purge.TryGetValue(MemoryArea.StandbyListLowPriority, out var pr) && pr.success;
+            purgeNote = ok ? "已清备用列表" : $"备用列表清理失败（{pr.message ?? "未知"}）";
+        }
 
         // 二级：安全子集压缩
         var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio);
         var trim = Cleanup.TrimWorkingSets(safe);
-        var detail = $"压缩安全子集 {trim.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个）";
+        var detail = $"{purgeNote}；压缩安全子集 {trim.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个）";
 
         var suspended = new List<LeaseSuspendedProcess>();
         if (policy == LeasePolicy.Hard)
@@ -517,12 +529,36 @@ public partial class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(LeaseToken));
     }
 
-    /// <summary>租约 API 开关变更/端口变更后重启监听（设置保存时调用）。</summary>
+    /// <summary>租约 API 开关变更/端口变更后重启监听（设置保存时调用）。绝不抛异常。</summary>
     public void RestartLeaseApi()
     {
-        LeaseApi.Stop();
-        if (ConfigStore.Config.LeaseApiEnabled)
-            LeaseApi.Start();
+        try
+        {
+            LeaseApi.Stop();
+            if (!ConfigStore.Config.LeaseApiEnabled)
+            {
+                LeaseApiStatus = "租约 API 已关闭";
+                return;
+            }
+            if (LeaseApi.Start())
+                LeaseApiStatus = $"租约 API 监听中：127.0.0.1:{LeaseApi.BoundPort}";
+            else
+                LeaseApiStatus = $"租约 API 未启动：{LeaseApi.LastError}";
+        }
+        catch (Exception ex)
+        {
+            // 兜底：这个方法会被 async void Loaded 与设置保存调用，任何异常都不能外泄。
+            LeaseApiStatus = "租约 API 未启动：" + ex.Message;
+            try { Diag.Record("lease:start", ex); } catch { }
+        }
+    }
+
+    private string _leaseApiStatus = "租约 API 未启用";
+    /// <summary>租约 API 的运行状态（设置页显示；失败时是红字原因，不是静默）。</summary>
+    public string LeaseApiStatus
+    {
+        get => _leaseApiStatus;
+        private set { _leaseApiStatus = value; OnPropertyChanged(); }
     }
 
     /// <summary>退出前释放资源（v0.3.8，棱镜 backend/resource-lifecycle）：

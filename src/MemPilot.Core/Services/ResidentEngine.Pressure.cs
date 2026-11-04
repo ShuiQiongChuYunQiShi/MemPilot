@@ -58,13 +58,30 @@ public partial class ResidentEngine
         long before = mem.AvailablePhysicalBytes;
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
         var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
+
+        // v0.10.0（开源前正确性修复）：**先判权限，再说执行**。
+        // 旧实现对 CleanAreas 的返回值视而不见，标准用户下 NtSetSystemInformation 返回
+        // STATUS_PRIVILEGE_NOT_HELD、什么也没做，决策日志仍写"执行"——这是"日志说谎"。
+        // 现在：缺管理员权限 → 直接写"跳过"，一次都不调。
+        string decision;
         string detail;
         string level;
-        if (action == ReliefAction.PurgeStandby)
+        if (action == ReliefAction.PurgeStandby && !_memCleaner.IsAdmin())
         {
             level = "L0Purge";
-            _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
-            detail = $"清理低优先级备用列表（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB，10 分钟增长 {growthGb:F1} GB）";
+            decision = "跳过";
+            detail = $"清理低优先级备用列表需要管理员权限（当前非提权），未执行"
+                     + $"；提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB，10 分钟增长 {growthGb:F1} GB";
+        }
+        else if (action == ReliefAction.PurgeStandby)
+        {
+            level = "L0Purge";
+            var purge = _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
+            bool ok = purge.TryGetValue(MemoryArea.StandbyListLowPriority, out var r1) && r1.success;
+            decision = ok ? "执行" : "失败";
+            detail = ok
+                ? $"清理低优先级备用列表（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB，10 分钟增长 {growthGb:F1} GB）"
+                : $"清理低优先级备用列表失败：{(r1.message ?? "未知原因")}（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB）";
         }
         else if (action == ReliefAction.RequestL3 && CommitReliefL3Suggested != null)
         {
@@ -75,11 +92,13 @@ public partial class ResidentEngine
             {
                 level = "L1Trim";
                 var r0 = _cleanup.TrimWorkingSets(safeSet);
+                decision = "执行";
                 detail = $"没有可关闭的闲置后台，退回安全子集压缩 {r0.Trimmed} 个（物理可用 +{r0.FreedBytes / 1048576.0:F0} MB；注意：压缩不降提交）";
             }
             else
             {
                 level = "L3Request";
+                decision = "请求确认";
                 detail = $"请求确认：优雅关闭 {candidates.Count} 个闲置后台（预计释放提交 {reclaim / 1048576.0:F0} MB；提交余量 {commitFreePct:F1}%）";
                 CommitReliefL3Suggested(candidates, reclaim);
             }
@@ -88,6 +107,7 @@ public partial class ResidentEngine
         {
             level = "L1Trim";
             var r = _cleanup.TrimWorkingSets(safeSet);
+            decision = "执行";
             detail = $"安全子集压缩 {r.Trimmed} 个低负载进程（排除 {procs.Count - safeSet.Count} 个：工作/游戏/前台/忙碌/系统），回收 {r.FreedBytes / 1048576.0:F0} MB（仅物理，不降提交）";
         }
 
@@ -109,8 +129,8 @@ public partial class ResidentEngine
         {
             Kind = "CommitRelief",
             Target = action.ToString(),
-            Decision = "执行",
-            Reason = detail + $"；实测可用 +{delta / 1048576.0:F0} MB"
+            Decision = decision,
+            Reason = detail + (decision == "执行" ? $"；实测可用 +{delta / 1048576.0:F0} MB" : "")
         });
     }
 

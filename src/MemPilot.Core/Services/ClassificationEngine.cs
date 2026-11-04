@@ -120,6 +120,22 @@ public class ClassificationEngine
     { "opencode", "opencode-cli", "token monitor", "tokscale", "open design", "codex-windows-sandbox-service", "everything", "vbcscompiler",
       "workbuddy", "promptoptimizer", "winmemorycleaner" };
 
+    /// <summary>
+    /// 把用户的保留/清理标记写进进程，但**不动** Category / IsProtected / IsSystemProcess。
+    /// v0.10.0：硬安全判定命中后调用它——让"我标记过这个服务"仍然可见（反馈页能显示），
+    /// 但标记本身不构成处置依据。这正是"安全不变式不可被覆盖"的落点。
+    /// </summary>
+    private void ApplyFeedbackLabels(ProcessInfo p)
+    {
+        var fb = _feedback.Find(p.Name, p.ExecutablePath, p.SignatureSubject);
+        if (fb == null) return;
+        p.IsWhitelisted = fb.MarkKeep;
+        p.IsBlacklisted = fb.MarkCleanable;
+        // 注意：MarkCleanable 只写 IsBlacklisted（供 UI 显示"用户标记过可清理"），
+        // 但 Category 仍是 Driver/AntiCheat/SecuritySoftware...，且 IsProtected=true，
+        // 所以 UnusedDetector / JunkSweeper / TrimSelection 都不会选中它。
+    }
+
     public void Classify(ProcessInfo p, Dictionary<int, List<ServiceInfo>> servicesByPid, HashSet<string> protectedNames)
     {
         if (p.AccessDenied && string.IsNullOrEmpty(p.ExecutablePath))
@@ -130,6 +146,63 @@ public class ClassificationEngine
             return;
         }
 
+        // ---- 硬安全判定（v0.10.0：**提到用户反馈之前**）----
+        // 旧顺序是先查反馈、命中就 return，于是"把某个 Windows 服务标记为可清理"会跳过下面的
+        // 服务/驱动检测 → IsService=false → UnusedDetector/JunkSweeper 的 IsService 排除失效。
+        // 安全不变式（服务/驱动/反作弊/系统关键/安全软件）**不允许被用户标记覆盖**，
+        // 反馈只能覆盖"分类"这一层，不能覆盖"能不能被处置"。
+        string name0 = p.Name;
+        string path0 = p.ExecutablePath.ToLowerInvariant();
+        bool isSystemPath = path0.StartsWith(@"c:\windows\system32")
+                            || path0.StartsWith(@"c:\windows\syswow64")
+                            || path0.StartsWith(@"c:\windows");
+        bool isMsSigned = p.SignatureVerified &&
+            (p.SignatureSubject.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+
+        string? serviceName = null;
+        if (servicesByPid.TryGetValue(p.Pid, out var svcs) && svcs.Count > 0)
+        {
+            if (svcs.Any(s => s.IsDriver))
+            {
+                p.Category = ProcessCategory.Driver; p.IsProtected = true; p.CategoryReason = "service_driver";
+                ApplyFeedbackLabels(p); // 仍记录用户的笨标记，但不改 Category/IsProtected
+                return;
+            }
+            p.IsService = true;
+            p.ServiceName = svcs.First().Name;
+            serviceName = p.ServiceName;
+            _ = serviceName; // 供调试时观察；分类本身不需要这个值
+        }
+
+        if (SystemCriticalNames.Contains(name0))
+        {
+            p.Category = ProcessCategory.SystemCritical; p.IsSystemProcess = true; p.IsProtected = true; p.CategoryReason = "system_critical_name";
+            ApplyFeedbackLabels(p);
+            return;
+        }
+
+        if (SecurityNames.Contains(name0) || SecurityVendors.Any(v => p.SignatureSubject.Contains(v, StringComparison.OrdinalIgnoreCase)))
+        {
+            p.Category = ProcessCategory.SecuritySoftware; p.IsProtected = true; p.CategoryReason = "security_software";
+            ApplyFeedbackLabels(p);
+            return;
+        }
+
+        if (AntiCheatNames.Contains(name0) || AntiCheatPathFragments.Any(f => path0.Contains(f)))
+        {
+            p.Category = ProcessCategory.AntiCheat; p.IsProtected = true; p.CategoryReason = "anticheat";
+            ApplyFeedbackLabels(p);
+            return;
+        }
+
+        if (path0.Contains("\\drivers\\") || path0.EndsWith(".sys"))
+        {
+            p.Category = ProcessCategory.Driver; p.IsProtected = true; p.CategoryReason = "driver_path";
+            ApplyFeedbackLabels(p);
+            return;
+        }
+
+        // ---- 用户反馈/程序清单 ----
         var fb = _feedback.Find(p.Name, p.ExecutablePath, p.SignatureSubject);
         if (fb != null)
         {
@@ -148,50 +221,17 @@ public class ClassificationEngine
             p.ProgramPublisher = catalogHit.Publisher;
         }
 
-        string name = p.Name;
-        string path = p.ExecutablePath.ToLowerInvariant();
-        bool isSystemPath = path.StartsWith(@"c:\windows\system32") || path.StartsWith(@"c:\windows\syswow64") || path.StartsWith(@"c:\windows");
-        bool isMsSigned = p.SignatureVerified &&
-            (p.SignatureSubject.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+        string name = name0;
+        string path = path0;
 
-        // attach service info (not a category by itself except for drivers)
-        if (servicesByPid.TryGetValue(p.Pid, out var svcs) && svcs.Count > 0)
+        if (SystemShellNames.Contains(name))
         {
-            if (svcs.Any(s => s.IsDriver))
-            {
-                p.Category = ProcessCategory.Driver; p.IsProtected = true; p.CategoryReason = "service_driver"; return;
-            }
-            p.IsService = true;
-            p.ServiceName = svcs.First().Name;
-        }
-
-        if (SystemCriticalNames.Contains(name) || SystemShellNames.Contains(name))
-        {
-            if (SystemCriticalNames.Contains(name))
-            {
-                p.Category = ProcessCategory.SystemCritical; p.IsSystemProcess = true; p.IsProtected = true; p.CategoryReason = "system_critical_name"; return;
-            }
             if (isSystemPath && isMsSigned)
             {
                 p.Category = ProcessCategory.SystemService; p.IsSystemProcess = true; p.CategoryReason = "system_shell_signed";
                 if (protectedNames.Contains(p.Name)) p.IsProtected = true;
                 return;
             }
-        }
-
-        if (SecurityNames.Contains(name) || SecurityVendors.Any(v => p.SignatureSubject.Contains(v, StringComparison.OrdinalIgnoreCase)))
-        {
-            p.Category = ProcessCategory.SecuritySoftware; p.IsProtected = true; p.CategoryReason = "security_software"; return;
-        }
-
-        if (AntiCheatNames.Contains(name) || AntiCheatPathFragments.Any(f => path.Contains(f)))
-        {
-            p.Category = ProcessCategory.AntiCheat; p.IsProtected = true; p.CategoryReason = "anticheat"; return;
-        }
-
-        if (path.Contains("\\drivers\\") || path.EndsWith(".sys"))
-        {
-            p.Category = ProcessCategory.Driver; p.IsProtected = true; p.CategoryReason = "driver_path"; return;
         }
 
         if (isSystemPath && isMsSigned)

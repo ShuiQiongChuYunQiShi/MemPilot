@@ -99,93 +99,13 @@ public partial class ResidentEngine
         if (_lastSkipLogUtc.Count > 2048) _lastSkipLogUtc.Clear();
     }
 
-    // ---- system-list auto optimization, pressure/interval gated, fullscreen-aware ----
-
-    private int _optimizeLowYieldStreak;
-    private int _optimizeCooldownMinutes = 10;
-    private DateTime _lastOptimizeSkipLogUtc = DateTime.MinValue;
-
-    private void AutoOptimize(SystemMemoryInfo mem)
-    {
-        var cfg = _config.Config;
-        double freePct = mem.TotalPhysicalBytes <= 0 ? 100 : (double)mem.AvailablePhysicalBytes / mem.TotalPhysicalBytes * 100;
-        bool lowMemory = cfg.AutoOptimizeOnLowMemory && freePct < cfg.AutoOptimizeThresholdPercent;
-        bool intervalDue = cfg.AutoOptimizeIntervalEnabled &&
-                           (DateTime.UtcNow - _lastAutoOptimizeUtc).TotalMinutes >= cfg.AutoOptimizeIntervalMinutes;
-
-        if (cfg.SkipOptimizeInFullscreen && ForegroundFullscreen)
-        {
-            // v0.5.0：跳过日志也节流，否则游戏期间每个 tick 刷一条（数据里 115 条跳过全是这个）
-            if ((lowMemory || intervalDue) && (DateTime.UtcNow - _lastOptimizeSkipLogUtc).TotalMinutes >= 10)
-            {
-                _lastOptimizeSkipLogUtc = DateTime.UtcNow;
-                _decisions.Log(new DecisionEntry
-                {
-                    Kind = "AutoOptimize",
-                    Target = "-",
-                    Decision = "跳过",
-                    Reason = $"前台全屏（游戏）时禁用系统级清理（可用 {freePct:F0}%）"
-                });
-            }
-            return;
-        }
-        if (!lowMemory && !intervalDue) return;
-
-        // v0.5.0：冷却——之前没有冷却，可用% 在阈值附近抖动时会连发（实测 6 分钟 34 次、13 分钟 58 次）
-        var cooldown = TimeSpan.FromMinutes(_optimizeCooldownMinutes);
-        if (_lastAutoOptimizeUtc != DateTime.MinValue && DateTime.UtcNow - _lastAutoOptimizeUtc < cooldown)
-            return;
-
-        _lastAutoOptimizeUtc = DateTime.UtcNow;
-        long before = mem.AvailablePhysicalBytes;
-        // low-priority standby purge only: full standby purge / system file cache trimming
-        // actively hurt running games (texture caches live in standby)
-        _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
-        // v0.5.0：真实测一次 after——旧代码把同一个 mem 值写成 before/after，198 次执行全是"零收益"
-        long after = _probe.GetSystemMemory().AvailablePhysicalBytes;
-        long delta = Math.Max(0, after - before);
-        var trigger = lowMemory ? $"低内存触发（可用 {freePct:F0}%）" : "周期触发";
-
-        if (delta < 100L * 1024 * 1024) _optimizeLowYieldStreak++;
-        else _optimizeLowYieldStreak = 0;
-        if (_optimizeLowYieldStreak >= 5 && _optimizeCooldownMinutes < 30)
-        {
-            _optimizeCooldownMinutes = 30;
-            _optimizeLowYieldStreak = 0;
-            _decisions.Log(new DecisionEntry
-            {
-                Kind = "AutoOptimize",
-                Target = "-",
-                Decision = "降频",
-                Reason = "连续 5 次清理收益 <100 MB（备用列表本就多为可回收缓存）——冷却从 10 分钟延长到 30 分钟"
-            });
-        }
-
-        _audit.Log(new AuditEntry
-        {
-            Action = "AutoOptimize",
-            Target = "StandbyListLowPriority",
-            Level = "Auto",
-            Result = $"{trigger}；实测释放 {delta / 1048576.0:F0} MB",
-            MemoryBeforeBytes = before,
-            MemoryAfterBytes = after
-        });
-        _decisions.Log(new DecisionEntry
-        {
-            Kind = "AutoOptimize",
-            Target = "StandbyListLowPriority",
-            Decision = "执行",
-            Reason = $"{trigger}；实测可用 +{delta / 1048576.0:F0} MB（冷却 {_optimizeCooldownMinutes} 分钟）"
-        });
-    }
-
     // ---- junk resident sweep (auto mode, opt-in) ----
 
     private void AutoJunkSweep(List<ProcessInfo> procs)
     {
         try
         {
-            if (ForegroundFullscreen) return; // 游戏/全屏时不动作，与 AutoOptimize 一致
+            if (ForegroundFullscreen) return; // 游戏/全屏时不动作，与提交兜底一致
             var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
             var plan = JunkSweeper.BuildPlan(procs, _lastForegroundPid, audio,
                 _config.Config.Whitelist, _config.Config.MinProcessAgeSeconds,

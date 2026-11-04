@@ -1,0 +1,35 @@
+name: Feature request
+description: An idea for MemPilot
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things get a feature rejected quickly here:
+
+        1. **No measurable benefit.** This project's changes are driven by data
+           (before/after numbers, sample counts). If you cannot describe how the
+           feature's effect would be measured, it is hard to accept.
+        2. **Weakening the safety model.** Anything that makes a protected
+           process reachable, or makes "automatic" louder, will be declined
+           regardless of utility.
+
+        That said — if you have a real workload where MemPilot does not help,
+        that is exactly what the maintainer wants to hear about.
+
+  - type: textarea
+    attributes:
+      label: The problem, in your workflow
+      description: What were you trying to do, and what got in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: How would you measure whether it works?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Alternatives you considered

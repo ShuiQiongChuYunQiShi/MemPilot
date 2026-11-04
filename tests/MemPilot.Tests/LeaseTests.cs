@@ -165,7 +165,7 @@ public class LeaseApiTests : IDisposable
             manager: _manager,
             token: () => Token,
             port: () => 0);   // 随机端口
-        _api.Start();
+        Assert.True(_api.Start(), "随机端口应能监听");
         _port = _api.BoundPort;
     }
 
@@ -294,5 +294,53 @@ public class LeaseApiTests : IDisposable
     {
         await Call("POST", "/api/lease", """{"targetAvailableGb":6}""");
         Assert.Equal(1, _reliefCalls);
+    }
+}
+
+/// <summary>
+/// 租约 API 端口冲突（v0.10.0）。故障场景：陌生人第一次装上，端口恰好被别的程序占用，
+/// 旧实现 `_listener.Start()` 直接抛 SocketException，一路传到 `async void Loaded`，
+/// 弹一个"未处理异常"的模态框——而他根本不知道租约 API 是什么。
+/// </summary>
+public class LeaseApiPortConflictTests
+{
+    [Fact]
+    public void Start_WhenPortTaken_ReturnsFalseAndRecordsError()
+    {
+        // 先占住一个端口
+        var blocker = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        blocker.Start();
+        int taken = ((System.Net.IPEndPoint)blocker.LocalEndpoint).Port;
+        try
+        {
+            var mgr = new LeaseManager();
+            using var api = new LeaseApiService(
+                () => new SystemMemoryInfo { AvailablePhysicalBytes = 1L << 30, TotalPhysicalBytes = 16L << 30 },
+                (_, _) => (new LeaseReliefResult(0, 0, ""), new List<LeaseSuspendedProcess>()),
+                mgr,
+                () => "t",
+                () => taken);
+            bool started = api.Start();   // 绝不抛
+
+            Assert.False(started);
+            Assert.False(api.Running);
+            Assert.False(string.IsNullOrWhiteSpace(api.LastError));
+            Assert.Contains(taken.ToString(), api.LastError);   // 报错里带端口号，用户能定位
+        }
+        finally { blocker.Stop(); }
+    }
+
+    [Fact]
+    public void Start_Success_LeavesNoError()
+    {
+        var mgr = new LeaseManager();
+        using var api = new LeaseApiService(
+            () => new SystemMemoryInfo { AvailablePhysicalBytes = 1L << 30, TotalPhysicalBytes = 16L << 30 },
+            (_, _) => (new LeaseReliefResult(0, 0, ""), new List<LeaseSuspendedProcess>()),
+            mgr, () => "t", () => 0);
+
+        Assert.True(api.Start());
+        Assert.True(api.Running);
+        Assert.Equal("", api.LastError);
     }
 }

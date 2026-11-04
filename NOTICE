@@ -1,0 +1,45 @@
+MemPilot
+Copyright 2026 MemPilot contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+---
+
+## Third-party components
+
+### System.Diagnostics.EventLog
+
+- Version: 9.0.0 (NuGet)
+- License: MIT
+- Project: https://github.com/dotnet/runtime
+- Use: optional synchronised audit logging to the Windows event log.
+- Notes: this is the only runtime NuGet dependency of MemPilot. Everything else
+  is P/Invoke against Windows system DLLs (ntdll, kernel32, user32, dxgi, pdh,
+  userenv, advapi32, shell32, winhttp) plus WPF/.NET built-in APIs.
+
+### Test-only dependencies
+
+The test project (tests/MemPilot.Tests) references xunit and
+Microsoft.NET.Test.Sdk. They are **not** shipped in the release binary and do
+not affect the distributed artifact. Licenses:
+
+- xunit / xunit.runner.visualstudio — Apache-2.0
+- Microsoft.NET.Test.Sdk / coverlet.collector — MIT
+
+### Windows API usage
+
+MemPilot calls documented and undocumented Windows APIs at runtime
+(NtSetSystemInformation, NtSuspendProcess, NtResumeProcess, EmptyWorkingSet,
+DwmGetWindowAttribute, WASAPI, PDH, DXGI, …). No Microsoft code is vendored in
+this repository: the calls are ordinary P/Invoke declarations that link against
+in-box Windows DLLs, which are distributed under the Windows licence on the
+user's own machine.
+
+### Icon / visual assets
+
+All UI rendering is done in code (vector shapes, geometry) or through WPF
+built-in controls. No third-party icon fonts or image assets are bundled.
+
+---
+
+If you believe a component is missing from this file, please open an issue.

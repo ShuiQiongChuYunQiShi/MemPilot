@@ -96,6 +96,7 @@ public partial class MainWindow : Window
             if (AutoSwitchCheck != null) AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
             ApplyColumnVisibility();      // 列设置（默认收起 9 个低频列）
             ApplyWorkloadFilterToUi();    // 用途筛选（上次选择）
+            ApplyFirstRunNotice();        // v0.10.0：首次运行说明横幅
             UpdateUiActivity(); // start-minimized sessions begin in lightweight mode
             await _vm.RefreshAsync();
             _vm.StartEngine();          // resident engine: periodic refresh + policies
@@ -133,9 +134,13 @@ public partial class MainWindow : Window
 
     /// <summary>Windows 11 defaults new tray icons into the hidden overflow ("^"). Promote
     /// ourselves in the shell's NotifyIconSettings so the icon is always visible in the
-    /// main tray area — the programmatic equivalent of dragging it out once.</summary>
+    /// main tray area — the programmatic equivalent of dragging it out once.
+    ///
+    /// v0.10.0：只在用户真的要托盘显示（ShowMemoryInTray）时才动注册表。
+    /// 这仍然是对别人操作系统的副作用，所以：不勾就不改、失败一律静默、最多试 100 次。</summary>
     private void PromoteTrayIcon()
     {
+        if (_config?.Config?.ShowMemoryInTray != true) return;
         if (_promoteAttempts > 100) return;
         _promoteAttempts++;
         try

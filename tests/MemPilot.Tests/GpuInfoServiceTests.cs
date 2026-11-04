@@ -29,8 +29,10 @@ public class GpuInfoServiceTests
     }
 
     [Fact]
-    public void Summary_PdhFallback_IsLabelled()
+    public void Summary_WithPdhUsage_ShowsPercentWithoutFallbackLabel()
     {
+        // v0.10.0：PDH 成为适配器用量的唯一来源，"（PDH 汇总）"这个"兜底"标注已无意义——
+        // 保留它反而暗示"还有别的来源，这只是备选"。现在只说数字。
         var info = new GpuAdapterInfo
         {
             Name = "RTX",
@@ -39,7 +41,8 @@ public class GpuInfoServiceTests
             UsageSource = "pdh"
         };
         Assert.Contains("50%", info.Summary);
-        Assert.Contains("PDH 汇总", info.Summary);
+        Assert.DoesNotContain("PDH 汇总", info.Summary);
+        Assert.DoesNotContain("用量不可用", info.Summary);
     }
 
     [Fact]
@@ -104,12 +107,32 @@ public class GpuInfoServiceTests
     }
 
     [Fact]
-    public void Fallback_KeepsExistingDxgiUsage()
+    public void Fallback_NeverOverwritesExistingUsage()
     {
+        // 已有用量（例如调用方自己填的）不被 PDH 覆盖——保持"谁有数据用谁"的语义。
+        // 注意 v0.10.0 起 DXGI 不再填 UsedVideoMemoryBytes，所以这里的 "dxgi" 只是历史来源标记，
+        // 真正要守的是"不覆盖已有非零值"。
         var list = new List<GpuAdapterInfo>
-        { new() { Name = "A", DedicatedVideoMemoryBytes = 8L << 30, UsedVideoMemoryBytes = 3L << 30, UsageSource = "dxgi" } };
+        { new() { Name = "A", DedicatedVideoMemoryBytes = 8L << 30, UsedVideoMemoryBytes = 3L << 30, UsageSource = "pdh" } };
         Assert.Equal(0, GpuInfoService.ApplyPdhFallback(list, null, 5L << 30));
         Assert.Equal(3L << 30, list[0].UsedVideoMemoryBytes);
-        Assert.Equal("dxgi", list[0].UsageSource);
+    }
+
+    /// <summary>
+    /// v0.10.0 守卫：`IDXGIAdapter3::QueryVideoMemoryInfo` 的 CurrentUsage 是**本进程**用量，
+    /// 绝不能再被写成适配器总用量（否则首页会出现两个矛盾数字）。
+    /// </summary>
+    [Fact]
+    public void DxgiCurrentUsage_MustNotBecomeAdapterUsage()
+    {
+        var src = File.ReadAllText(Path.Combine(
+            Directory.GetParent(TestTmp.Dir)!.FullName,
+            "src", "MemPilot.Core", "Services", "GpuInfoService.cs"));
+
+        Assert.DoesNotContain("info.UsedVideoMemoryBytes = (long)vmem.CurrentUsage", src);
+        Assert.Contains("SelfProcessUsageBytes", src);
+
+        // UsageSource 也不该再被设为 "dxgi"
+        Assert.DoesNotContain("UsageSource = \"dxgi\"", src);
     }
 }

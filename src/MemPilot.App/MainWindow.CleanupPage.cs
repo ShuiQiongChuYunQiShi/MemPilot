@@ -97,7 +97,8 @@ public partial class MainWindow : Window
 
     private void ApplyLowRiskPreset_Click(object sender, RoutedEventArgs e)
     {
-        SetAutoOptimize.IsChecked = true;
+        // v0.10.0：原来还勾了 AutoOptimize（系统内存自动优化），但那个方法从未被引擎调用——
+        // 勾了等于什么都没做。现在只留真正有效的两项。
         SetAutoJunkSweep.IsChecked = true;
         SetAutoJunkSweepOrphansOnly.IsChecked = true;
         SaveSettings_Click(sender, e); // 复用保存路径：落盘并重启引擎

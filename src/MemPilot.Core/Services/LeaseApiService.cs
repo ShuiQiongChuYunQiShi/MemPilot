@@ -47,6 +47,12 @@ public sealed class LeaseApiService : IDisposable
 
     public LeaseManager Manager => _manager;
     public bool Running => _listener != null;
+    /// <summary>
+    /// 上次启动失败的原因（空 = 正常）。v0.10.0 新增：
+    /// 旧实现 `_listener.Start()` 不捕获异常，端口被占时异常会一路抛到 `async void Loaded`，
+    /// 给第一次启动的陌生用户弹一个"未处理异常"模态框——而他根本不知道租约 API 是什么。
+    /// </summary>
+    public string LastError { get; private set; } = "";
     /// <summary>实际监听端口（测试用 port=0 时由它回读）。</summary>
     public int BoundPort { get; private set; }
 
@@ -62,15 +68,45 @@ public sealed class LeaseApiService : IDisposable
         _manager = manager; _token = token; _port = port;
     }
 
-    public void Start()
+    /// <summary>
+    /// 启动监听。返回 false 表示没起来（端口占用等），原因见 <see cref="LastError"/>。
+    /// **绝不抛异常**——调用方在 UI 加载路径上，异常会变成模态崩溃框。
+    /// </summary>
+    public bool Start()
     {
         Stop();
-        _cts = new CancellationTokenSource();
-        _listener = new TcpListener(IPAddress.Loopback, _port());
-        _listener.Start();
-        BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
-        var ct = _cts.Token;
-        Task.Run(() => AcceptLoopAsync(ct), ct);
+        LastError = "";
+        int port = 0;
+        try
+        {
+            port = _port();
+            _cts = new CancellationTokenSource();
+            _listener = new TcpListener(IPAddress.Loopback, port);
+            _listener.Start();
+            BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            var ct = _cts.Token;
+            Task.Run(() => AcceptLoopAsync(ct), ct);
+            return true;
+        }
+        catch (SocketException ex)
+        {
+            LastError = $"端口 {port} 无法监听（{(ex.SocketErrorCode == SocketError.AddressAlreadyInUse ? "已被其他程序占用" : ex.SocketErrorCode.ToString())}）";
+            break_down();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LastError = $"租约 API 启动失败：{ex.Message}";
+            break_down();
+            return false;
+        }
+
+        void break_down()
+        {
+            try { _cts?.Cancel(); } catch { }
+            try { _listener?.Stop(); } catch { }
+            _listener = null;
+        }
     }
 
     public void Stop()
@@ -79,7 +115,6 @@ public sealed class LeaseApiService : IDisposable
         try { _listener?.Stop(); } catch { }
         _listener = null;
     }
-
     public void Dispose() => Stop();
 
     private async Task AcceptLoopAsync(CancellationToken ct)

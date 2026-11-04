@@ -39,6 +39,35 @@ public class ConfigStore
         // v0.6.0：「线程」列改名「线程数」——老配置里存的旧名做一次幂等迁移，否则列显隐静默失效
         for (int i = 0; i < Config.ProcessHiddenColumns.Count; i++)
             if (Config.ProcessHiddenColumns[i] == "线程") Config.ProcessHiddenColumns[i] = "线程数";
+        MigratePersistedKeys();
+    }
+
+    /// <summary>
+    /// v0.10.0（开源前）：把持久化里的**中文显示文本 key** 换成稳定 id。
+    ///
+    /// 为什么必须做：`ProcessHiddenColumns` 存的是中文表头，`WorkloadFilter` 存的是中文用途名。
+    /// 这两个键一旦跟随界面语言变化，用户调好的列设置与筛选会被静默重置——加英文界面时会
+    /// 100% 踩到。迁移是幂等的：已经是 id 的原样通过，识别不出来的值**保留不丢**。
+    /// </summary>
+    private void MigratePersistedKeys()
+    {
+        bool changed = false;
+
+        var (cols, colChanged) = PersistedIds.MigrateColumns(Config.ProcessHiddenColumns);
+        if (colChanged)
+        {
+            Config.ProcessHiddenColumns = cols;
+            changed = true;
+        }
+
+        var (wl, wlChanged) = PersistedIds.MigrateWorkloadFilter(Config.WorkloadFilter);
+        if (wlChanged)
+        {
+            Config.WorkloadFilter = wl;
+            changed = true;
+        }
+
+        if (changed) Save();   // 幂等：迁移后立刻落盘，避免每次启动重复迁移
     }
 
     private readonly object _saveLock = new();

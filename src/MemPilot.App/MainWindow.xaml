@@ -319,6 +319,35 @@
 
                         <!-- ===== 主栏 ===== -->
                         <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                            <!-- v0.10.0 首次运行说明：第一次打开时出现，点「知道了」后永久不再显示。
+                                 不弹模态框（用户明确反感），就一条可关闭的横幅。 -->
+                            <Border x:Name="FirstRunNotice" Style="{StaticResource Card}" Margin="0,0,0,10"
+                                    Background="#FFF8E6" BorderBrush="#F0C36D" BorderThickness="1"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="👋 先说清楚这个工具会做什么" FontWeight="SemiBold" FontSize="13"
+                                                   Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,4"/>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource TextSecondary}"
+                                                   Text="默认只观察、不处置任何进程；自动清理、提交兜底、租约 API 全部默认关闭，需要你自己在设置页打开。系统级内存清理（清备用列表等）需要管理员权限，普通权限下会如实记为「跳过」而不是假装成功。所有数据只存在本机 %APPDATA%\MemPilot。"/>
+                                        <TextBlock Margin="0,6,0,0" FontSize="11">
+                                            <Hyperlink Click="OpenDataFolder_Click" Foreground="{DynamicResource AccentBlue}">
+                                                <Run Text="打开数据目录"/>
+                                            </Hyperlink>
+                                            <Run Text="　·　"/>
+                                            <Hyperlink Click="OpenReadme_Click" Foreground="{DynamicResource AccentBlue}">
+                                                <Run Text="查看说明"/>
+                                            </Hyperlink>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="知道了" Click="DismissFirstRunNotice_Click"
+                                            Style="{StaticResource GhostBtn}" VerticalAlignment="Top" Margin="12,0,0,0"/>
+                                </Grid>
+                            </Border>
                             <Border Style="{StaticResource Card}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -502,29 +531,31 @@
                             <TextBox x:Name="SearchBox" Width="200" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,5" VerticalContentAlignment="Center"/>
                             <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="按用途筛选（工作/娱乐/AI/系统/其他/未知）" SelectionChanged="WorkloadFilter_Changed">
                                 <ComboBoxItem Content="全部用途" Tag=""/>
-                                <ComboBoxItem Content="工作" Tag="工作"/>
-                                <ComboBoxItem Content="娱乐" Tag="娱乐"/>
-                                <ComboBoxItem Content="AI" Tag="AI"/>
-                                <ComboBoxItem Content="系统" Tag="系统"/>
-                                <ComboBoxItem Content="其他" Tag="其他"/>
-                                <ComboBoxItem Content="未知" Tag="未知"/>
+                                <ComboBoxItem Content="工作" Tag="work"/>
+                                <ComboBoxItem Content="娱乐" Tag="entertainment"/>
+                                <ComboBoxItem Content="AI" Tag="ai"/>
+                                <ComboBoxItem Content="系统" Tag="system"/>
+                                <ComboBoxItem Content="其他" Tag="other"/>
+                                <ComboBoxItem Content="未知" Tag="unknown"/>
                             </ComboBox>
                             <ToggleButton x:Name="TreeModeToggle" Content="🌲 树状视图" Style="{StaticResource ToolToggle}" Checked="TreeMode_Changed" Unchecked="TreeMode_Changed" Margin="0,0,8,0"/>
                             <Button x:Name="ColumnMenuButton" Content="列设置 ▾" Style="{StaticResource ToolBtn}" Click="ColumnMenu_Click">
                                 <Button.ContextMenu>
                                     <ContextMenu Opened="ColumnMenu_Opened">
-                                        <MenuItem Header="所属程序" Tag="所属程序" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="显存" Tag="显存" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="内存增长" Tag="内存增长" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="线程数" Tag="线程数" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="子进程" Tag="子进程" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="窗口标题" Tag="窗口标题" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="厂商" Tag="厂商" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="音频" Tag="音频" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="保护" Tag="保护" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="模式保留" Tag="模式保留" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="签名" Tag="签名" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="分类依据" Tag="分类依据" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <!-- Tag = 稳定 id（写进 config.json），Header = 显示文本。
+                                             v0.10.0 起两者分离，否则加语言会让列设置静默重置。 -->
+                                        <MenuItem Header="所属程序" Tag="program" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="显存" Tag="gpu_memory" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="内存增长" Tag="memory_growth" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="线程数" Tag="threads" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="子进程" Tag="child_count" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="窗口标题" Tag="window_title" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="厂商" Tag="vendor" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="音频" Tag="audio" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="保护" Tag="protected" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="模式保留" Tag="mode_keep" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="签名" Tag="signature" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="分类依据" Tag="category_reason" IsCheckable="True" Click="ColumnToggle_Click"/>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>
@@ -1074,8 +1105,6 @@
                                 <TextBlock Text="自动化" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
                                 <CheckBox x:Name="SetAutoCleanup" Content="启用模式驱动的自动清理（仅 L1 回收 / 可选 L3 优雅关闭，从不自动 L4）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoClose" Content="自动清理时允许优雅关闭（L3）" Margin="16,3"/>
-                                <CheckBox x:Name="SetAutoOptimize" Content="启用系统内存自动优化（低内存时清理低优先级备用列表）" Margin="0,3"/>
-                                <CheckBox x:Name="SetAutoOptimizeInterval" Content="另按固定周期清理（不推荐，可能影响游戏）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoJunkSweep" Content="自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；最多优雅关闭，永不强制结束）" Margin="0,3"/>
                                 <CheckBox x:Name="SetAutoJunkSweepOrphansOnly" Content="低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾（动作为 L1 或 L3，无 L4）" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoCommitRelief" Content="提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）" Margin="0,3"/>
@@ -1108,6 +1137,8 @@
                             <StackPanel>
                                 <TextBlock Text="租约 API（实验性）" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
                                 <CheckBox x:Name="SetLeaseApi" Content="启用本地租约 API（只绑 127.0.0.1；AI 任务开跑前申请内存、结束归还）" Margin="0,3"/>
+                                <TextBlock Text="{Binding LeaseApiStatus}" FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                           Margin="16,2,0,0" TextWrapping="Wrap"/>
                                 <StackPanel Orientation="Horizontal" Margin="16,4,0,0">
                                     <TextBlock Text="端口" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="0,0,8,0"/>
                                     <TextBox x:Name="SetLeasePort" Width="90" Padding="6,4" VerticalAlignment="Center"/>

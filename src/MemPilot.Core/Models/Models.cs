@@ -1,4 +1,5 @@
 ﻿using MemPilot.Helpers;
+using MemPilot.Services;   // PersistedIds（v0.10.0：持久化用稳定 id）
 
 namespace MemPilot.Models;
 
@@ -136,7 +137,10 @@ public class ProcessInfo
     public (int pid, DateTime start) StateKey => (Pid, StartTime);
 }
 
-/// <summary>用途枚举的中文短标签（单一来源：WorkloadClassifier.DisplayName 也走这里）。</summary>
+/// <summary>
+/// 用途枚举的双向映射（单一来源：WorkloadClassifier.DisplayName 也走这里）。
+/// v0.10.0：新增 <see cref="IdOf"/>——持久化只存稳定 id，显示文本可随语言变化。
+/// </summary>
 public static class WorkloadText
 {
     public static string Of(WorkloadKind kind) => kind switch
@@ -147,6 +151,29 @@ public static class WorkloadText
         WorkloadKind.System => "系统",
         WorkloadKind.Other => "其他",
         _ => "未知",
+    };
+
+    /// <summary>稳定 id（写进 config.json 的那个值，永不随语言变化）。</summary>
+    public static string IdOf(WorkloadKind kind) => kind switch
+    {
+        WorkloadKind.Work => PersistedIds.Workload.Work,
+        WorkloadKind.Entertainment => PersistedIds.Workload.Entertainment,
+        WorkloadKind.Ai => PersistedIds.Workload.Ai,
+        WorkloadKind.System => PersistedIds.Workload.System,
+        WorkloadKind.Other => PersistedIds.Workload.Other,
+        _ => PersistedIds.Workload.Unknown,
+    };
+
+    /// <summary>id → 枚举（无法识别返回 null）。</summary>
+    public static WorkloadKind? FromId(string? id) => id switch
+    {
+        PersistedIds.Workload.Work => WorkloadKind.Work,
+        PersistedIds.Workload.Entertainment => WorkloadKind.Entertainment,
+        PersistedIds.Workload.Ai => WorkloadKind.Ai,
+        PersistedIds.Workload.System => WorkloadKind.System,
+        PersistedIds.Workload.Other => WorkloadKind.Other,
+        PersistedIds.Workload.Unknown => WorkloadKind.Unknown,
+        _ => null,
     };
 }
 
@@ -295,7 +322,12 @@ public class GpuAdapterInfo
     public string Vendor { get; set; } = "";
     public long DedicatedVideoMemoryBytes { get; set; }
     public long UsedVideoMemoryBytes { get; set; }
-    /// <summary>用量来源：dxgi / pdh / ""（不可用）。用于在 UI 上如实标注兜底来源。</summary>
+    /// <summary>
+    /// v0.10.0：本进程在该适配器上的显存用量（IDXGIAdapter3::QueryVideoMemoryInfo 的 CurrentUsage）。
+    /// **只用于诊断，永不当适配器总用量展示**——该 API 的语义是 per-process，不是整卡。
+    /// </summary>
+    public long SelfProcessUsageBytes { get; set; }
+    /// <summary>用量来源：pdh / ""（不可用）。DXGI 不再提供适配器用量（见 v0.10.0 修复）。</summary>
     public string UsageSource { get; set; } = "";
     /// <summary>DXGI LUID（可空）：多适配器时把 PDH 的 luid 实例映射回具体卡。</summary>
     public uint LuidLowPart { get; set; }
@@ -305,8 +337,8 @@ public class GpuAdapterInfo
         ? Name
         : UsedVideoMemoryBytes <= 0
             ? $"{Name}  {ByteFormat.Human(DedicatedVideoMemoryBytes)}（用量不可用）"
-            : $"{Name}  {ByteFormat.Human(UsedVideoMemoryBytes)} / {ByteFormat.Human(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)"
-              + (UsageSource == "pdh" ? "（PDH 汇总）" : "");
+            : $"{Name}  {ByteFormat.Human(UsedVideoMemoryBytes)} / {ByteFormat.Human(DedicatedVideoMemoryBytes)} ({UsedPercent:F0}%)";
+
 }
 
 public class SuspendRecord
@@ -398,6 +430,9 @@ public class AppConfig
     public bool AutoModeSwitch { get; set; } = false;
     public int MaxCpuPercentForResident { get; set; } = 5;
     // Auto optimization (system-level memory lists)
+    // ⚠️ v0.10.0 起为**废弃字段**：`ResidentEngine.AutoOptimize` 从未被 `AfterRefresh` 调用过，
+    // 设置页那两个复选框点了没有任何效果（决策日志里 215 条 AutoOptimize 全是更早期的实现留下的）。
+    // 保留字段只为能反序列化旧 config.json 而不报错；新代码一律读 CommitRelief 相关配置。
     public bool AutoOptimizeEnabled { get; set; } = false;
     // 垃圾驻守清扫：自动结束无窗口/无音频/低负载的 Bloatware 与孤儿残留（默认关闭）
     public bool AutoJunkSweepEnabled { get; set; } = false;
@@ -405,32 +440,46 @@ public class AppConfig
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
     // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，
     // 先清低优先级备用列表；2 分钟后仍告急才压缩"安全子集"（绝不碰工作/游戏/前台/忙碌进程）。
-    public bool AutoCommitReliefEnabled { get; set; } = true;
+    // v0.10.0：默认改为 **false**。理由：这是唯一会"不打招呼就压缩别人工作集"的自动行为
+    // （压缩会让下次访问重新读盘、卡顿一秒）。开源后陌生人装上就该什么都不做，
+    // 让他看完说明再自己打开。已有的 config.json 里这个键已存在，改默认值不会影响老用户。
+    public bool AutoCommitReliefEnabled { get; set; } = false;
     // 提交告急时是否允许「征得同意后优雅关闭闲置后台」来真正释放提交内存。
     // 默认关：L3 会关掉程序，必须由用户逐次确认（压缩/清缓存已被实测证明降不了提交）。
     public bool CommitReliefL3Enabled { get; set; } = false;
     // 租约 API（v0.7.0）：本地 HTTP + Bearer 令牌，AI 任务开跑前申请内存、结束归还。
     // 只绑 127.0.0.1；令牌落盘 lease-token.txt，设置页可见/可重新生成。
-    public bool LeaseApiEnabled { get; set; } = true;
+    // v0.10.0：默认改为 **false**。理由：一个陌生人装上就监听端口、而且还能被本地任意进程
+    // （读到令牌文件即可）要求挂起进程，这是"能力默认关闭"的基本原则。要用的人在设置页打开。
+    public bool LeaseApiEnabled { get; set; } = false;
     public int LeaseApiPort { get; set; } = 52717;
     // 重要提示触达（托盘气泡 + 主页横幅）；false = 仅写决策日志
     public bool ShowAlerts { get; set; } = true;
     // 场景识别影子模式：只记录"如果自动切换会切到哪"，不动作（默认开，校准期用）
     public bool SceneShadowEnabled { get; set; } = true;
-    // 进程页列设置：用户隐藏的列（按表头文本）。默认收起 9 个低频/证据列——19 列合计约 1.7k px，
+    // 进程页列设置：用户隐藏的列（**稳定 id**，见 `PersistedIds.Column`；v0.10.0 起不再存中文表头，
+    // 否则加语言会让设置静默重置）。默认收起 9 个低频/证据列——19 列合计约 1.7k px，
     // 1280 宽窗口下会把「签名/分类依据」挤到视口外，等于把判断依据藏起来（棱镜 ui/table-density）。
     // PID 与名称固定可见（DataGrid FrozenColumnCount=2），不在此列表中生效。
     public List<string> ProcessHiddenColumns { get; set; } = new()
-    { "内存增长", "子进程", "线程数", "窗口标题", "厂商", "音频", "模式保留", "签名", "分类依据" };
-    // 进程页用途筛选："" = 全部；否则为 WorkloadClassifier.DisplayName 的取值（工作/娱乐/AI/系统/其他/未知）
+    {
+        PersistedIds.Column.MemoryGrowth, PersistedIds.Column.ChildCount,
+        PersistedIds.Column.Threads, PersistedIds.Column.WindowTitle,
+        PersistedIds.Column.Vendor, PersistedIds.Column.Audio,
+        PersistedIds.Column.ModeKeep, PersistedIds.Column.Signature,
+        PersistedIds.Column.CategoryReason
+    };
+    // 进程页用途筛选："" = 全部；否则为 **稳定 id**（work/entertainment/ai/system/other/unknown，
+    // 见 `PersistedIds.Workload`）。v0.10.0 起不再存中文用途名。
     public string WorkloadFilter { get; set; } = "";
     // 显存采样（v0.3.4）：独立 30 秒节奏，与内存采样分开落盘（gpu-*.jsonl）。
     // 为什么单独高频：AI 生成视频时显存尖峰只有 1–2 分钟，5 分钟采样会漏掉。
     public bool GpuSamplingEnabled { get; set; } = true;
     public int GpuSampleIntervalSeconds { get; set; } = 30;   // 允许 15–300；0 视为关闭
+    // ⚠️ 以下四项均为废弃字段（v0.10.0），只为兼容旧 config.json 的反序列化保留，无任何代码读取。
     public bool AutoOptimizeIntervalEnabled { get; set; } = false;
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
-    public int AutoOptimizeThresholdPercent { get; set; } = 15; // clean when free RAM below this %
+    public int AutoOptimizeThresholdPercent { get; set; } = 15;
     public bool AutoOptimizeOnLowMemory { get; set; } = true;
     public bool SkipOptimizeInFullscreen { get; set; } = true;
     // Auto per-process cleanup driven by the active mode profile
@@ -446,6 +495,8 @@ public class AppConfig
     public string GlobalHotkey { get; set; } = "CTRL+SHIFT+M";
     public bool StartWithWindows { get; set; } = false;
     public bool StartMinimizedToTray { get; set; } = false;
+    /// <summary>首次运行说明横幅是否已被用户关闭（v0.10.0）。</summary>
+    public bool FirstRunNoticeDismissed { get; set; } = false;
     public bool WriteEventLogAudit { get; set; } = false;
     public int UsageRetentionDays { get; set; } = 30;
     public double CompactLeft { get; set; } = -1;

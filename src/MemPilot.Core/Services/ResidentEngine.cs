@@ -46,7 +46,6 @@ public partial class ResidentEngine
     private int _modeStreak;
     private AppMode? _pendingMode;
     private DateTime _lastModeSwitchUtc = DateTime.MinValue;
-    private DateTime _lastAutoOptimizeUtc = DateTime.MinValue;
     private readonly Dictionary<int, DateTime> _lastAutoActionUtc = new();
     private readonly Dictionary<int, DateTime> _lastSkipLogUtc = new();
     // keyed by (pid, start time): PID reuse must not suppress a new process's first alert

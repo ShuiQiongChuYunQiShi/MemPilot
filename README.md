@@ -1,185 +1,214 @@
-﻿# MemPilot
+# MemPilot
 
-Windows 常驻内存与进程管理工具。面向"并行开发 + 游戏 + AI 生图/生视频"的混合使用场景：
-识别系统中的进程并分类，检测真正未使用的进程，按场景模式做**进程级**的内存腾挪，
-为 AI 推理等大内存任务一键"腾挪"出目标数量的可用内存。
+<p align="center">
+  <a href="#download"><img src="https://img.shields.io/github/v/release/ShuiQiongChuYunQiShi/MemPilot?style=flat-square&label=release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
+  <a href="https://github.com/ShuiQiongChuYunQiShi/MemPilot/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ShuiQiongChuYunQiShi/MemPilot/ci.yml?branch=main&style=flat-square&label=ci" /></a>
+</p>
 
-> 核心理念：**处置具体进程，而不是清系统缓存**。standby list 本来就是"可用"内存，
-> 游戏纹理和文件缓存驻留其中——全量 purge 只会让游戏重新读盘卡顿。
+**Process-level memory scheduling for Windows — built for machines that run
+AI image/video generation, games, and development at the same time.**
 
-## 功能
+MemPilot does not "clean your RAM". It identifies what each process actually
+is, decides what is genuinely unused, and moves or releases memory **per
+process** — so your ComfyUI job gets the memory it needs without your
+browser tabs, IDE, or game becoming collateral damage.
 
-- **全量进程识别**：`QueryFullProcessImageName` 取全路径（含提权进程）、命令行、服务归属、
-  启动项/计划任务标记、TCP 连接数、可见窗口（过滤 cloaked/工具窗口）、线程数、句柄数。
-- **内存指标**：工作集 / **私有工作集**（真实可回收估算）/ 提交（私有字节）/ 共享提交 / 分页池，
-  以及系统级提交水位。
-- **显存观测**（v0.3.4）：适配器总/已用（DXGI 优先，不可用时用 PDH `GPU Adapter Memory` 兜底）、
-  **逐进程专用/共享显存**（PDH `GPU Process Memory`），进程页有「显存」列，历史页有 30 秒粒度的
-  显存曲线与「显存大户」表（含跳增标记）——AI 生成视频时谁吃过显存、吃了多久，事后能查。
-- **分类引擎**：精确进程名规则 + 路径片段 + **WinVerifyTrust 完整签名验证后的发布者规则**
-  （自签证书把 Subject 写成 "Microsoft" 骗不过去）。Steam 库路径来自 libraryfolders.vdf 解析
-  （按安装位置识别游戏，不再猜目录名）。系统关键/安全软件/反作弊/驱动一律保护。
-  未识别（Unknown）分类**永远不会被自动处置**。
-- **未使用检测**（诚实版）：
-  - 空闲状态按 `(pid, startTime)` 跨刷新累计，PID 复用不会污染；
-  - 候选门槛 = 最小存活期 + 连续 N 轮观察 + 空闲时长 + 无窗口 + 低 CPU/IO + **无音频活动**
-    （WASAPI 会话峰值检测，后台放歌的进程不算未使用）+ 非服务/启动项/计划任务；
-  - "预计释放"用私有工作集，不再拍脑袋乘 0.7。
-- **动作阶梯**：
-  - L1 回收工作集（EmptyWorkingSet）
-  - L2 挂起（`NtSuspendProcess` 整进程原子挂起，不再有陈旧 TID 竞态；登记在"已挂起"页可恢复）
-  - L3 优雅关闭（WM_CLOSE → 等待退出 → 可选升级 L4）
-  - L4 强制结束（仅手动 + 双重确认）
-  - 内存优先级降级 / EcoQoS 节能（进程级"温和降权"，不杀进程）
-- **腾挪工作流**（核心场景）：输入目标可用内存（GB）→ 计算缺口 → 按风险/真实回收量排序生成
-  牺牲名单（排除前台、发声、受保护、最小存活期内的进程）→ 预览 → 确认执行（可中途取消）
-  → 执行后清理低优先级备用列表兑现回收 → 前后实测写审计。
-- **驻守引擎**：单一后台 tick 驱动周期刷新（UI 线程只做集合更新，选中/滚动跨刷新保持）；
-  信号驱动的模式自动切换（D3D 全屏/前台全屏 + 反作弊在场 → 游戏；AI 进程常驻 → AI 模式；
-  前台 IDE → 开发模式），带滞回（连续 2 轮确认 + 60 秒冷却），切换时托盘气泡通知；
-  模式 CleanPatterns 驱动的自动清理（只做 L1，可选 L3，**从不自动 L4**，每进程 10 分钟冷却）；
-  系统列表自动优化仅在低内存或显式开启周期时触发，且前台全屏时跳过。
-- **决策日志**：引擎的每个自动决定——为什么切换模式、执行/跳过了谁、跳过原因（受保护/白名单/
-  前台/发声/最小存活期…）——持久化到 decisions.json（上限 1000 条），UI"决策日志"页可查。
-  自动行为可解释，是"敢用"的前提。
-- **内存增长观察**：每进程工作集历史（环形缓冲 60 个采样），进程页显示观察窗口内的增长量；
-  增长超 512MB 的后台进程记入决策日志（仅提示，不自动处置）。
-- **在线查询**（可选）：自定义端点模板或 VirusTotal，按路径缓存 7 天并落盘
-  （lookups.json，上限 512 条），限并发 3。
-- **最近处置 + 一键重启**：L3/L4 关闭/结束的进程记录 exe 路径（killed.json，上限 50 条），
-  "挂起/处置"页可一键重新启动——L4 不可撤销，但这是最接近"后悔药"的东西。
-- **腾挪工作流**（核心场景）：输入目标可用内存（GB）→ 计算缺口 → 按风险/真实回收量排序生成
-  牺牲名单（排除前台、发声、受保护、最小存活期内的进程）→ 预览 → 确认执行（可中途取消）
-  → 执行后清理低优先级备用列表兑现回收 → 前后实测写审计。
-- **程序清单**（v0.3.0）：注册表 Uninstall 三处（HKLM 双视图 + HKCU）+ 开始菜单 `.lnk` 解析 +
-  常见安装根固定深度扫描，合成 `programs.json`（exe 全路径精确索引 + 安装目录最长前缀匹配）。
-  进程页多一列"所属程序"，未识别程序至少能落到"某个装了的软件"上，而不是一行 `Unknown`。
-  清单只作证据（`program_catalog:<名称>`），不构成处置依据。
-- **用途维度**（v0.3.1）：在身份（分类）之上派生用途——工作 / 娱乐 / AI / 系统 / 其他 / 未知。
-  游戏、直播、影视、音乐同属"娱乐"（玩和看是同一个场景，不需要区分）；办公/开发/数据库/终端属"工作"；
-  歧义项（浏览器、通用三方）不硬猜，落"其他"。短名一律精确匹配（`et` 曾把 wetype 误判成工作）。
-- **场景识别 v2**：多信号加权打分（前台全屏/GPU/输入活跃/反作弊/音频/编译…），阈值 60 且领先次优 20 才算
-  决断；默认**影子模式**——只记录"如果自动切会切到哪"，不动手；设置里可开自动切换。
-- **垃圾常驻清扫**：只清"宿主已退出的孤儿残留"（播放器/更新器遗留），扫描前排除系统/安全/反作弊/驱动/
-  前台/发声/白名单/最小存活期；`AutoJunkSweepOrphansOnly` 打开后自动清扫也只碰孤儿，不动常驻垃圾。
-- **租约 API**（v0.7.0，实验性）：本地 HTTP（只绑 127.0.0.1 + Bearer 令牌），AI 任务开跑前
-  `POST /api/lease` 申请可用内存 → MemPilot 清备用列表 + 压缩"安全子集"（不碰工作/游戏/前台）→
-  返回**实测达成量**；任务结束 `DELETE /api/lease/{id}` 归还，TTL 到期自动结束，占用期可用内存跌破
-  授予下限会告警。单活跃租约。调用示例见 `tools/lease-example.py`。
-  策略 `soft`（默认，只清缓存 + 压缩工作集）与 `hard`（额度不够时额外**挂起**安全子集里"足够闲"的
-  进程——无窗口或空闲 ≥10 分钟，最多 8 个；归还/过期时**自动恢复**）。工作/游戏/前台/发声/受保护进程两者都不碰。
-- **告警触达**：提交余量 <10%、或 10 分钟增长 ≥8GB 且可用 <8GB 时，托盘气泡 + 主页横幅双通道提示，
-  横幅带"一键低风险腾挪"（压缩工作集 + 孤儿清扫）；可在设置里关成"只写决策日志"。
-- **托盘**：图标直接绘制占用百分比（<60% 绿 / <85% 黄 / ≥85% 红），悬停显示可用内存与挂起数。
-- **工程化**：单实例互斥、全局异常捕获（crash.log）、`/reset` 出厂重置、
-  控制台模式（`MemPilot.exe /standbylistlowpriority` 等，可配计划任务）；
-  全局热键（默认 CTRL+SHIFT+M，唤起主窗并生成腾挪计划）；系统级清理缺权限时
-  一键 UAC 提权重启并自动执行所选区域；审计可选同步写入 Windows 事件日志。
+<p align="center">
+  <img src="docs/screenshots/home.png" width="760" alt="MemPilot main window" />
+</p>
 
-## 构建
+> 🇨🇳 中文说明：见 [docs/README-zh-v0.9.md](docs/README-zh-v0.9.md)（中文界面、
+> 中文文档历史上一直是本项目的主要语言；英文 README 从 v0.10.0 开始）。
 
-```
-dotnet build src/MemPilot.App -c Release
-dotnet test tests/MemPilot.Tests
-```
+## Download
 
-（用例数随 Theory 数据行变化，一律以 `dotnet test` 输出为准）运行时只依赖一个 NuGet 包
-（`System.Diagnostics.EventLog` 9.0.0）；其余全是 P/Invoke，测试项目用 xunit。
-.NET 10 LTS（Core 引擎类库 + WPF 壳双项目）。
-CI 产出 TRX 与 cobertura 覆盖率：`MemPilot.Core` 行覆盖门槛 50%（2026-10-31 基线 52.4%，目标 60%）。
+| Channel | File | Size | Needs |
+|---|---|---|---|
+| **Portable (recommended)** | `MemPilot-<ver>-portable.zip` | ~3 MB | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| Self-contained | `MemPilot-<ver>-win-x64.exe` | ~65 MB | nothing — runtime is bundled |
 
-## 资源占用（自我要求）
-
-内存管理工具不能自己是内存大户：
-
-| 状态 | 私有内存 | 说明 |
-|---|---|---|
-| 主窗可见 | ~180 MB | 全量 UI 在跑 |
-| 托盘轻量档 | **~80 MB** | 刷新间隔 10s→30s、跳过 UI 集合重建、GPU/版本信息走缓存、定期对自己做 L1 工作集回收 |
-
-（WS 表面数字里约 2/3 是共享框架映射页，由 standby list 统一回收；真正挤占系统的私有提交已减半。WPF 运行时的地板就到这——Phase 4 的 NativeAOT 服务形态才是下一级台阶。）
-若本机安全软件对 `%TEMP%` 的批量写入拦截导致测试偶发
-UnauthorizedAccessException，将测试数据目录指到工作区即可：`MT_TEST_TMP=<目录> dotnet test`。
-
-## 测试覆盖的安全不变量
-
-- 未识别（Unknown）/受保护/前台/正在发声/最小存活期内的进程永远不会成为清理候选；
-- 未使用检测需要最小存活期 + 连续观察轮数，PID 复用会重置观察状态；
-- 黑名单只需 2 轮观察（有窗口建议 L3、无窗口建议 L4）；
-- 自签证书伪造的 "Microsoft" 签名不会被当作可信系统签名；
-- 旧版 "ea/be/vac" 子串误报（Teams/Weather/SearchHost 被判为游戏平台）有回归测试；
-- 腾挪计划的排除名单与动作选择（L3/L4/trim 回退）；挂起登记跨重启的持久化与 PID 复用校验。
-
-## 使用
-
-1. 主界面自动按刷新间隔（默认 10 秒，可在设置调整）后台刷新；
-2. "未使用/清理"页查看候选并手动处置，或勾选设置里的"启用模式驱动的自动清理"；
-3. 跑 ComfyUI / 生图生视频前，到"腾挪内存"页输入目标 GB → 生成计划 → 执行；
-4. 游戏时切到游戏模式（或开启自动切换），开发工具类进程会进入清理名单；
-5. 进程页顶部可按**用途**筛选（工作/娱乐/AI/系统/其他/未知），「列设置 ▾」勾掉不需要的列（选择会记住）；
-6. 挂起过的进程在"已挂起"页恢复——挂起只冻结 CPU，不释放内存，别忘在那里；
-7. 想看显存：进程页「显存」列 = 该进程占用的专用显存；「历史」页的显存卡片按 30 秒采样记录 24 小时曲线
-   与大户排名（设置里可关采样或调间隔）。
-
-## 安全模型
-
-| 防线 | 说明 |
-|---|---|
-| 分类保护 | 系统关键/安全软件/反作弊/驱动/服务/启动项/计划任务不进候选 |
-| Unknown 豁免 | 未识别分类永不自动处置 |
-| 最小存活期 | 刚启动的进程（默认 120 秒）不会被误杀 |
-| 观察期 | 需连续 N 轮（默认 6 轮）空闲观察才成为候选 |
-| 音频豁免 | 正在发声的进程不算未使用 |
-| 前台豁免 | 前台/全屏进程永不处置 |
-| L4 双确认 | 强制结束需要两次确认；自动路径永不到 L4 |
-
-## 配置
-
-`%APPDATA%\MemPilot\config.json`：阈值、名单（白/黑/保护）、模式档案
-（KeepPatterns/CleanPatterns/AllowedActions）、自动化开关。
-黑名单进程只需 2 轮观察即可成为候选（有窗口建议 L3，无窗口建议 L4）。
-
-## 使用习惯记录（AI 功能的地基）
-
-引擎每个刷新周期都在工作，但每 5 分钟才落一个采样（JSONL，按天分文件，保留 30 天）：
-内存总量/可用/提交、进程与线程总数、当前模式、当期吃内存 Top10。
-「历史」页可视化 24 小时内存/显存占用率曲线（越高越紧张，带 0/50/100% 参考线）、7 天模式时长、吃内存大户与显存大户均值/峰值、动作计数。
-
-**AI 功能（规划中，数据已开始积累）**：
-- 习惯学习：基于历史采样预测你通常什么时候需要腾内存，提前预热；
-- 腾挪预测：按历史可牺牲进程的时段规律，自动生成更准的牺牲名单；
-- 异常检测：内存增长曲线 + 线程数突变的无监督告警。
-
-## 已知边界
-
-- 提权进程的内存/命令行读取受限（AccessDenied 标记，不影响分类路径来源）；
-- UWP 应用的窗口归属 ApplicationFrameHost，L3 对无窗口 UWP 无效；
-- 显存用量依赖 IDXGIAdapter3（Win10 1607+），旧系统降级为仅显示总量；
-- VirusTotal 分支仅返回摘要与链接，不做本地恶意度映射。
-
-## 许可与签名
-
-本仓库当前为**个人内部使用**，未声明开源许可（`LICENSE` 尚未添加）。转公开前需补 LICENSE（MIT / Apache-2.0）+ NOTICE。
-
-**签名决策（2026-10-31）：不自购商业证书。** 理由：商业代码签名证书 ¥1–3k/年，而自签证书对别人的机器没有意义
-（只有把证书装进目标机的「受信任的根证书颁发机构」才生效），花钱买不到"别人装了不弹窗"的效果。
-官方发布产物因此是**未签名**的，首次安装会被 360/SmartScreen 提示——这是预期行为，不是包坏了。
-
-### 安装前校验（替代签名，30 秒）
+Both are on the [Releases page](https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/latest).
+Every release ships a `SHA256SUMS.txt`; verify before running:
 
 ```powershell
-# 1) 下载 MemPilot-<ver>-win-x64.exe 与 SHA256SUMS.txt 到同一目录，然后：
 (Get-FileHash .\MemPilot-<ver>-win-x64.exe -Algorithm SHA256).Hash.ToLower()
 Get-Content .\SHA256SUMS.txt
-# 2) 两个值一致 = 文件与官方发布的一致（签名回答"谁发的"，哈希回答"有没有被改"，这里只缺前者）
+# the two values must match
 ```
 
-360 拦截时的正常处理：弹窗选「允许程序运行 / 添加信任」，或把 exe 加入 360 信任区——本项目就装在这一台机器上，
-不需要对全网放行。
+Releases are **unsigned** — SmartScreen or your antivirus may warn on first run.
+That is expected for a new project, not a sign the file is broken. See
+[SECURITY.md](SECURITY.md) for the full trust model.
 
-### 如果将来真的要签
+## Why another memory tool
 
-免费/低价路径按代价排序：① 仓库转公开 + 有人下载安装，靠云查杀信誉自然转白（免费，慢）；
-② Azure Trusted Signing（按月计费，需身份验证）；③ 商业 CA 证书（最贵，效果最直接）。
-工程链路已预留：把 pfx 转 base64 存 `SIGN_PFX_BASE64` + `SIGN_PFX_PASSWORD`、设仓库变量 `SIGN_ENABLED=true`，
-发布时会在算 `SHA256SUMS` 前自动签名；缺密钥只告警不阻断。
+Most memory utilities treat RAM as one number and flush it. MemPilot starts
+from a different observation, measured on a real machine over 9 days
+(1,392 samples):
+
+```
+Physical RAM        31.7 GB
+Commit limit        44.7 GB  (pagefile 13 GB in use)
+Committed (median)  30.1 GB  = 95% of physical
+Committed (peak)    68.3 GB
+Commit ≥ 90%        11.2% of all samples
+Physical < 4 GB     only 3.2% of samples
+```
+
+**The real bottleneck on a working machine is commit, not physical memory.**
+A standby-list purge does nothing about commit — which is why tools that only
+show "freed 2 GB" rarely make your next AI generation any less likely to fail.
+MemPilot treats commit as a first-class metric and, when it is the thing under
+pressure, offers the only action that genuinely reduces it: gracefully closing
+idle background processes, with your confirmation.
+
+## What it does
+
+### 1. Classifies before it acts
+
+Every process gets an identity before it can become a candidate:
+exact-name rules, path fragments, **verified publisher signatures**
+(WinVerifyTrust — a self-signed cert claiming "Microsoft" does not pass),
+Steam library parsing, registry uninstall evidence, and service/startup/
+scheduled-task membership. Unrecognized (`Unknown`) processes are **never
+actioned automatically**.
+
+### 2. Detects "unused" honestly
+
+A candidate needs all of: minimum age (default 120 s), N consecutive idle
+observations, no visible window, low CPU and I/O, **and no audio activity**
+(WASAPI session peak detection — a process playing music in the background is
+not unused). Idle state is tracked per `(pid, startTime)`, so PID reuse cannot
+poison the observation.
+
+### 3. Escalates in steps, never jumps
+
+| Level | Action | Automatic? |
+|---|---|---|
+| L1 | Trim working set (`EmptyWorkingSet`) | yes (opt-in) |
+| L2 | Suspend process (`NtSuspendProcess`, atomic, restorable) | yes (opt-in, hard lease only) |
+| L3 | Graceful close (`WM_CLOSE` → wait → optional escalate) | only with confirmation |
+| L4 | Force kill | **never automatic** — manual, double-confirm |
+
+### 4. Explains itself
+
+Every automatic decision — why a mode switched, who was executed or skipped
+and exactly which guard skipped them — is persisted to `decisions.json`
+(5,000 entries, important kinds like `Lease`/`AiSession` get a protected
+quota so noise cannot evict them). There is a UI page for it. If the tool
+cannot get admin rights, the log says **"skipped: needs admin"**, not
+"executed, freed 0 MB".
+
+### 5. The Lease API — ask for memory like you ask for a lock
+
+This is the part none of the classic memory cleaners have. An AI task that
+knows it needs 12 GB can ask before loading its model, and give it back after:
+
+```python
+status, lease = post("/api/lease", {
+    "targetAvailableGb": 12,
+    "ttlSeconds": 3600,
+    "requester": "comfyui-job-42",
+    "policy": "soft",          # or "hard": also suspends sufficiently-idle processes
+})
+# lease["achievedAvailableGb"] — what was ACTUALLY freed, measured, not promised
+try:
+    run_generation()
+finally:
+    delete(f"/api/lease/{lease['id']}")   # suspended processes are restored automatically
+```
+
+- Binds `127.0.0.1` only, Bearer-token authenticated, **disabled by default**
+- Single active lease; TTL clamped 30 s–24 h; breach of the granted floor raises an alert
+- `hard` policy suspends at most 8 "idle enough" processes and **restores every one** on release
+- Working / gaming / foreground / audio / protected processes are never touched by either policy
+- Working example: [`tools/lease-example.py`](tools/lease-example.py) ·
+  load simulation that asserts the whole chain: [`tools/lease-load-test.py`](tools/lease-load-test.py)
+
+### 6. Watches VRAM too
+
+Per-process dedicated/shared GPU memory via PDH (`\GPU Process Memory(*)`),
+adapter totals via PDH (`\GPU Adapter Memory(*)`) — sampled every 30 s to a
+local JSONL with 30-day retention, with an AI-session detector
+(N-of-M + hysteresis, so a single-frame VRAM dip does not split one generation
+into three sessions). When a video generation eats 15 GB, you can see who, when,
+and for how long — afterwards.
+
+<p align="center">
+  <img src="docs/screenshots/processes.png" width="760" alt="process table with VRAM column" />
+</p>
+
+## Proof of concept — verify it yourself
+
+You should not trust a RAM utility on faith; most of them are snake oil.
+Here is a check you can run in five minutes with Windows' own tools:
+
+1. Open **Resource Monitor** (`resmon.exe`) → Memory tab. Note "Committed".
+2. Run any tool that only purges the standby list. Watch "Free" go up —
+   and "Committed" **not move at all**.
+3. Now start an AI generation (or open a big project) until commit is near the
+   limit. No cache purge will help; only closing a process will.
+4. In MemPilot, open **决策日志 (Decisions)** and read what it did and —
+   more importantly — what it *refused* to do and why.
+
+That last step is the actual product: a memory tool whose log you can audit.
+
+## Safety model
+
+| Guard | Behaviour |
+|---|---|
+| Category protection | System-critical / security / anti-cheat / driver / service / startup / scheduled task never candidates |
+| Unknown exemption | Unrecognized processes are never auto-disposed |
+| Minimum age | Default 120 s |
+| Observation period | N consecutive idle refreshes before candidacy |
+| Audio exemption | WASAPI-active processes are "in use" |
+| Foreground exemption | Foreground/fullscreen processes are never touched |
+| PID-reuse recheck | `(pid, startTime)` verified before every state change |
+| L4 double confirm | Force kill is manual only, twice |
+| Fail-safe enumeration | If window/audio enumeration fails, processes are treated as **having** windows/audio — never as "unused" |
+| Honest logs | Missing admin rights ⇒ "skipped", with the reason |
+
+These invariants are enforced in one place (`TrimSelection`) and guarded by
+tests — including source-level guards that fail the build if the pattern that
+caused a past incident reappears (`tests/MemPilot.Tests/RegressionGuardTests.cs`).
+
+## Engineering
+
+- **.NET 10 WPF**, two projects: `MemPilot.Core` (engine, zero UI dependency)
+  + `MemPilot.App` (shell). No `.sln` — pass the `.csproj` path explicitly.
+- **One runtime dependency**: `System.Diagnostics.EventLog` 9.0.0 (optional
+  Windows-event-log audit). Everything else is P/Invoke.
+- **373 tests**, CI gates `MemPilot.Core` line coverage at 50% and produces
+  TRX + cobertura artifacts on every push.
+- Reproducible builds: `packages.lock.json` committed, CI restores with
+  `--locked-mode`.
+- Persistent settings use **stable ids** (`memory_growth`, `work`), never
+  display text — so localization cannot silently reset your column layout.
+  UI text is currently Chinese; the string-extraction skeleton is in place
+  and contributions are welcome (see CONTRIBUTING).
+
+## Build
+
+```bash
+git clone https://github.com/ShuiQiongChuYunQiShi/MemPilot.git
+cd MemPilot
+dotnet build src/MemPilot.App/MemPilot.App.csproj -c Release
+dotnet test  tests/MemPilot.Tests/MemPilot.Tests.csproj
+```
+
+Requires the .NET 10 SDK and Windows 10/11. On a fresh machine the first run
+writes config/history/decisions under `%APPDATA%\MemPilot` — nothing outside it.
+
+## Known limits
+
+- Elevated processes: memory/command-line reads may be access-denied
+  (flagged, does not break classification)
+- UWP windows belong to `ApplicationFrameHost`; L3 has no effect on windowless UWP
+- Hybrid laptops: adapter usage is matched per LUID; if the mapping is missing,
+  MemPilot shows "usage unavailable" rather than guessing
+- Chinese UI at the moment; English README only
+
+## License
+
+[Apache-2.0](LICENSE). See [NOTICE](NOTICE) for third-party components.

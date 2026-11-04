@@ -1,0 +1,56 @@
+name: Bug report
+description: Something behaves wrong or the numbers contradict reality
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A `decisions.json` fragment beats a paragraph of
+        description — MemPilot logs why it did or did not act, and that log is
+        usually the fastest path to a diagnosis.
+
+        Please redact anything personal before pasting.
+
+  - type: input
+    attributes:
+      label: MemPilot version
+      description: Settings → about, or file properties of the exe
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Windows version
+      placeholder: "e.g. Windows 11 24H2, running elevated: yes/no"
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you expected vs what you saw
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Evidence
+      description: |
+        A fragment of %APPDATA%\MemPilot\decisions.json or audit.json around the
+        time of the problem, a screenshot, or the output of Resource Monitor.
+        If the bug is "the numbers are wrong", say which tool shows what.
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Safety check
+      description: If this is a safety bug, it gets priority.
+      options:
+        - label: A process was touched that should be protected (system/security/anti-cheat/driver/foreground/audio/unknown)

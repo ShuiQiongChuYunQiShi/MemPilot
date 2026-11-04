@@ -4,14 +4,16 @@ using MemPilot.Models;
 namespace MemPilot.Services;
 
 /// <summary>
-/// GPU adapter info via DXGI: total dedicated VRAM per adapter (always available)
-/// plus current usage when IDXGIAdapter3 QI succeeds.
+/// GPU 适配器信息（v0.10.0 修正数据来源）。
 ///
-/// v0.3.4 补强（棱镜 + 真机实测）：
-/// ① 每次失败都记录 HRESULT —— 之前 "factory creation failed" 看不出是 E_NOINTERFACE 还是别的；
-/// ② 适配器用量兜底：DXGI 不可用时用 PDH `\GPU Adapter Memory(*)\Dedicated Usage` 填（本机实测可用），
-///    并在模型里标 UsageSource="pdh"，UI 如实显示「（PDH 汇总）」；
-/// ③ 多适配器且拿不到 LUID 映射时**不猜**——保持"用量不可用"，绝不用容量推算用量。
+/// DXGI 只提供**名称 / 容量 / LUID**；适配器**用量统一由 PDH** `\GPU Adapter Memory(*)\Dedicated Usage` 提供。
+/// 为什么改（v0.10.0，开源前正确性修复）：`IDXGIAdapter3::QueryVideoMemoryInfo` 的 CurrentUsage
+/// 是**调用进程**在该卡上的用量，不是整卡用量。旧实现把它当整卡用量，首页会同时显示
+/// "0.2 GB / 12 GB (2%)"（DXGI，其实是 MemPilot 自己）和 "9.4 GB / 20 GB (46%)"（PDH，真实值）。
+///
+/// v0.3.4 起保留的行为：
+/// ① 每次失败都记录 HRESULT —— "factory creation failed" 看不出是 E_NOINTERFACE 还是别的；
+/// ② 多适配器且拿不到 LUID 映射时**不猜**——保持"用量不可用"，绝不用容量推算用量。
 /// </summary>
 public class GpuInfoService
 {
@@ -47,15 +49,16 @@ public class GpuInfoService
             Vendor = a.Vendor,
             DedicatedVideoMemoryBytes = a.DedicatedVideoMemoryBytes,
             UsedVideoMemoryBytes = a.UsedVideoMemoryBytes,
+            SelfProcessUsageBytes = a.SelfProcessUsageBytes,
             UsageSource = a.UsageSource,
             LuidLowPart = a.LuidLowPart,
             LuidHighPart = a.LuidHighPart
         }).ToList();
 
     /// <summary>
-    /// PDH 兜底（纯函数，可单测）：只填「有容量但用量缺失」的适配器。
-    /// 单适配器直接用合计；多适配器按 LUID 实例名逐一匹配；匹配不上就留空（不猜）。
-    /// 返回实际填充的适配器数量。
+    /// PDH 填充适配器用量（纯函数，可单测）：**v0.10.0 起这是适配器用量的唯一来源**。
+    /// 只填「有容量但用量缺失」的适配器；单适配器直接用合计；多适配器按 LUID 实例名逐一匹配；
+    /// 匹配不上就留空（不猜）。返回实际填充的适配器数量。
     /// </summary>
     public static int ApplyPdhFallback(IReadOnlyList<GpuAdapterInfo> adapters,
         IReadOnlyDictionary<string, long>? byLuid, long totalDedicatedBytes)
@@ -125,11 +128,13 @@ public class GpuInfoService
                             if (adapter is IDXGIAdapter3 adapter3)
                             {
                                 int qhr = adapter3.QueryVideoMemoryInfo(0 /*DXGI_MEMORY_SEGMENT_GROUP_LOCAL*/, out var vmem);
-                                if (qhr == 0)
-                                {
-                                    info.UsedVideoMemoryBytes = (long)vmem.CurrentUsage;
-                                    info.UsageSource = "dxgi";
-                                }
+                                // v0.10.0（开源前正确性修复）：**不再**把 CurrentUsage 当作适配器总用量。
+                                // IDXGIAdapter3::QueryVideoMemoryInfo 的语义是"**当前调用进程**在该适配器上的
+                                // 预算/用量"（文档原文：per-process budget），不是整卡用量。旧实现把它写进
+                                // UsedVideoMemoryBytes，导致首页 GPU 卡出现"0.2 GB / 12 GB (2%)"而正下方
+                                // PDH 行显示"9.4 GB / 20 GB (46%)"两个互相矛盾的数字。
+                                // 现在只留作诊断值，适配器用量统一由 PDH 提供（见 ApplyPdhFallback）。
+                                if (qhr == 0) info.SelfProcessUsageBytes = (long)vmem.CurrentUsage;
                                 else usageNotes.Add($"vmem=0x{qhr:X8}");
                             }
                             else usageNotes.Add("no IDXGIAdapter3");

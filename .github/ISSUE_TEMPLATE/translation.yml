@@ -1,0 +1,35 @@
+name: Translation request
+description: Contribute or request a UI language
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The UI is currently Chinese-only. String extraction is in progress —
+        persisted settings already use stable ids, so a language switch will
+        **not** reset your column layout or filters.
+
+        Please do not open a PR with 900 hand-translated strings as a first
+        contribution. Open this issue first so we can agree on scope and which
+        subset gets extracted next.
+
+  - type: dropdown
+    attributes:
+      label: Type
+      options:
+        - Request a language (I would use it)
+        - I want to contribute a translation
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Language
+      placeholder: "e.g. English (en-US)"
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Which screens matter most to you
+      description: e.g. home page, process table, decisions log, settings

@@ -87,8 +87,8 @@ public partial class MainWindow : Window
         if (sender is not ContextMenu cm) return;
         foreach (var item in cm.Items.OfType<MenuItem>())
         {
-            var header = item.Tag as string ?? "";
-            var col = FindColumn(header);
+            var id = item.Tag as string ?? "";
+            var col = FindColumnById(id);
             item.IsChecked = col != null && col.Visibility == Visibility.Visible;
         }
     }
@@ -96,20 +96,55 @@ public partial class MainWindow : Window
     private void ColumnToggle_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem mi) return;
-        var header = mi.Tag as string ?? "";
-        var col = FindColumn(header);
+        var id = mi.Tag as string ?? "";
+        var col = FindColumnById(id);
         if (col == null) return;
 
         col.Visibility = mi.IsChecked ? Visibility.Visible : Visibility.Collapsed;
         var hidden = _config.Config.ProcessHiddenColumns ?? new List<string>();
-        hidden.RemoveAll(h => string.Equals(h, header, StringComparison.Ordinal));
-        if (!mi.IsChecked) hidden.Add(header);
+        hidden.RemoveAll(h => string.Equals(h, id, StringComparison.Ordinal));
+        if (!mi.IsChecked) hidden.Add(id);
         _config.Config.ProcessHiddenColumns = hidden;
         _vm.ConfigStore.Save();
     }
 
-    private DataGridColumn? FindColumn(string header)
-        => ProcessGrid?.Columns.FirstOrDefault(c => c.Header is string h && string.Equals(h, header, StringComparison.Ordinal));
+    /// <summary>
+    /// DataGrid 列 Header（显示文本）→ 稳定 id。v0.10.0：config 只存 id，
+    /// 界面显示文本可以随语言变，两者解耦。PID/名称固定可见，不在表里。
+    /// </summary>
+    private static readonly Dictionary<string, string> HeaderToId = new(StringComparer.Ordinal)
+    {
+        ["所属程序"] = PersistedIds.Column.Program,
+        ["显存"] = PersistedIds.Column.GpuMemory,
+        ["内存增长"] = PersistedIds.Column.MemoryGrowth,
+        ["线程数"] = PersistedIds.Column.Threads,
+        ["子进程"] = PersistedIds.Column.ChildCount,
+        ["窗口标题"] = PersistedIds.Column.WindowTitle,
+        ["厂商"] = PersistedIds.Column.Vendor,
+        ["音频"] = PersistedIds.Column.Audio,
+        ["保护"] = PersistedIds.Column.IsProtected,
+        ["模式保留"] = PersistedIds.Column.ModeKeep,
+        ["签名"] = PersistedIds.Column.Signature,
+        ["分类依据"] = PersistedIds.Column.CategoryReason,
+        ["工作集"] = PersistedIds.Column.WorkingSet,
+        ["私有WS"] = PersistedIds.Column.PrivateWorkingSet,
+        ["提交"] = PersistedIds.Column.Commit,
+        ["CPU%"] = PersistedIds.Column.Cpu,
+        ["分类"] = PersistedIds.Column.Category,
+        ["用途"] = PersistedIds.Column.Workload,
+    };
+
+    private DataGridColumn? FindColumnById(string id)
+    {
+        if (ProcessGrid == null || string.IsNullOrEmpty(id)) return null;
+        foreach (var col in ProcessGrid.Columns)
+        {
+            if (col.Header is not string h) continue;
+            if (HeaderToId.TryGetValue(h, out var mapped) && string.Equals(mapped, id, StringComparison.Ordinal))
+                return col;
+        }
+        return null;
+    }
 
     /// <summary>按配置应用列显隐。PID/名称固定可见（FrozenColumnCount=2），不被配置隐藏。</summary>
     private void ApplyColumnVisibility()
@@ -120,7 +155,9 @@ public partial class MainWindow : Window
         {
             if (col.Header is not string h) continue;
             if (h is "PID" or "名称") { col.Visibility = Visibility.Visible; continue; }
-            col.Visibility = hidden.Any(x => string.Equals(x, h, StringComparison.Ordinal))
+            // 表头没登记到 id 的列（例如后续新加）一律可见——宁可露出也不要凭空藏掉。
+            if (!HeaderToId.TryGetValue(h, out var id)) { col.Visibility = Visibility.Visible; continue; }
+            col.Visibility = hidden.Any(x => string.Equals(x, id, StringComparison.Ordinal))
                 ? Visibility.Collapsed
                 : Visibility.Visible;
         }

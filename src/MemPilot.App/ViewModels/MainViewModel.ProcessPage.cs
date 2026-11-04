@@ -53,7 +53,10 @@ public partial class MainViewModel
     private readonly Func<ProcessInfo, WorkloadKind?> _workloadLookup;
 
     private string _workloadFilter = "";
-    /// <summary>用途筛选（"" = 全部）。取值来自 WorkloadClassifier.DisplayName：工作/娱乐/AI/系统/其他/未知。</summary>
+    /// <summary>
+    /// 用途筛选（"" = 全部）。取值是**稳定 id**（work/entertainment/ai/system/other/unknown，
+    /// 见 `PersistedIds.Workload`），不是显示文本——v0.10.0 改，否则加语言会静默重置用户筛选。
+    /// </summary>
     public string WorkloadFilter
     {
         get => _workloadFilter;
@@ -111,8 +114,9 @@ public partial class MainViewModel
             src = src.Where(p => p.Name.ToLowerInvariant().Contains(q) || p.ExecutablePath.ToLowerInvariant().Contains(q) || p.MainWindowTitle.ToLowerInvariant().Contains(q));
         }
         // 用途筛选先于树构建：树里只留命中的节点，避免"筛了工作却还看到游戏父节点"
+        // v0.10.0：筛选值改为稳定 id，显示文本只在 UI 层出现。
         if (!string.IsNullOrEmpty(_workloadFilter))
-            src = src.Where(p => WorkloadClassifier.DisplayName(p.Workload) == _workloadFilter);
+            src = src.Where(p => WorkloadText.IdOf(p.Workload) == _workloadFilter);
         // v0.6.0 分类芯片：系统·保护 / 游戏 / AI / 未识别（互斥，null=全部）
         switch (_categoryChip)
         {
