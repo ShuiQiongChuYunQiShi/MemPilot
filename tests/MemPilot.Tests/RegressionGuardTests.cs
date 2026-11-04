@@ -110,6 +110,50 @@ public class RegressionGuardTests
     }
 
     [Fact]
+    public void CommitReliefDialog_IsNonBlocking()
+    {
+        // 故障：Dispatcher.Invoke（同步）+ MessageBox 会把引擎 tick 阻塞到用户点掉对话框，
+        // 无人值守时整条刷新/自动清理管线永久停摆。
+        var src = Read("MemPilot.App", "ViewModels", "MainViewModel.cs");
+        var idx = src.IndexOf("CommitReliefL3Suggested +=", StringComparison.Ordinal);
+        Assert.True(idx > 0);
+        var tail = src[idx..Math.Min(src.Length, idx + 400)];
+        Assert.Contains("BeginInvoke", tail);
+        Assert.DoesNotContain("Dispatcher.Invoke(new Action", tail);
+    }
+
+    [Fact]
+    public void AutoL3_DoesNotBlockTickThread()
+    {
+        // 故障：L3 内部 Thread.Sleep 轮询到超时（8s/个），在 tick 线程同步跑会让守卫失明。
+        var src = Read("MemPilot.Core", "Services", "ResidentEngine.AutoActions.cs");
+        var idx = src.IndexOf("AutoCloseCleanMatches", StringComparison.Ordinal);
+        Assert.True(idx > 0);
+        var tail = src[idx..Math.Min(src.Length, idx + 700)];
+        Assert.Contains("Task.Run", tail);
+    }
+
+    [Fact]
+    public void AuditLogger_BatchesWrites_InsteadOfEveryCall()
+    {
+        // 故障：每次动作都在锁内全量重写 2000 条，腾挪 20 项 = 20 次全量写盘。
+        var src = Read("MemPilot.Core", "Services", "AuditLogger.cs");
+        Assert.Contains("ScheduleFlush", src);
+        Assert.Contains("public void Flush", src);
+    }
+
+    [Fact]
+    public void EnumerationFailures_AreFailSafe_NotSilent()
+    {
+        // 故障：窗口/音频枚举失败被吞 → "无窗口"/"静音"误判 → 进程进处置候选。
+        var proc = Read("MemPilot.Core", "Services", "ProcessService.cs");
+        Assert.Contains("_windowEnumDegraded", proc);
+        Assert.Contains("WindowEnumDegraded", proc);
+        var audio = Read("MemPilot.Core", "Services", "AudioSessionService.cs");
+        Assert.Contains("_degraded", audio);
+    }
+
+    [Fact]
     public void DecisionLog_CapIsRaised()
     {
         var src = Read("MemPilot.Core", "Services", "DecisionLog.cs");

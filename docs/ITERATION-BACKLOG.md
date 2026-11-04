@@ -73,6 +73,23 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] 中文名收敛到 `WorkloadText.Of`（Models），`WorkloadClassifier.DisplayName` 委托它，避免两处各写一份。
 - 测试 239→248：规则加载/覆盖/空数组回落/损坏回落/自定义生效/用户标记优先/按路径匹配/替换与清除。
 
+### v0.9.1 — 复盘 P1：阻塞与降级路径（2026-11-04）
+
+v0.9.0 清完 8 个 P0 后，继续处理复盘里「未列前八但应进 backlog」的四项，都是"不崩但会静默失效"的类型：
+
+- [x] **模态弹窗阻塞引擎 tick**：`CommitReliefL3Suggested` 原来是 `Dispatcher.Invoke`（同步）+ `MessageBox`，
+  用户不点则 `_ticking` 恒 true → **整条刷新/自动清理管线停摆**（无人值守＝永久）。改 `BeginInvoke`。
+- [x] **自动 L3 在 tick 线程阻塞**：`Execute(L3)` 内部 `Thread.Sleep` 轮询到超时（8s/个），N 个命中即 N×8s 停摆，
+  期间全屏/压力守卫全部失明。改投递线程池，本 tick 只记账。
+- [x] **审计日志每条全量重写并持锁**：腾挪 20 项 = 20 次全量写 2000 条，UI 线程 `Recent()` 抢同一把锁。
+  改为 1.5 秒合并写（锁内只拷贝、锁外 IO）+ 新增 `Flush()` 供退出前调用。
+- [x] **枚举失败改 fail-safe**（两个方向都错得危险）：
+  - 窗口枚举失败 → 旧实现返回空 map ⇒ 所有进程"无窗口" ⇒ 进入 L4/自动清扫/硬租约候选。
+    现在置 `_windowEnumDegraded` 并把 `HasVisibleWindow` 保守设为 true（附 `WindowEnumDegraded` 标记）。
+  - 音频枚举失败 → 旧实现静默返回空集 ⇒ 放歌/开会进程被当"静音"。现在降级时把全部进程标为"可能发声"。
+- 守卫 `RegressionGuardTests` 10→14 条（非阻塞弹窗、L3 不阻塞 tick、日志合并写、枚举 fail-safe）。
+- 测试 338→342。
+
 ### v0.9.0 — 三轮复盘整改：修 8 个真 bug + 降噪 + 真实负载验证（2026-11-04）
 
 三轮深度复盘（代码全量 / 9 天运行数据 / GitHub top5 源码级对标）的整改。

@@ -325,8 +325,11 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         // v0.5.0：AI 会话只观测与记录，不做任何处置（处置留给下一轮租约）
         // v0.5.1：提交告急且用户允许时，征得同意后优雅关闭闲置后台（唯一能降低提交计数的动作）
+        // v0.9.1（复盘 P1）：这里必须用 BeginInvoke 而不是 Invoke（同步）。
+        // Invoke 会让引擎 tick 线程在模态框关闭前一直阻塞 —— 实测 _ticking 保持 true，
+        // 整条刷新/自动清理管线停摆，直到有人点掉对话框（无人值守时就是永久停摆）。
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (candidates.Count == 0) return;
                 var names = string.Join("、", candidates.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
@@ -361,7 +364,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                         await RefreshAsync();
                     });
                 });
-            });
+            }));
 
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
         {

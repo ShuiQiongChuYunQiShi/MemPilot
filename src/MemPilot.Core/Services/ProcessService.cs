@@ -77,6 +77,13 @@ public class ProcessService
                     info.HasVisibleWindow = true;
                     info.MainWindowTitle = title;
                 }
+                else if (_windowEnumDegraded)
+                {
+                    // v0.9.1：窗口枚举失败时"没查到窗口"不可信——按"可能在使用"处理，
+                    // 避免进程被当成无窗口而进入 L4/自动清扫/硬租约挂起候选。
+                    info.HasVisibleWindow = true;
+                    info.WindowEnumDegraded = true;
+                }
                 try { if (string.IsNullOrEmpty(info.MainWindowTitle)) info.MainWindowTitle = p.MainWindowTitle ?? ""; } catch { }
 
                 info.IsStartupItem = StartupService.IsStartupPath(info.ExecutablePath, startupItems);
@@ -316,6 +323,7 @@ public class ProcessService
     private Dictionary<int, string> GetVisibleWindowPids()
     {
         var map = new Dictionary<int, string>();
+        int windowFailures = 0;
         try
         {
             NativeMethods.EnumWindows((hWnd, lParam) =>
@@ -335,13 +343,26 @@ public class ProcessService
                         map[(int)pid] = sb.ToString();
                     }
                 }
-                catch { }
+                catch { windowFailures++; }
                 return true;
             }, IntPtr.Zero);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // v0.9.1（复盘 P1）：EnumWindows 整体失败时旧实现返回空 map，
+            // 等于"所有进程都没窗口"——而"无窗口"正是 L4/自动清扫/硬租约挂起的准入条件。
+            // 标记降级，让调用方按"无法判断"处理（fail-safe：不当作无窗口）。
+            Helpers.Diag.Record("proc:windows", ex);
+            _windowEnumDegraded = true;
+            return map;
+        }
+        if (windowFailures > 0)
+            Helpers.Diag.Record("proc:windows", $"{windowFailures} 个窗口读取失败（其余正常）");
         return map;
     }
+
+    /// <summary>窗口枚举是否降级（此时"无窗口"不可信）。</summary>
+    private static bool _windowEnumDegraded;
 
     private Dictionary<int, int> GetTcpConnectionCountsByPid()
     {

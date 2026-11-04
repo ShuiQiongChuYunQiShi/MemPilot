@@ -63,14 +63,23 @@ public partial class ResidentEngine
 
             if (cfg.AutoCloseCleanMatches && p.HasVisibleWindow)
             {
-                var r = _cleanup.Execute(p, CleanupActionLevel.L3GracefulClose, cfg.GracefulCloseTimeoutSeconds, escalateToKill: false);
+                // v0.9.1（复盘 P1）：L3 会内部 Thread.Sleep 轮询到 gracefulTimeout（默认 8s/个），
+                // 在 tick 线程同步执行 = N×8s 的刷新停摆，期间全屏/压力守卫全部失明。
+                // 改投递到线程池，本 tick 只记账"已提交"。
                 _lastAutoActionUtc[p.Pid] = now;
-                _decisions.Log(new DecisionEntry
+                var target = p;
+                var profileName = profile.Name;
+                _ = System.Threading.Tasks.Task.Run(() =>
                 {
-                    Kind = "AutoCleanup",
-                    Target = $"{p.Name} (PID {p.Pid})",
-                    Decision = "执行 L3 优雅关闭",
-                    Reason = $"模式[{profile.Name}]清理名单命中，有窗口；结果: {r.Message}"
+                    var r = _cleanup.Execute(target, CleanupActionLevel.L3GracefulClose,
+                        _config.Config.GracefulCloseTimeoutSeconds, escalateToKill: false);
+                    _decisions.Log(new DecisionEntry
+                    {
+                        Kind = "AutoCleanup",
+                        Target = $"{target.Name} (PID {target.Pid})",
+                        Decision = "执行 L3 优雅关闭",
+                        Reason = $"模式[{profileName}]清理名单命中，有窗口；结果: {r.Message}"
+                    });
                 });
             }
             else

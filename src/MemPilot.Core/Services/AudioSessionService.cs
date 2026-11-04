@@ -48,14 +48,29 @@ public class AudioSessionService
                 catch { }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // COM not available / no audio device / remote session — degrade silently.
+            // v0.9.1（复盘 P1）：旧实现静默返回空集 → 正在放歌/开会的进程会被当成"静音"，
+            // 进而进入挂起/关闭候选。这里改为 fail-safe：置 _degraded 让调用方按"全部可能发声"处理。
+            Helpers.Diag.Record("audio:enumerate", ex);
+            _degraded = true;
+        }
+        if (_degraded)
+        {
+            // 无法枚举时不能断言"谁没在发声"——把全部进程都标成发声（永不因音频而处置）。
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcesses())
+                    pids.Add(p.Id);
+            }
+            catch { }
         }
         return pids;
     }
 
-    private static bool HasMeterSupport = true; // flipped off once if meter QI never works
+    private static bool HasMeterSupport = true;
+    /// <summary>枚举降级（COM 不可用/远程会话）：此时"没检测到发声"不等于没在发声。</summary>
+    private static bool _degraded; // flipped off once if meter QI never works
 
     private const int DataFlowRender = 0;   // eRender
     private const int RoleConsole = 0;      // eConsole

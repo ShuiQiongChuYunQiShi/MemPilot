@@ -119,6 +119,8 @@ public class ProcessInfo
     public bool AudioActive { get; set; }
     public bool IsSuspended { get; set; }
     public bool ModeKeep { get; set; }  // current mode's KeepPattern match: excluded from auto-actions
+    /// <summary>窗口枚举降级时置位（此时 HasVisibleWindow 是保守假设，不是实测）。</summary>
+    public bool WindowEnumDegraded { get; set; }
     public long MemoryGrowthBytes { get; set; }  // WS growth over the tracked window (leak watch)
     // 显存（v0.3.4，PDH \GPU Process Memory）：不可用与 0 字节必须区分——
     // 采集失败时 GpuMemoryAvailable=false，UI 显示 "-" 而不是假 0（与 GpuAdapterInfo 同一红线）。
