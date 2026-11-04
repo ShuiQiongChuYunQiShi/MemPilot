@@ -40,16 +40,27 @@ public partial class MainViewModel
             SysMem = ProcessService.GetSystemMemory());
     }
 
-    /// <summary>一键压缩全部可触及进程的工作集（只压缩、不结束任何进程）。</summary>
+    /// <summary>
+    /// 一键压缩低负载后台的工作集（只压缩、不结束任何进程）。
+    /// v0.9.2：改为只压安全子集——原来传全部进程，会把游戏/AI/工作进程一起压（与 README 承诺矛盾）。
+    /// </summary>
     public async Task<string> TrimAllWorkingSetsAsync()
     {
-        var procs = _lastProcs.ToList();
+        var all = _lastProcs.ToList();
+        var audio = new HashSet<int>(all.Where(p => p.AudioActive).Select(p => p.Pid));
+        var procs = TrimSelection.BuildSafeTrimSet(all, Engine.LastForegroundPid, audio);
+        if (procs.Count == 0)
+        {
+            var none = "没有可安全压缩的进程（工作/游戏/前台/忙碌进程全部排除）。";
+            Status = none;
+            return none;
+        }
         var r = await Task.Run(() => Cleanup.TrimWorkingSets(procs)).ConfigureAwait(true);
         ReloadAudit();
         await Task.Delay(400).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
-        var msg = $"已压缩 {r.Trimmed} 个进程的工作集（{r.Failed} 个失败），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
+        var msg = $"已压缩 {r.Trimmed} 个低负载进程的工作集（{r.Failed} 个失败，跳过 {all.Count - procs.Count} 个工作/游戏/前台进程），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
         Status = msg;
         return msg;
     }

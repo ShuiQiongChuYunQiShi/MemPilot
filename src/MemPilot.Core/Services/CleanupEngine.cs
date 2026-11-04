@@ -32,27 +32,21 @@ public class CleanupEngine
 
     public record BatchTrimResult(int Trimmed, int Failed, long FreedBytes);
 
-    /// <summary>WMC 式"压缩而不杀"的选择规则：受保护/系统/安全/反作弊/驱动/自身一律跳过；
-    /// 正在干活的进程（CPU 忙）也跳过——压了只会立刻缺页回填，造成明显抖动。</summary>
-    public static bool IsTrimmableSelection(ProcessInfo p, int selfPid)
-    {
-        if (p.Pid == selfPid) return false;
-        if (p.IsProtected || p.IsSystemProcess) return false;
-        if (p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware
-            or ProcessCategory.AntiCheat or ProcessCategory.Driver) return false;
-        if (p.Memory.CpuPercent >= 5) return false;
-        return true;
-    }
-
-    /// <summary>一键压缩全部可触及进程的工作集（EmptyWorkingSet）。只压缩、不结束任何进程，
-    /// 活跃应用可能短暂缺页卡顿但会自行回填。</summary>
+    /// <summary>
+    /// 压缩给定候选集的工作集（EmptyWorkingSet）。只压缩、不结束任何进程。
+    ///
+    /// v0.9.2（三轮复盘 P2）：**不再内部筛选**——原来这里用的是全套 6 份安全判定里最弱的一份
+    /// （只看受保护/系统/安全/反作弊/驱动 + CPU），不看用途、音频、白名单、最小存活期。
+    /// 现在要求调用方传入已筛选的候选集（`TrimSelection.BuildSafeTrimSet`），
+    /// 保证"什么问题都不看"的路径不存在；自身 PID 仍然无条件排除。
+    /// </summary>
     public BatchTrimResult TrimWorkingSets(List<ProcessInfo> procs)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
-        int ok = 0, fail = 0;
+        int ok = 0, fail = 0, self = Environment.ProcessId;
         foreach (var p in procs)
         {
-            if (!IsTrimmableSelection(p, Environment.ProcessId)) continue;
+            if (p.Pid == self) continue;      // 永远不压自己
             try { _procs.TrimWorkingSet(p.Pid); ok++; }
             catch { fail++; }
         }

@@ -529,6 +529,9 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// 显存采样定时器 + PDH 查询句柄 + 引擎定时器。进程退出虽会回收，但 Dispose 存在就该有人调。</summary>
     public void Shutdown()
     {
+        // v0.9.2：决策/审计日志改为合并写，退出前必须显式落盘，否则最后 1.5 秒的记录丢失
+        try { Decisions.Flush(); } catch { }
+        try { Audit.Flush(); } catch { }
         try { LeaseApi.Dispose(); } catch { }
         try { GpuMonitor.Dispose(); } catch { }
         try { GpuMemory.Dispose(); } catch { }

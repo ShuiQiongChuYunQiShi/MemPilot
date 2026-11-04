@@ -19,6 +19,7 @@ public class DecisionLogTests : IDisposable
         var log = new DecisionLog(_dir);
         for (int i = 0; i < 30; i++)
             log.Log(new DecisionEntry { Kind = "AutoCleanup", Target = $"p{i}", Decision = "跳过", Reason = "test" });
+        log.Flush();   // v0.9.2：落盘改为合并写，重载前需显式 Flush
 
         var reloaded = new DecisionLog(_dir);
         var recent = reloaded.Recent(100);

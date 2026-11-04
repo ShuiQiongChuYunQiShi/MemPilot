@@ -4,48 +4,72 @@ using Xunit;
 
 namespace MemPilot.Tests;
 
-/// <summary>"压缩而不杀"的批量选择规则：受保护/系统/安全/反作弊/驱动/自身一律跳过。</summary>
+/// <summary>
+/// 旧的 `CleanupEngine.IsTrimmableSelection` 已在 v0.9.2 删除——它是最宽松的一份安全判定
+/// （只查受保护/系统/安全/反作弊/驱动 + CPU），与另外 5 份漂移。这里把断言迁到
+/// `TrimSelection.IsSafe`，验证收敛后语义只增不减。
+/// </summary>
 public class TrimSelectionTests
 {
-    private static ProcessInfo P(int pid, ProcessCategory cat, bool prot = false, bool sys = false)
-        => new() { Pid = pid, Name = "p" + pid, Category = cat, IsProtected = prot, IsSystemProcess = sys };
+    private static readonly DateTime Now = DateTime.Now;
+    private static readonly HashSet<int> NoAudio = new();
+
+    private static ProcessInfo P(int pid, ProcessCategory cat, bool prot = false, bool sys = false, bool svc = false)
+        => new()
+        {
+            Pid = pid, Name = "p" + pid, Category = cat,
+            IsProtected = prot, IsSystemProcess = sys, IsService = svc,
+            StartTime = Now.AddMinutes(-60),
+            Memory = new MemoryMetrics { CpuPercent = 0.5, PrivateWorkingSetBytes = 100L * 1024 * 1024 }
+        };
 
     [Fact]
     public void ProtectedOrSystemProcesses_AreNeverTrimmed()
     {
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(1, ProcessCategory.ThirdPartyApp, prot: true), 0));
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(2, ProcessCategory.SystemService, sys: true), 0));
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(3, ProcessCategory.SystemCritical), 0));
+        Assert.False(TrimSelection.IsSafe(P(1, ProcessCategory.ThirdPartyApp, prot: true), 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(P(2, ProcessCategory.SystemService, sys: true), 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(P(3, ProcessCategory.SystemCritical), 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(P(4, ProcessCategory.ThirdPartyApp, svc: true), 0, NoAudio, Now));
     }
 
     [Fact]
     public void SecurityAntiCheatDriver_AreNeverTrimmed()
     {
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(4, ProcessCategory.SecuritySoftware), 0));
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(5, ProcessCategory.AntiCheat), 0));
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(6, ProcessCategory.Driver), 0));
+        Assert.False(TrimSelection.IsSafe(P(5, ProcessCategory.SecuritySoftware), 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(P(6, ProcessCategory.AntiCheat), 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(P(7, ProcessCategory.Driver), 0, NoAudio, Now));
     }
 
     [Fact]
     public void SelfIsNeverTrimmed_OrdinaryAppsAre()
     {
-        Assert.False(CleanupEngine.IsTrimmableSelection(P(7, ProcessCategory.ThirdPartyApp), 7));
-        Assert.True(CleanupEngine.IsTrimmableSelection(P(8, ProcessCategory.ThirdPartyApp), 0));
-        Assert.True(CleanupEngine.IsTrimmableSelection(P(9, ProcessCategory.Bloatware), 0));
-        Assert.True(CleanupEngine.IsTrimmableSelection(P(10, ProcessCategory.BackgroundService), 0));
+        Assert.False(TrimSelection.IsSafe(P(8, ProcessCategory.ThirdPartyApp), 8, NoAudio, Now));
+        Assert.True(TrimSelection.IsSafe(P(9, ProcessCategory.ThirdPartyApp), 0, NoAudio, Now));
+        Assert.True(TrimSelection.IsSafe(P(10, ProcessCategory.Bloatware), 0, NoAudio, Now));
+        Assert.True(TrimSelection.IsSafe(P(11, ProcessCategory.BackgroundService), 0, NoAudio, Now));
     }
 
-    // 活性守卫：正在干活的进程不压（否则立刻缺页回填，表现为明显抖动）
     [Fact]
     public void BusyProcesses_AreSkipped_IdleOnesAreTrimmed()
     {
-        var busy = P(11, ProcessCategory.DevTool);
+        var busy = P(12, ProcessCategory.DevTool);
         busy.Memory.CpuPercent = 20;
-        Assert.False(CleanupEngine.IsTrimmableSelection(busy, 0));
+        Assert.False(TrimSelection.IsSafe(busy, 0, NoAudio, Now));
 
-        var idle = P(12, ProcessCategory.DevTool);
+        var idle = P(13, ProcessCategory.DevTool);
         idle.Memory.CpuPercent = 0.5;
-        Assert.True(CleanupEngine.IsTrimmableSelection(idle, 0));
+        idle.Workload = WorkloadKind.Other;   // 用途非 Work，才能测到 CPU 条件
+        Assert.True(TrimSelection.IsSafe(idle, 0, NoAudio, Now));
+    }
+
+    [Fact]
+    public void TrimWorkingSets_NoLongerFiltersInternally()
+    {
+        // v0.9.2：TrimWorkingSets 只保证"不压自己"，筛选责任在调用方（TrimSelection）
+        var src = File.ReadAllText(Path.Combine(
+            Directory.GetParent(TestTmp.Dir)!.FullName, "src", "MemPilot.Core", "Services", "CleanupEngine.cs"));
+        Assert.DoesNotContain("IsTrimmableSelection", src);
+        Assert.Contains("p.Pid == self", src);
     }
 }
 

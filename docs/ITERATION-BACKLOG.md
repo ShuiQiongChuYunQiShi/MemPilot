@@ -73,6 +73,15 @@ P0.1 + P0.3（同一批动 ResidentEngine/UsageRecorder）→ P0.2 → P1.4 → 
 - [x] 中文名收敛到 `WorkloadText.Of`（Models），`WorkloadClassifier.DisplayName` 委托它，避免两处各写一份。
 - 测试 239→248：规则加载/覆盖/空数组回落/损坏回落/自定义生效/用户标记优先/按路径匹配/替换与清除。
 
+### v0.9.2 — 复盘 P2/P3：结构收敛与日志配额（2026-11-04）
+
+- [x] **安全判定 6 份收敛到 1 份**：删除 `CleanupEngine.IsTrimmableSelection`（最宽松的一份：只看受保护/系统/安全/反作弊/驱动 + CPU，不看用途/音频/白名单/最小存活期）；`TrimWorkingSets` 改为**接受已筛选的候选集**，只保证"不压自己"；「一键压缩」按钮改传 `TrimSelection.BuildSafeTrimSet`（原来传全部进程，会把游戏/AI 一起压，与 README 承诺矛盾）。旧断言迁移到 `TrimSelection.IsSafe`，语义只增不减。
+- [x] **ProcessService 拆分**（577 → 434 + 167 行）：按职责拆 `ProcessService.Actions.cs` 放**处置原语**（终止/挂起/恢复/压缩/QoS/线程级），采集留在主文件。选 partial 而非新类的理由写在注释里：两者共享句柄语义与 TrustVerifier，且 40+ 调用点都写作 `_vm.ProcessService.Xxx`，换类名要改一圈、回归风险大于收益。
+- [x] **决策日志按 Kind 分桶**：Lease/AiSession/CommitRelief/ModeSwitch*/Diag 等 9 类重要记录占 800 条配额，**永不因噪声被挤掉**；淘汰顺序改为"先配额、后总量，永远优先删噪声"。**实测抓到旧实现的真缺陷**：先 `RemoveRange(0, 超出量)` 从头部切，而列表按时间追加——最早的恰恰是要保的重要记录，等于"保重要"完全失效（10 条 Lease 被 5200 条 GrowthWatch 挤没）。
+- [x] **决策日志也改合并写**（与 v0.9.1 的 AuditLogger 同策略）：原来每条 `Log` 都全量重写 5000 条，腾挪时每条动作都要写一次盘；现 1.5 秒合并 + `Flush()`，并在 `Shutdown()` 里显式落盘。
+- 测试 342→347（新增 `DecisionLogQuotaTests` 4 条：按类计数、噪声裁剪保重要、配额生效、跨重载持久化）。
+- 说明：`ProgramCatalogService` 三源拆分本轮未做——它是三个独立静态方法（注册表/lnk/安装根），文件长是因为 P/Invoke 与 COM 声明，拆开收益低于改动风险，记入待办。
+
 ### v0.9.1 — 复盘 P1：阻塞与降级路径（2026-11-04）
 
 v0.9.0 清完 8 个 P0 后，继续处理复盘里「未列前八但应进 backlog」的四项，都是"不崩但会静默失效"的类型：
