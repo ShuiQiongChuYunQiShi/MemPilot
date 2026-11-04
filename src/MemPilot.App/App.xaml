@@ -39,8 +39,18 @@
         <SolidColorBrush x:Key="WarnBg" Color="#FFF9EC"/>
         <SolidColorBrush x:Key="WarnFg" Color="#7A4B05"/>
         <SolidColorBrush x:Key="WarnInk" Color="#6B4207"/>
-        <SolidColorBrush x:Key="OkColor" Color="#12734F"/>
-        <SolidColorBrush x:Key="ShadowColor" Color="#17172B"/>
+        <!-- v0.11.0 UX 摸排 P2：MainWindow 里的 10 处硬编码 hex 收进令牌（原样值），暗色主题将来只改这里 -->
+        <SolidColorBrush x:Key="NavHoverFg" Color="#334155"/>
+        <Color x:Key="WindowShadow">#17172B</Color>
+        <SolidColorBrush x:Key="GridHeaderBg" Color="#FAFAFC"/>
+        <SolidColorBrush x:Key="GridHeaderBorder" Color="#374151"/>
+        <SolidColorBrush x:Key="GridLine" Color="#E5E7EB"/>
+        <SolidColorBrush x:Key="NoticeBg" Color="#FFF8E6"/>
+        <SolidColorBrush x:Key="NoticeBorder" Color="#F0C36D"/>
+        <SolidColorBrush x:Key="TrendAreaFill" Color="#334F46E5"/>
+        <SolidColorBrush x:Key="TimestampMuted" Color="#94A3B8"/>
+        <SolidColorBrush x:Key="HistoryAreaFill" Color="#332563EB"/>
+        <SolidColorBrush x:Key="GpuAreaFill" Color="#3355C8A5"/>
 
         <!-- ===== 字阶令牌（五档） ===== -->
         <sys:Double x:Key="FsDisplay">28</sys:Double>

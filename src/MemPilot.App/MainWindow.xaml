@@ -11,6 +11,7 @@
     <Window.Resources>
         <helpers:ByteSizeConverter x:Key="Bytes"/>
         <helpers:CollectionEmptyToVisibility x:Key="CollEmpty"/>
+        <helpers:KindTextConverter x:Key="KindText"/>
         <helpers:SignedBytesConverter x:Key="SignedBytes"/>
         <helpers:WorkloadTextConverter x:Key="WorkloadText"/>
         <helpers:IndentConverter x:Key="Indent"/>
@@ -41,7 +42,7 @@
                                     <Condition Property="IsSelected" Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBg}"/>
-                                <Setter Property="Foreground" Value="#334155"/>
+                                <Setter Property="Foreground" Value="{DynamicResource NavHoverFg}"/>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -126,7 +127,7 @@
             <Setter Property="Margin" Value="0,0,0,14"/>
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect Color="#17172B" Opacity="0.035" BlurRadius="10" ShadowDepth="1"/>
+                    <DropShadowEffect Color="{DynamicResource WindowShadow}" Opacity="0.035" BlurRadius="10" ShadowDepth="1"/>
                 </Setter.Value>
             </Setter>
         </Style>
@@ -214,7 +215,7 @@
         </Style>
 
         <Style x:Key="DgHeader" TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#FAFAFC"/>
+            <Setter Property="Background" Value="{DynamicResource GridHeaderBg}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="{StaticResource FsCaption}"/>
@@ -230,7 +231,7 @@
             <Setter Property="RowHeight" Value="28"/>
             <Setter Property="AlternatingRowBackground" Value="{DynamicResource RowAltBg}"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="#E5E7EB"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource GridLine}"/>
             <Setter Property="ColumnHeaderStyle" Value="{StaticResource DgHeader}"/>
             <Setter Property="EnableRowVirtualization" Value="True"/>
             <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
@@ -322,7 +323,7 @@
                             <!-- v0.10.0 首次运行说明：第一次打开时出现，点「知道了」后永久不再显示。
                                  不弹模态框（用户明确反感），就一条可关闭的横幅。 -->
                             <Border x:Name="FirstRunNotice" Style="{StaticResource Card}" Margin="0,0,0,10"
-                                    Background="#FFF8E6" BorderBrush="#F0C36D" BorderThickness="1"
+                                    Background="{DynamicResource NoticeBg}" BorderBrush="{DynamicResource NoticeBorder}" BorderThickness="1"
                                     Visibility="Collapsed">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -375,7 +376,7 @@
                                         <TextBlock Text="内存占用趋势（越高越紧张）" Style="{StaticResource CaptionText}"/>
                                         <Viewbox Height="56" Stretch="Fill" HorizontalAlignment="Stretch" Margin="0,4,0,0">
                                             <Canvas Width="260" Height="64" Background="{DynamicResource TrackBg}" ClipToBounds="True">
-                                                <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="#334F46E5"/>
+                                                <Polygon Points="{Binding MemoryTrendAreaPoints}" Fill="{DynamicResource TrendAreaFill}"/>
                                                 <Polyline Points="{Binding MemoryTrendPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2" StrokeLineJoin="Round"/>
                                             </Canvas>
                                         </Viewbox>
@@ -418,8 +419,8 @@
                                 <Border Grid.Column="1" Style="{StaticResource Card}" Margin="7,0,0,14">
                                     <StackPanel>
                                         <TextBlock Text="🧹 日常维护" Style="{StaticResource SectionTitle}"/>
-                                        <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,4,0,10">
-                                            可清理候选 <Run Text="{Binding UnusedCandidates.Count, Mode=OneWay}" FontWeight="Bold"/><Run Text=" 个 · 已挂起 "/><Run Text="{Binding SuspendedProcesses.Count, Mode=OneWay}" FontWeight="Bold"/><Run Text=" 个"/>
+                                        <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,4,0,10" TextWrapping="Wrap">
+                                            回收所有候选的工作集（温和，不结束任何进程）；明细与逐项处置在「可清理」页。
                                         </TextBlock>
                                         <StackPanel Orientation="Horizontal">
                                             <Button Content="回收闲置工作集" Click="Optimize_Click" Style="{StaticResource PrimaryBtn}"/>
@@ -439,7 +440,7 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <TextBlock Margin="0,3" FontSize="12" TextWrapping="Wrap">
-                                                    <Run Text="{Binding TimeText, Mode=OneWay}" Foreground="#94A3B8"/>
+                                                    <Run Text="{Binding TimeText, Mode=OneWay}" Foreground="{DynamicResource TimestampMuted}"/>
                                                     <Run Text="{Binding LineText, Mode=OneWay}"/>
                                                 </TextBlock>
                                             </DataTemplate>
@@ -549,7 +550,7 @@
                     </Grid.RowDefinitions>
                     <DockPanel Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Right" Text="右键 = 处置 · 双击 = 定位文件" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
-                        <StackPanel Orientation="Horizontal">
+                        <WrapPanel>
                             <TextBox x:Name="SearchBox" Width="200" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,5" VerticalContentAlignment="Center"/>
                             <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="按用途筛选（工作/娱乐/AI/系统/其他/未知）" SelectionChanged="WorkloadFilter_Changed">
                                 <ComboBoxItem Content="全部用途" Tag=""/>
@@ -565,17 +566,22 @@
                                 <Button.ContextMenu>
                                     <ContextMenu Opened="ColumnMenu_Opened">
                                         <!-- Tag = 稳定 id（写进 config.json），Header = 显示文本。
-                                             v0.10.0 起两者分离，否则加语言会让列设置静默重置。 -->
+                                             v0.10.0 起两者分离，否则加语言会让列设置静默重置。
+                                             v0.11.0：12 项平铺 → 4 组（标识/内存/显存/证据），组头禁用项仅作标题 -->
+                                        <MenuItem Header="标识" IsEnabled="False" FontWeight="SemiBold"/>
                                         <MenuItem Header="所属程序" Tag="program" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="显存" Tag="gpu_memory" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="内存增长" Tag="memory_growth" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="线程数" Tag="threads" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="子进程" Tag="child_count" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="窗口标题" Tag="window_title" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="厂商" Tag="vendor" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="线程数" Tag="threads" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="子进程" Tag="child_count" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="内存" IsEnabled="False" FontWeight="SemiBold"/>
+                                        <MenuItem Header="内存增长" Tag="memory_growth" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="音频" Tag="audio" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="保护" Tag="protected" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="模式保留" Tag="mode_keep" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="显存" IsEnabled="False" FontWeight="SemiBold"/>
+                                        <MenuItem Header="显存" Tag="gpu_memory" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <MenuItem Header="证据" IsEnabled="False" FontWeight="SemiBold"/>
                                         <MenuItem Header="签名" Tag="signature" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="分类依据" Tag="category_reason" IsCheckable="True" Click="ColumnToggle_Click"/>
                                     </ContextMenu>
@@ -588,7 +594,7 @@
                             <ToggleButton x:Name="ChipGame" Content="游戏" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click" Margin="0,0,4,0"/>
                             <ToggleButton x:Name="ChipAi" Content="AI" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click" Margin="0,0,4,0"/>
                             <ToggleButton x:Name="ChipUnknown" Content="未识别" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click"/>
-                        </StackPanel>
+                        </WrapPanel>
                     </DockPanel>
                     <Grid Grid.Row="1"><DataGrid x:Name="ProcessGrid" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="2" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
                         <DataGrid.RowStyle>
@@ -608,19 +614,23 @@
                         </DataGrid.RowStyle>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="L1 回收工作集（温和）" Click="CtxL1_Click"/>
-                                <MenuItem Header="L2 挂起进程（可恢复）" Click="CtxL2_Click"/>
-                                <MenuItem Header="L3 优雅关闭（先让它自己退出）" Click="CtxL3_Click"/>
-                                <MenuItem Header="L4 强制结束（需确认）" Click="CtxL4_Click"/>
+                                <MenuItem Header="处置" IsEnabled="False" FontWeight="SemiBold"/>
+                                <MenuItem Header="回收工作集 (L1)" Click="CtxL1_Click"/>
+                                <MenuItem Header="挂起 (L2，可恢复)" Click="CtxL2_Click"/>
+                                <MenuItem Header="优雅关闭 (L3)" Click="CtxL3_Click"/>
+                                <MenuItem Header="强制结束 (L4，需确认)" Click="CtxL4_Click"/>
                                 <Separator/>
                                 <MenuItem Header="恢复挂起" Click="CtxResumeProcess_Click"/>
-                                <MenuItem Header="线程 ▸ 管理线程（TID 级挂起/恢复）" Click="ManageThreads_Click"/>
+                                <MenuItem Header="管理线程 (TID 级挂起/恢复)" Click="ManageThreads_Click"/>
+                                <Separator/>
+                                <MenuItem Header="内存策略" IsEnabled="False" FontWeight="SemiBold"/>
                                 <Separator/>
                                 <MenuItem Header="降低内存优先级" Click="CtxMemPriorityLow_Click"/>
                                 <MenuItem Header="恢复内存优先级" Click="CtxMemPriorityNormal_Click"/>
                                 <MenuItem Header="开启 EcoQoS 节能" Click="CtxEcoOn_Click"/>
                                 <MenuItem Header="关闭 EcoQoS" Click="CtxEcoOff_Click"/>
                                 <Separator/>
+                                <MenuItem Header="标记" IsEnabled="False" FontWeight="SemiBold"/>
                                 <MenuItem Header="标记用途">
                                     <MenuItem Header="工作" Tag="Work" Click="CtxWorkload_Click"/>
                                     <MenuItem Header="娱乐" Tag="Entertainment" Click="CtxWorkload_Click"/>
@@ -866,7 +876,7 @@
                     <Grid><DataGrid Grid.Row="1" ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="150"/>
-                            <DataGridTextColumn Header="类别" Binding="{Binding Kind}" Width="110"/>
+                            <DataGridTextColumn Header="类别" Binding="{Binding Kind, Converter={StaticResource KindText}}" Width="110"/>
                             <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="220"/>
                             <DataGridTextColumn Header="决定" Binding="{Binding Decision}" Width="130"/>
                             <DataGridTextColumn Header="原因" Binding="{Binding Reason}" Width="*"/>
@@ -898,7 +908,7 @@
                                     <TextBlock Canvas.Left="646" Canvas.Top="2" Text="100%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <TextBlock Canvas.Left="646" Canvas.Top="72" Text="50%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <TextBlock Canvas.Left="646" Canvas.Top="142" Text="0%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
-                                    <Polygon Points="{Binding HistoryAreaPoints}" Fill="#332563EB"/>
+                                    <Polygon Points="{Binding HistoryAreaPoints}" Fill="{DynamicResource HistoryAreaFill}"/>
                                     <Polyline Points="{Binding HistoryPoints}" Stroke="{DynamicResource AccentBlue}" StrokeThickness="2.5" StrokeLineJoin="Round"/>
                                 </Canvas>
                                 </Viewbox>
@@ -917,7 +927,7 @@
                                     <TextBlock Canvas.Left="646" Canvas.Top="2" Text="100%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <TextBlock Canvas.Left="646" Canvas.Top="72" Text="50%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
                                     <TextBlock Canvas.Left="646" Canvas.Top="142" Text="0%" FontSize="9" Foreground="{DynamicResource TextSecondary}"/>
-                                    <Polygon Points="{Binding GpuHistoryAreaPoints}" Fill="#3355C8A5"/>
+                                    <Polygon Points="{Binding GpuHistoryAreaPoints}" Fill="{DynamicResource GpuAreaFill}"/>
                                     <Polyline Points="{Binding GpuHistoryPoints}" Stroke="{DynamicResource AccentGreen}" StrokeThickness="2.5" StrokeLineJoin="Round"/>
                                 </Canvas>
                                 </Viewbox>
@@ -1012,8 +1022,9 @@
                                    Visibility="{Binding AuditEntries, Converter={StaticResource CollEmpty}}"/></Grid>
             </TabItem>
 
-            <!-- ============ 线程 ============ -->
             <!-- ============ 模式 ============ -->
+            
+            <TextBlock Text="高级" Style="{StaticResource NavGroup}"/>
             <TabItem Header="💬  反馈记录" Tag="feedback" Style="{StaticResource NavTab}">
                 <Grid Margin="14,14,14,0">
                     <Grid.RowDefinitions>
@@ -1044,8 +1055,6 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
-
-            <TextBlock Text="高级" Style="{StaticResource NavGroup}"/>
             <TabItem Header="🎚️  模式" Tag="mode" Style="{StaticResource NavTab}">
                 <!-- v0.11.0：标题移到页首（原来在第一张卡片下面，顺序倒置）；整页包 ScrollViewer（矮窗口时下半页不可达） -->
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

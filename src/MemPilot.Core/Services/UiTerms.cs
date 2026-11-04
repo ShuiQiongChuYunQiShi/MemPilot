@@ -58,4 +58,26 @@ public static class UiTerms
         "L0Purge" => "清理备用列表 (L0)",
         _ => level,
     };
+
+    /// <summary>决策日志 Kind 的中文名（v0.11.0 P2-4：日志页不再亮内部枚举值）。</summary>
+    public static string OfKind(string kind) => kind switch
+    {
+        "Lease" => "租约",
+        "AiSession" => "AI 会话",
+        "CommitRelief" => "提交兜底",
+        "CommitWatch" => "提交观察",
+        "ModeSwitch" => "模式切换",
+        "ModeSwitchSuppressed" => "模式切换抑制",
+        "ModeSwitchStorm" => "模式切换风暴",
+        "RuleAudit" => "规则体检",
+        "PromoteRule" => "规则晋升建议",
+        "Diag" => "诊断",
+        "GrowthWatch" => "内存增长观察",
+        "SceneShadow" => "场景影子",
+        "HabitHint" => "时段提醒",
+        "AutoCleanup" => "自动清理",
+        "AutoJunkSweep" => "常驻垃圾清扫",
+        "AutoOptimize" => "系统内存自动优化（已废弃）",
+        _ => kind,
+    };
 }

@@ -4,6 +4,27 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.12.0] — UX overhaul round 2 (polish)
+
+### Changed
+- **Theme tokens**: the 10 hardcoded hex colors scattered in MainWindow.xaml
+  (nav hover, grid header, gridlines, notice banner, chart fills, timestamps)
+  are now semantic brushes in App.xaml — dark theme becomes a token-swap instead
+  of a hunt. Dead/duplicate tokens removed. One guard test caught a real crash
+  during this change (`DropShadowEffect.Color` cannot take a brush — it needs a
+  `<Color>` resource).
+- **Context menu regrouped**: the process grid's 17 flat items are now 4 groups
+  (处置 / 内存策略 / 标记 / 线程) with disabled group headers, using the unified
+  terminology.
+- **Column settings menu grouped**: 12 flat items → 标识 / 内存 / 显存 / 证据.
+- **Navigation regrouped**: 反馈记录 moved from 观测 to 高级 (it is user data +
+  rule maintenance, not observation); emoji separators normalized; dead comment
+  removed.
+- **Decisions page Kind column** is now Chinese (`GrowthWatch` → 内存增长观察,
+  15 kinds mapped in `UiTerms.OfKind`); the process toolbar wraps instead of
+  overflowing; the home page no longer shows the same two counts twice
+  (日常维护 card now explains what the action does instead).
+
 ## [0.11.0] — UX overhaul round 1
 
 A full UI/interaction/notification audit produced this batch: 10 layout/logic
