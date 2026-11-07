@@ -53,7 +53,9 @@ jobs:
         run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/MemPilot-$env:VERSION-portable.zip"
 
       - name: Publish self-contained single exe
-        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:SatelliteResourceLanguages=zh-Hans%3Ben -o dist/single -v q
+        # v0.13.0 实测：SatelliteResourceLanguages=zh-Hans%3Ben 会让 .NET 10 WPF 单文件启动即崩
+        # （0xC000041D，WPF 早期初始化，全局异常捕获都来不及写 crash.log）——参数移除，体积保持 65MB。
+        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/single -v q
 
       - name: Stage single exe
         shell: pwsh
