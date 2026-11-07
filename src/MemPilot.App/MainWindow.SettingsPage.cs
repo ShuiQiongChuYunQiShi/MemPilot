@@ -51,7 +51,6 @@ public partial class MainWindow : Window
         SetLeasePort.Text = _config.Config.LeaseApiPort.ToString();
         SetLeaseToken.Text = _vm.LeaseToken;
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
-        SetSkipFullscreen.IsChecked = _config.Config.SkipOptimizeInFullscreen;
         SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
         SelectGpuInterval(_config.Config.GpuSampleIntervalSeconds);
         SetAutoStart.IsChecked = StartupService.IsAutoStart();
@@ -129,7 +128,6 @@ public partial class MainWindow : Window
         if (int.TryParse(SetLeasePort.Text, out var leasePort) && leasePort is >= 1024 and <= 65535)
             _config.Config.LeaseApiPort = leasePort;
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
-        _config.Config.SkipOptimizeInFullscreen = SetSkipFullscreen.IsChecked == true;
         _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;
         _config.Config.GpuSampleIntervalSeconds = SelectedGpuInterval();
         if (AutoSwitchCheck != null) _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;

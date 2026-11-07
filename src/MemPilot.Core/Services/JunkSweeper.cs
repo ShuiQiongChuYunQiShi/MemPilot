@@ -54,11 +54,14 @@ public static class JunkSweeper
 
             // v0.9.0：自动清扫**永不出 L4**——旧实现对无窗口垃圾直接强杀，
             // 而 UI 的「低风险模式」文案写的是"不会结束进程"，两者自相矛盾（三轮复盘 P0）。
-            // 现在最多 L3 优雅关闭（程序有机会保存数据），需要强杀一律由人工在进程页操作。
+            // v0.13.0（四轮复盘，门控反转修正）：**有窗口 → L3，无窗口 → L1**。
+            // 旧写法正好相反：WM_CLOSE 只对有窗口进程有意义；实测 11-05 对无窗口的
+            // wps/wetype_update/lghub_updater 优雅关闭全部 8 秒超时（Exited:false）。
+            // CleanupEngine.BuildPlan:256-267 一直是正确版本，两份门控在此收敛。
             if (p.HasVisibleWindow)
-                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L1Trim, reason + "；有窗口，仅回收工作集", evidence));
+                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L3GracefulClose, reason + "；有窗口，优雅关闭（不强制结束）", evidence));
             else
-                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L3GracefulClose, reason + "；无窗口，优雅关闭（不强制结束）", evidence));
+                plan.Add(new JunkSweepItem(p, CleanupActionLevel.L1Trim, reason + "；无窗口（WM_CLOSE 无效），仅回收工作集", evidence));
         }
         return plan;
     }

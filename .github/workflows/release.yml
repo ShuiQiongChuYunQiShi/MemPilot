@@ -53,7 +53,7 @@ jobs:
         run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/MemPilot-$env:VERSION-portable.zip"
 
       - name: Publish self-contained single exe
-        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/single -v q
+        run: dotnet publish src/MemPilot.App/MemPilot.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:SatelliteResourceLanguages="zh-Hans;en" -o dist/single -v q
 
       - name: Stage single exe
         shell: pwsh

@@ -40,9 +40,51 @@ public sealed class GpuMonitor : IDisposable
     /// <summary>最近一次失败原因（成功时为空）。</summary>
     public string LastError { get; private set; } = "";
 
+    private readonly string _sessionFile;
+
     public GpuMonitor(string dataDir, int retentionDays = 30)
     {
         _recorder = new GpuRecorder(dataDir, retentionDays);
+        _sessionFile = System.IO.Path.Combine(dataDir, "ai-session.json");
+        TryRestoreSession();
+    }
+
+    // ---- AI 会话状态持久化（v0.13.0，四轮复盘）----
+    // 实测 11 个"开始"无"结束"全是重启 artifact。会话开始时落盘、结束时删除、
+    // 启动时恢复——重启不再把一个 312 分钟的会话劈成两段。
+
+    private void TryRestoreSession()
+    {
+        try
+        {
+            if (!System.IO.File.Exists(_sessionFile)) return;
+            var summary = System.Text.Json.JsonSerializer.Deserialize<AiSessionSummary>(
+                System.IO.File.ReadAllText(_sessionFile));
+            if (summary != null && Session.TryRestore(summary))
+                LastError = ""; // 恢复成功不打扰用户；决策记录由 VM 在下一次结束时给出完整时长
+        }
+        catch (Exception ex)
+        {
+            try { Helpers.Diag.Record("ai-session-restore", ex); } catch { }
+        }
+    }
+
+    private void SaveSessionState(AiSessionSummary? summary)
+    {
+        try
+        {
+            if (summary == null)
+            {
+                if (System.IO.File.Exists(_sessionFile)) System.IO.File.Delete(_sessionFile);
+                return;
+            }
+            System.IO.File.WriteAllText(_sessionFile,
+                System.Text.Json.JsonSerializer.Serialize(summary));
+        }
+        catch (Exception ex)
+        {
+            try { Helpers.Diag.Record("ai-session-save", ex); } catch { }
+        }
     }
 
     public void Start(int intervalSeconds, Func<bool> enabled,
@@ -77,6 +119,7 @@ public sealed class GpuMonitor : IDisposable
                 if (Session.Active && Session.Current is { } open)
                 {
                     open.EndUtc = DateTime.UtcNow;
+                    SaveSessionState(null);   // v0.13.0：结束时同步清掉持久化文件
                     AiSessionChanged?.Invoke(open, false);
                 }
                 return;
@@ -97,8 +140,16 @@ public sealed class GpuMonitor : IDisposable
 
             // AI 会话检测（用刚写出的样本，保证与会话历史一致）
             var update = Session.Push(Last.Used, Last.Total, Last.T, Last.Top, _commitFreePct?.Invoke());
-            if (update.Event != AiSessionEvent.None)
-                AiSessionChanged?.Invoke(update.Summary!, update.Event == AiSessionEvent.Started);
+            if (update.Event == AiSessionEvent.Started)
+            {
+                SaveSessionState(update.Summary);
+                AiSessionChanged?.Invoke(update.Summary!, true);
+            }
+            else if (update.Event == AiSessionEvent.Ended)
+            {
+                SaveSessionState(null);
+                AiSessionChanged?.Invoke(update.Summary!, false);
+            }
             LastError = snap.Available ? "" : (_mem.LastDiag.Length > 0 ? _mem.LastDiag : "gpu memory unavailable");
             if (!snap.Available && !_reportedUnavailable)
             {

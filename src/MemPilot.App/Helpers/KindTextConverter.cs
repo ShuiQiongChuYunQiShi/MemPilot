@@ -12,7 +12,13 @@ namespace MemPilot.Helpers;
 public class KindTextConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => UiTerms.OfKind(value as string ?? "");
+    {
+        var s = value as string ?? "";
+        // 决策 Kind 与审计 Action/Level 共用一个转换器：先查 Action 映射，再查 Kind 映射
+        var action = UiTerms.OfAction(s);
+        if (action != s) return action;
+        return UiTerms.OfKind(s);
+    }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

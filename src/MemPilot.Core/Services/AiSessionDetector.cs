@@ -48,6 +48,26 @@ public sealed class AiSessionDetector
     public bool Active => _current != null;
     public AiSessionSummary? Current => _current;
 
+    // ---- 会话状态持久化（v0.13.0，四轮复盘）----
+    // 实测：11 个"开始"无"结束"全部是重启 artifact——检测器单槽正确，
+    // 但进程重启把 _current 清零，同一个 312 分钟会话被劈成两段。
+    // GpuMonitor 在会话开始/结束时调用 Save/Clear；启动时 TryRestore 续上未闭合会话。
+
+    /// <summary>导出当前会话（无活跃会话返回 null）。JSON 形状供 GpuMonitor 落盘。</summary>
+    public AiSessionSummary? ExportState() => _current is null ? null : Clone(_current);
+
+    /// <summary>
+    /// 恢复一个未闭合会话（应用重启后调用）。恢复的是"会话本体"——开始时间/峰值保持原值，
+    /// 使下一段结束判定能闭合**原始**会话。已处于活跃会话时拒绝（幂等）。
+    /// </summary>
+    public bool TryRestore(AiSessionSummary persisted)
+    {
+        if (_current != null || persisted.EndUtc != null) return false;
+        _current = Clone(persisted);
+        _used.Clear();   // 重启后窗口无意义，重新攒结束判定的样本
+        return true;
+    }
+
     public AiSessionDetector(int window = 5, int quorum = 3)
     {
         _window = Math.Max(3, window);

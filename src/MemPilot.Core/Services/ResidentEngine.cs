@@ -122,6 +122,7 @@ public partial class ResidentEngine
         WatchMemoryGrowth(procs);
         WatchCommitPressure(mem);
         WatchCommitRelief(procs, mem);   // v0.5.0：提交余量兜底（分级 + 安全子集）
+        WatchAvailableFloor(procs, mem); // v0.13.0：低可用兜底（四轮复盘 P1，数据驱动新触发器）
         CheckHabitHint();
         _behaviors?.Observe(procs);
         if (cfg.AutoJunkSweepEnabled) AutoJunkSweep(procs);

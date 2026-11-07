@@ -23,16 +23,4 @@ public class ModeManager
         if (prof.Priority.TryGetValue(p.Category, out var pr) && pr >= 8) return true;
         return false;
     }
-    public bool ShouldClean(ProcessInfo p)
-    {
-        var prof = Profile;
-        var name = p.Name.ToLowerInvariant();
-        var path = p.ExecutablePath.ToLowerInvariant();
-        foreach (var pat in prof.CleanPatterns)
-        {
-            if (name.Contains(pat.ToLowerInvariant()) || path.Contains(pat.ToLowerInvariant())) return true;
-        }
-        if (prof.Priority.TryGetValue(p.Category, out var pr) && pr <= 2) return true;
-        return false;
-    }
 }

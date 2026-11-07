@@ -80,4 +80,35 @@ public static class UiTerms
         "AutoOptimize" => "系统内存自动优化（已废弃）",
         _ => kind,
     };
+
+    /// <summary>审计 Action/Level 的中文名（v0.13.0：审计页不再亮内部枚举）。</summary>
+    public static string OfAction(string action) => action switch
+    {
+        "L1TrimAll" => "回收闲置工作集",
+        "L1Trim" => "回收工作集",
+        "L2Suspend" => "挂起",
+        "Resume" => "恢复挂起",
+        "L3GracefulClose" => "优雅关闭",
+        "L3Request" => "优雅关闭（请求确认）",
+        "L4ForceKill" => "强制结束",
+        "CommitRelief" => "提交兜底",
+        "ModeSwitch" => "模式切换",
+        "AutoJunkSweep" => "常驻垃圾清扫",
+        "AutoOptimize" => "系统内存自动优化（已废弃）",
+        "FloorTrim" => "低可用兜底",
+        _ => action,
+    };
+
+    public static string OfLevel2(string level) => level switch
+    {
+        "L0Purge" => "清备用列表 (L0)",
+        "L0Purge+L1Trim" => "清备用列表失败→压缩 (L0+L1)",
+        "L1Trim" => "回收工作集 (L1)",
+        "L2Suspend" => "挂起 (L2)",
+        "L3GracefulClose" => "优雅关闭 (L3)",
+        "L3Request" => "请求确认 (L3)",
+        "L4ForceKill" => "强制结束 (L4)",
+        "Auto" => "自动",
+        _ => level,
+    };
 }

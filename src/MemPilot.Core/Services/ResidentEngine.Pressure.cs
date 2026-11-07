@@ -60,12 +60,14 @@ public partial class ResidentEngine
         var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
 
         // v0.10.0（开源前正确性修复）：**先判权限，再说执行**。
-        // 旧实现对 CleanAreas 的返回值视而不见，标准用户下 NtSetSystemInformation 返回
-        // STATUS_PRIVILEGE_NOT_HELD、什么也没做，决策日志仍写"执行"——这是"日志说谎"。
-        // 现在：缺管理员权限 → 直接写"跳过"，一次都不调。
+        // v0.13.0（第四轮复盘）：**失败不吃冷却**——旧实现 `_lastReliefUtc` 无条件赋值，
+        // 一次失败的 PurgeStandby 占住 2 分钟冷却、10 分钟重复周期，救援梯被死动作堵住
+        // （实测 11-04 15:53 起连续 4 次 0xC0000061 失败期间，TrimSafe 一次都没跟上）。
+        // 现在失败 → 本 tick 立即落到 TrimSafe；只有有正收益的动作才吃冷却。
         string decision;
         string detail;
         string level;
+        bool reliefDelivered = false;
         if (action == ReliefAction.PurgeStandby && !_memCleaner.IsAdmin())
         {
             level = "L0Purge";
@@ -79,21 +81,33 @@ public partial class ResidentEngine
             var purge = _memCleaner.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
             bool ok = purge.TryGetValue(MemoryArea.StandbyListLowPriority, out var r1) && r1.success;
             decision = ok ? "执行" : "失败";
+            reliefDelivered = ok;
             detail = ok
                 ? $"清理低优先级备用列表（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB，10 分钟增长 {growthGb:F1} GB）"
                 : $"清理低优先级备用列表失败：{(r1.message ?? "未知原因")}（提交余量 {commitFreePct:F1}%，可用 {freeGb:F1} GB）";
+            if (!ok)
+            {
+                // 失败立即升级 TrimSafe（数据依据：TrimSafe 4/4 生效全持续 >5min；PurgeStandby 9 成功里 8 次 0MB）
+                var rEsc = _cleanup.TrimWorkingSets(safeSet);
+                detail += $"；已立即升级安全子集压缩 {rEsc.Trimmed} 个（物理可用 +{rEsc.FreedBytes / 1048576.0:F0} MB）";
+                level = "L0Purge+L1Trim";
+                reliefDelivered = rEsc.Trimmed > 0;
+            }
         }
         else if (action == ReliefAction.RequestL3 && CommitReliefL3Suggested != null)
         {
             // 唯一能真正降低提交计数的动作：结束闲置后台。候选限制 8 个、只来自安全子集。
-            var candidates = safeSet.Take(8).ToList();
+            // v0.13.0：候选必须有可见窗口——无窗口进程对 WM_CLOSE 是空操作
+            // （实测 11-05 05:25 关闭 wps/wetype_update/lghub_updater 全部 Exited:false）。
+            var candidates = safeSet.Where(p => p.HasVisibleWindow).Take(8).ToList();
             long reclaim = candidates.Sum(p => p.Memory.PrivateBytes);
             if (candidates.Count == 0)
             {
                 level = "L1Trim";
                 var r0 = _cleanup.TrimWorkingSets(safeSet);
                 decision = "执行";
-                detail = $"没有可关闭的闲置后台，退回安全子集压缩 {r0.Trimmed} 个（物理可用 +{r0.FreedBytes / 1048576.0:F0} MB；注意：压缩不降提交）";
+                reliefDelivered = r0.Trimmed > 0;
+                detail = $"没有可优雅关闭的闲置后台（候选均无可见窗口），退回安全子集压缩 {r0.Trimmed} 个（物理可用 +{r0.FreedBytes / 1048576.0:F0} MB；注意：压缩不降提交）";
             }
             else
             {
@@ -108,13 +122,17 @@ public partial class ResidentEngine
             level = "L1Trim";
             var r = _cleanup.TrimWorkingSets(safeSet);
             decision = "执行";
+            reliefDelivered = r.Trimmed > 0;
             detail = $"安全子集压缩 {r.Trimmed} 个低负载进程（排除 {procs.Count - safeSet.Count} 个：工作/游戏/前台/忙碌/系统），回收 {r.FreedBytes / 1048576.0:F0} MB（仅物理，不降提交）";
         }
 
         var after = _probe.GetSystemMemory();
         long delta = Math.Max(0, after.AvailablePhysicalBytes - before);
-        _lastReliefUtc = DateTime.UtcNow;
-        _lastReliefAction = action;
+        if (reliefDelivered)
+        {
+            _lastReliefUtc = DateTime.UtcNow;
+            _lastReliefAction = action;
+        }
         _audit.Log(new AuditEntry
         {
             Action = "CommitRelief",
@@ -136,16 +154,68 @@ public partial class ResidentEngine
 
     // ---- memory growth watch (leak-ish behavior lands in the decision log, never in actions) ----
 
+    // ---- 低可用兜底（v0.13.0，四轮复盘 P1）----
+    private DateTime _lastFloorTrimUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// 数据依据：11 天效果审计——L1TrimAll 29/29 成功、中位回收 1924 MB、大额全兑现且 >5min 持续；
+    /// 而 11-04 15:53（可用 509MB）与 11-05 05:24（1.94GB）两个危机时刻，救援梯被失败的
+    /// PurgeStandby 堵住，什么都没做。本触发器独立于 CommitRelief 状态机：
+    /// **可用 <3GB 或 提交余量 <10%**（单采样确认，间隔 10 分钟去重）→ 直接执行安全子集压缩。
+    /// 前台全屏跳过（与 AutoOptimize/CommitRelief 的守门一致）。
+    /// </summary>
+    private void WatchAvailableFloor(List<ProcessInfo> procs, SystemMemoryInfo mem)
+    {
+        double availGb = mem.AvailablePhysicalBytes / 1073741824.0;
+        double commitFreeGb = (mem.TotalCommitLimitBytes - mem.TotalCommittedBytes) / 1073741824.0;
+        double limitGb = mem.TotalCommitLimitBytes / 1073741824.0;
+        bool floorHit = availGb < 3.0 || (limitGb > 0 && commitFreeGb / limitGb * 100 < 10);
+        if (!floorHit) return;
+        if (ForegroundFullscreen) return;                       // 游戏/全屏不动作
+        if ((DateTime.UtcNow - _lastFloorTrimUtc).TotalMinutes < 10) return;   // 去重
+
+        var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
+        if (safeSet.Count == 0) return;
+
+        long before = mem.AvailablePhysicalBytes;
+        var r = _cleanup.TrimWorkingSets(safeSet);
+        _lastFloorTrimUtc = DateTime.UtcNow;
+        _lastReliefUtc = DateTime.UtcNow;       // 同时压制 CommitRelief 在同一时刻重复触发
+        _lastReliefAction = ReliefAction.TrimSafe;
+        var after = _probe.GetSystemMemory();
+        long delta = Math.Max(0, after.AvailablePhysicalBytes - before);
+
+        string trigger = availGb < 3.0 ? $"可用 {availGb:F1} GB < 3 GB" : $"提交余量 <10%";
+        _audit.Log(new AuditEntry
+        {
+            Action = "CommitRelief",
+            Target = "FloorTrim",
+            Level = "L1Trim",
+            Result = $"低可用兜底：{trigger}，安全子集压缩 {r.Trimmed} 个（排除 {procs.Count - safeSet.Count} 个），可用 +{delta / 1048576.0:F0} MB",
+            MemoryBeforeBytes = before,
+            MemoryAfterBytes = after.AvailablePhysicalBytes
+        });
+        _decisions.Log(new DecisionEntry
+        {
+            Kind = "CommitRelief",
+            Target = "FloorTrim",
+            Decision = "执行",
+            Reason = $"低可用兜底触发（{trigger}）；压缩 {r.Trimmed} 个安全子集，实测可用 +{delta / 1048576.0:F0} MB"
+        });
+    }
+
+
     private void WatchMemoryGrowth(List<ProcessInfo> procs)
     {
-        const long ThresholdBytes = 512L * 1024 * 1024;
+        const long ThresholdBytes = 800L * 1024 * 1024;   // v0.13.0：512→800MB（23 条/天多为常态波动，无一被跟进）
         var now = DateTime.UtcNow;
         foreach (var p in procs)
         {
             if (p.MemoryGrowthBytes < ThresholdBytes) continue;
             // v0.9.0 降噪：同一进程每天最多 1 条（实测 290 条 GrowthWatch 里同一 PID 重复 18 次，
             // 且从不动作——它只是提示）。想看增长趋势请去历史页。
-            if (_lastGrowthLogUtc.TryGetValue(p.StateKey, out var last) && (now - last).TotalHours < 24) continue;
+            if (_lastGrowthLogUtc.TryGetValue(p.StateKey, out var last) && (now - last).TotalHours < 48) continue;   // v0.13.0：1 天→2 天
             _lastGrowthLogUtc[p.StateKey] = now;
             _decisions.Log(new DecisionEntry
             {
@@ -242,7 +312,8 @@ public partial class ResidentEngine
             int nextHour = (nowLocal.Hour + 1) % 24;
             var hp = _habit.ForHour(nextHour);
             if (hp == null || hp.Level is not (PressureLevel.Tight or PressureLevel.Critical)) return;
-            if (_lastHabitHintHour == nextHour && (nowLocal - _lastHabitHintUtc).TotalHours < 6) return;
+            // v0.13.0：冷却 6h → 24h（四轮复盘效果审计：111 次发射零用户响应，降为每日 1 条）
+            if (_lastHabitHintHour == nextHour && (nowLocal - _lastHabitHintUtc).TotalHours < 24) return;
 
             _lastHabitHintHour = nextHour;
             _lastHabitHintUtc = nowLocal;

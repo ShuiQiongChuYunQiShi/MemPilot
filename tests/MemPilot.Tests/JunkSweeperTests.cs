@@ -29,12 +29,14 @@ public class JunkSweeperTests
             whitelist ?? Array.Empty<string>(), minAgeSeconds: 120);
 
     [Fact]
-    public void BloatwareHeadless_IsGracefullyClosed_NeverKilled()
+    public void BloatwareHeadless_NeverKilled_IsOnlyTrimmed()
     {
         // v0.9.0：自动清扫永不 L4（UI 的"低风险模式"文案曾与静默强杀矛盾）
+        // v0.13.0（四轮复盘）：无窗口进程对 WM_CLOSE 是空操作（实测 4 次优雅关闭全部超时）——
+        // 门控反转：无窗口垃圾从 L3 改为 L1，永不变 L4。
         var plan = Plan(new() { P(1, "wetype_update", ProcessCategory.Bloatware) });
         var item = Assert.Single(plan);
-        Assert.Equal(CleanupActionLevel.L3GracefulClose, item.Action);
+        Assert.Equal(CleanupActionLevel.L1Trim, item.Action);
         Assert.Contains("垃圾常驻", item.Reason);
         Assert.DoesNotContain("直接结束", item.Reason);
     }
@@ -56,12 +58,13 @@ public class JunkSweeperTests
     }
 
     [Fact]
-    public void BloatwareWithWindow_IsOnlyTrimmed()
+    public void BloatwareWithWindow_GetsGracefulClose()
     {
+        // v0.13.0（四轮复盘）：有窗口才能响应 WM_CLOSE → L3；旧实现（L1）与无窗口门控写反了
         var plan = Plan(new() { P(1, "wps", ProcessCategory.Bloatware, window: true) });
         var item = Assert.Single(plan);
-        Assert.Equal(CleanupActionLevel.L1Trim, item.Action);
-        Assert.Contains("仅回收工作集", item.Reason);
+        Assert.Equal(CleanupActionLevel.L3GracefulClose, item.Action);
+        Assert.Contains("优雅关闭", item.Reason);
     }
 
     [Fact]
@@ -74,7 +77,7 @@ public class JunkSweeperTests
         });
         var item = Assert.Single(plan);
         Assert.Equal("QQLiveService", item.Process.Name);
-        Assert.Equal(CleanupActionLevel.L3GracefulClose, item.Action);
+        Assert.Equal(CleanupActionLevel.L1Trim, item.Action);   // v0.13.0：无窗口孤儿 → L1
         Assert.Contains("宿主 qqlive 已退出", item.Reason);
     }
 

@@ -90,8 +90,17 @@ public class CleanupEngine
             switch (level)
             {
                 case CleanupActionLevel.L1Trim:
-                    _procs.TrimWorkingSet(p.Pid);
-                    result = "工作集已回收";
+                    {
+                        // v0.13.0 遥测修复：记录被压缩进程自己的私有工作集差值（旧的全局
+                        // Before/After 在 0.6s 窗口里全是系统噪声，出现"回收后可用反而降"的假账）
+                        long wsBefore = _procs.ReadPrivateWorkingSet(p.Pid);
+                        _procs.TrimWorkingSet(p.Pid);
+                        System.Threading.Thread.Sleep(300);
+                        long wsAfter = _procs.ReadPrivateWorkingSet(p.Pid);
+                        result = wsBefore > 0 && wsAfter >= 0
+                            ? $"工作集已回收（该进程私有工作集 {wsBefore / 1048576.0:F0} → {wsAfter / 1048576.0:F0} MB）"
+                            : "工作集已回收";
+                    }
                     break;
                 case CleanupActionLevel.L2Suspend:
                     _procs.SuspendProcess(p.Pid);
@@ -184,6 +193,11 @@ public class CleanupEngine
 
     private (bool exited, string message) GracefulClose(ProcessInfo p, int timeoutSec, bool escalateToKill)
     {
+        // v0.13.0（四轮复盘）：空句柄快速失败——无窗口进程对 WM_CLOSE 是空操作，
+        // 烧满 8 秒超时只会得到必然的失败（实测 4 次全部 Exited:false）。
+        if (!_procs.HasVisibleWindows(p.Pid))
+            return (false, "进程无可见窗口，无法优雅关闭（WM_CLOSE 无作用对象）；请用回收工作集或手动强制结束");
+
         _procs.PostCloseToWindows(p.Pid);
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSec);
         while (DateTime.UtcNow < deadline)

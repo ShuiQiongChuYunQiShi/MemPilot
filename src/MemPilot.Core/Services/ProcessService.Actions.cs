@@ -73,6 +73,34 @@ public partial class ProcessService
         return handles;
     }
 
+    /// <summary>进程当前是否有可见顶层窗口（v0.13.0：GracefulClose 快速失败的判定）。</summary>
+    public bool HasVisibleWindows(int pid) => GetProcessWindowHandles(pid).Count > 0;
+
+    /// <summary>
+    /// 读单个进程当前私有工作集（v0.13.0：L1Trim 遥测修复）。
+    /// 失败返回 -1（AccessDenied/已退出）。旧审计用全局可用内存做前后差，
+    /// 测量窗口 ~0.6s 内系统噪声比单进程回收量还大——出现"可用内存反而下降却记成功"。
+    /// 现在直接测被压缩进程自己的工作集差值，账本才与事实一致。
+    /// </summary>
+    public long ReadPrivateWorkingSet(int pid)
+    {
+        try
+        {
+            var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_INFORMATION | 0x0100, false, pid);
+            if (h == IntPtr.Zero) return -1;
+            try
+            {
+                var counters = new NativeMethods.PROCESS_MEMORY_COUNTERS_EX2();
+                counters.cb = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.PROCESS_MEMORY_COUNTERS_EX2>();
+                return NativeMethods.K32GetProcessMemoryInfo(hProcess: h, ref counters, counters.cb)
+                    ? (long)counters.PrivateWorkingSetSize
+                    : -1;
+            }
+            finally { NativeMethods.CloseHandle(h); }
+        }
+        catch { return -1; }
+    }
+
     public void PostCloseToWindows(int pid)
     {
         foreach (var h in GetProcessWindowHandles(pid))

@@ -29,7 +29,7 @@ $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
 if (-not $cert) { Write-Output 'NO_CERT - run tools/sign.ps1 -Create once (elevated)'; exit 1 }
 
 if (-not $TargetPath) {
-  $paths = Get-ChildItem (Join-Path $PSScriptRoot '..\src\MemoryTool.App\bin\Release\net10.0-windows') -Filter *.exe -ErrorAction SilentlyContinue
+  $paths = Get-ChildItem (Join-Path $PSScriptRoot '..\src\MemPilot.App\bin\Release\net10.0-windows') -Filter *.exe -ErrorAction SilentlyContinue
 } else {
   $paths = Get-Item $TargetPath -ErrorAction SilentlyContinue
 }

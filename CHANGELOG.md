@@ -4,6 +4,63 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.13.0] — fourth retrospective: engine effectiveness
+
+A deep retrospective combined 11-day action-effectiveness audit with root-cause
+analysis. Headline: the tool's best mechanism (safe-subset trim, 4/4 measured
+successes, mean +2.7 GB) had been idling behind a broken purge, and the rescue
+ladder could be deadlocked by a single failing action.
+
+### Fixed (root causes)
+- **Standby-list purge failed 4× in a row with `STATUS_PRIVILEGE_NOT_HELD`.**
+  `IsAdmin()` checks the role; the memory-list command requires
+  `SeProfileSingleProcessPrivilege` to be *enabled* in the token. The process
+  now enables it via `AdjustTokenPrivileges` (idempotent, diagnostic recorded),
+  and failures report the symbolic NTSTATUS name instead of a hex code.
+- **A failed action consumed the cooldown.** `_lastReliefUtc` was assigned
+  unconditionally, so one failing purge blocked the whole escalation ladder for
+  2 minutes (and the repeat cycle for 10). Failures no longer set the cooldown;
+  a failed purge immediately escalates to the safe-subset trim in the same tick.
+- **JunkSweeper's L1/L3 gate was inverted** — windowed junk got a trim and
+  windowless junk got graceful close, which is a guaranteed 8-second no-op
+  (WM_CLOSE needs a window; measured 4/4 timeouts). Direction corrected; the
+  old tests asserting the inverted behavior were updated, not kept green.
+- **L3 candidates and execution both gate on visible windows now**: candidates
+  are filtered to `HasVisibleWindow`, and `GracefulClose` fails fast ("进程无
+  可见窗口…") instead of burning the full timeout.
+
+### Added
+- **AI session persistence**: an open session is written to `ai-session.json`
+  on start, deleted on end, restored on launch — 11 unclosed sessions in the
+  data were all restart artifacts; restarts no longer split one 312-minute
+  session into two.
+- **Low-available floor trigger**: avail < 3 GB or commit margin < 10% → run
+  the proven batch trim immediately (10-minute dedup, fullscreen gate). This
+  would have caught both crisis moments the broken purge path missed
+  (Nov 4 509 MB, Nov 5 1.94 GB).
+- Guard tests for all of the above (7 new).
+
+### Changed
+- **FeedbackStore is copy-on-write.** UI writes raced the engine's background
+  classify loop over an unlocked `List` (torn reads, "collection modified").
+  Reads are now lock-free over a `volatile` snapshot; writes rebuild it.
+- Noise: HabitHint cooldown 6 h → 24 h (111 firings, zero measured user
+  response); GrowthWatch threshold 512 → 800 MB and per-PID cooldown 1 → 2 days.
+- **Honest per-process trim telemetry**: the audit recorded global available
+  memory before/after a ~0.6 s window — after could be *lower* than before
+  while claiming success. It now records the trimmed process's own private
+  working set delta.
+- Dark theme swap table extended from 17 to all 38 semantic tokens (v0.12's
+  new tokens left the whole nav rail, grid headers, banners and charts light).
+- Audit page's 操作/级别 columns are localized (`UiTerms.OfAction`).
+- Dead code removed (`ModeManager.ShouldClean`, `AutoSwitchOnForeground`,
+  `MaxCpuPercentForResident`, `TriggerMemoryPressureBytes`,
+  `SkipOptimizeInFullscreen` checkbox); `sign.ps1` default path fixed
+  (pointed at the pre-rename project); release now ships only zh-Hans/en
+  satellite resources and drops `IncludeNativeLibrariesForSelfExtract` —
+  self-contained exe 65 MB → **58.2 MB** measured.
+- `docs/ITERATION-BACKLOG.md` marked as a historical archive.
+
 ## [0.12.0] — UX overhaul round 2 (polish)
 
 ### Changed

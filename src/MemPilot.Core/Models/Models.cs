@@ -441,7 +441,6 @@ public class AppConfig
     public string OnlineLookupApiKey { get; set; } = "";
     public bool OnlineLookupEnabled { get; set; } = true;
     public bool AutoModeSwitch { get; set; } = false;
-    public int MaxCpuPercentForResident { get; set; } = 5;
     // Auto optimization (system-level memory lists)
     // ⚠️ v0.10.0 起为**废弃字段**：`ResidentEngine.AutoOptimize` 从未被 `AfterRefresh` 调用过，
     // 设置页那两个复选框点了没有任何效果（决策日志里 215 条 AutoOptimize 全是更早期的实现留下的）。
@@ -494,7 +493,6 @@ public class AppConfig
     public int AutoOptimizeIntervalMinutes { get; set; } = 30;
     public int AutoOptimizeThresholdPercent { get; set; } = 15;
     public bool AutoOptimizeOnLowMemory { get; set; } = true;
-    public bool SkipOptimizeInFullscreen { get; set; } = true;
     // Auto per-process cleanup driven by the active mode profile
     public bool AutoCleanupEnabled { get; set; } = false;
     public bool AutoCloseCleanMatches { get; set; } = false; // graceful-close clean-pattern matches automatically
@@ -525,7 +523,5 @@ public class ModeProfile
     public List<string> KeepPatterns { get; set; } = new();
     public List<string> CleanPatterns { get; set; } = new();
     public Dictionary<ProcessCategory, int> Priority { get; set; } = new();
-    public long TriggerMemoryPressureBytes { get; set; }
     public List<CleanupActionLevel> AllowedActions { get; set; } = new();
-    public bool AutoSwitchOnForeground { get; set; }
 }

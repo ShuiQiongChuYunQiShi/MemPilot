@@ -34,6 +34,47 @@ public class NativeMemoryCleanerService
     [DllImport("ntdll.dll")]
     private static extern int NtQuerySystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength, out int ReturnLength);
 
+    // ---- 特权启用（v0.13.0，根因修复：0xC0000061 = STATUS_PRIVILEGE_NOT_HELD）----
+    // 真机证据：IsAdmin() 为 true（角色是管理员）但 PurgeStandby 连续 4 次返回 0xC0000061。
+    // IsAdmin 查的是**角色**，而 NtSetSystemInformation(SystemMemoryListInformation) 要求
+    // SeProfileSingleProcessPrivilege 在令牌里**启用**（held ≠ enabled）。重装新 exe 后
+    // 启动链不再带已启用的特权属性——这与 memreduct/RAMMap 先 AdjustTokenPrivileges 的做法一致。
+    private const string SeProfileSingleProcessPrivilege = "SeProfileSingleProcessPrivilege";
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LUID { public uint LowPart; public int HighPart; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LUID_AND_ATTRIBUTES { public LUID Luid; public uint Attributes; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TOKEN_PRIVILEGES
+    {
+        public uint PrivilegeCount;
+        public LUID_AND_ATTRIBUTES Privileges;   // 单特权场景直接内联一项
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool LookupPrivilegeValue(string? systemName, string name, out LUID luid);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAll,
+        ref TOKEN_PRIVILEGES newState, uint bufferLength, IntPtr previousState, IntPtr returnLength);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    private const uint TokenAdjustPrivileges = 0x0020;
+    private const uint TokenQuery = 0x0008;
+    private const uint SE_PRIVILEGE_ENABLED = 0x2;
+
+    private static bool _privilegesAttempted;
+    /// <summary>特权启用结果（诊断用）：空 = 已成功或无需；否则是失败原因。</summary>
+    public static string PrivilegeDiag { get; private set; } = "";
+
     // SystemMemoryListCommand enum values
     private enum SystemMemoryListCommand : int
     {
@@ -44,6 +85,63 @@ public class NativeMemoryCleanerService
         MemoryPurgeLowPriorityStandbyList = 4,
         MemoryCommandMax = 5
     }
+
+
+    /// <summary>
+    /// 启用 SeProfileSingleProcessPrivilege。幂等：进程生命周期内只尝试一次。
+    /// 返回 true = 权限已可用（本来就启用或本次成功）。
+    /// </summary>
+    public static bool EnableSystemPrivileges()
+    {
+        if (_privilegesAttempted) return PrivilegeDiag.Length == 0;
+        _privilegesAttempted = true;
+        try
+        {
+            if (!LookupPrivilegeValue(null, SeProfileSingleProcessPrivilege, out var luid))
+            {
+                PrivilegeDiag = $"LookupPrivilegeValue 失败（Win32 {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}）";
+                return false;
+            }
+            if (!OpenProcessToken(GetCurrentProcess(), TokenAdjustPrivileges | TokenQuery, out var token))
+            {
+                PrivilegeDiag = $"OpenProcessToken 失败（Win32 {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}）";
+                return false;
+            }
+            try
+            {
+                var tp = new TOKEN_PRIVILEGES
+                {
+                    PrivilegeCount = 1,
+                    Privileges = new LUID_AND_ATTRIBUTES { Luid = luid, Attributes = SE_PRIVILEGE_ENABLED }
+                };
+                if (!AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero))
+                {
+                    PrivilegeDiag = $"AdjustTokenPrivileges 失败（Win32 {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}）——需要以管理员身份运行";
+                    return false;
+                }
+                // ERROR_NOT_ALL_ASSIGNED (1300) 表示令牌不持有该特权——非管理员提权链常见
+                PrivilegeDiag = System.Runtime.InteropServices.Marshal.GetLastWin32Error() == 1300
+                    ? "令牌未持有 SeProfileSingleProcessPrivilege（需要以管理员身份运行）"
+                    : "";
+                return PrivilegeDiag.Length == 0;
+            }
+            finally { CloseHandle(token); }
+        }
+        catch (Exception ex)
+        {
+            PrivilegeDiag = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>NTSTATUS 主要代码 → 用户可读符号名（决策日志不再只亮十六进制）。</summary>
+    private static string NtStatusName(int status) => status switch
+    {
+        unchecked((int)0xC0000061) => "STATUS_PRIVILEGE_NOT_HELD（需要管理员运行且启用 SeProfileSingleProcessPrivilege）",
+        unchecked((int)0xC0000017) => "STATUS_NO_MEMORY",
+        unchecked((int)0xC0000005) => "STATUS_ACCESS_VIOLATION",
+        _ => $"NTSTATUS 0x{status:X8}",
+    };
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SYSTEM_FILECACHE_INFORMATION
@@ -257,13 +355,16 @@ public class NativeMemoryCleanerService
     {
         try
         {
+            // v0.13.0：调用前确保特权已启用（幂等）。0xC0000061 的根因修复点。
+            EnableSystemPrivileges();
             var ptr = Marshal.AllocHGlobal(sizeof(int));
             try
             {
                 Marshal.WriteInt32(ptr, (int)cmd);
                 int status = NtSetSystemInformation(SystemMemoryListInformation, ptr, sizeof(int));
                 if (status == 0) return (true, $"{name} cleaned");
-                return (false, $"NtSetSystemInformation returned {status} (0x{status:X})");
+                return (false, $"{name} 失败：{NtStatusName(status)}"
+                               + (PrivilegeDiag.Length > 0 ? $"（{PrivilegeDiag}）" : ""));
             }
             finally { Marshal.FreeHGlobal(ptr); }
         }
