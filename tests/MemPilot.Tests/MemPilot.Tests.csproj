@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MemPilot.Core\MemPilot.Core.csproj" />
+    <!-- v0.14：引用 App（WinExe 亦可引用）——MainViewModel 拆分的 golden 需要行为级断言，
+         源码级断言锁不住集合重建/双轨状态这类运行语义 -->
+    <ProjectReference Include="..\..\src\MemPilot.App\MemPilot.App.csproj" />
   </ItemGroup>
 
 </Project>

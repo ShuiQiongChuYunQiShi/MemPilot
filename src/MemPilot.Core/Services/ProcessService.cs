@@ -314,7 +314,7 @@ public partial class ProcessService
     {
         lock (_cmdlineLock)
         {
-            if (_cmdlineCache.Count < 4096) return;
+            if (_cmdlineCache.Count < 512) return;   // v0.14：4096→512（500 进程足够，更早回收死 PID 的命令行字符串）
             var live = new HashSet<int>(liveStartTimes.Keys);
             var dead = _cmdlineCache.Keys.Where(k => !live.Contains(k)).ToList();
             foreach (var k in dead) _cmdlineCache.Remove(k);

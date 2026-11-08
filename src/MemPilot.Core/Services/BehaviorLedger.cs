@@ -73,6 +73,13 @@ public class BehaviorLedger
             if (ResidualDetector.FindOrphanHost(p.Name, runningNames) != null) b.OrphanObs++;
             b.LastSeenUtc = now;
         }
+        // v0.14：上限 1,000 条——超出按 LastSeenUtc 淘汰最久未观察的
+        // （旧实现无上限，实测 9 天 368 条且持续 +41/天；每个条目含峰值等字段，长期驻留无意义）
+        if (Entries.Count > 1000)
+        {
+            foreach (var victim in Entries.Values.OrderBy(b => b.LastSeenUtc).Take(Entries.Count - 1000).ToList())
+                Entries.Remove(victim.Name);
+        }
         if (++_dirty >= 60) { Save(); _dirty = 0; }
     }
 

@@ -52,6 +52,16 @@ public class UsageRecorder
         Prune();
     }
 
+    private DateTime _lastPruneUtc = DateTime.UtcNow;
+
+    /// <summary>每 24h 运行期执行一次过期清理（v0.14：旧实现只在构造时 Prune，长驻不清理）。</summary>
+    private void PruneDaily()
+    {
+        if ((DateTime.UtcNow - _lastPruneUtc).TotalHours < 24) return;
+        _lastPruneUtc = DateTime.UtcNow;
+        Prune();
+    }
+
     private string PathFor(DateTime localDate) => Path.Combine(_dir, $"samples-{localDate:yyyyMMdd}.jsonl");
 
     /// <summary>Seed the gap baseline from the newest persisted sample so restarts and
@@ -77,6 +87,7 @@ public class UsageRecorder
     /// <summary>Called every engine tick; writes at most one sample per 5 minutes.</summary>
     public void RecordSample(SystemMemoryInfo mem, List<ProcessInfo> procs, AppMode mode, int intervalSeconds)
     {
+        PruneDaily();
         var now = DateTime.UtcNow;
         if ((now - _lastWriteUtc).TotalMinutes < 5) return;
         _lastWriteUtc = now;

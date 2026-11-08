@@ -54,6 +54,16 @@ public sealed class GpuRecorder
         Prune();
     }
 
+    private DateTime _lastPruneUtc = DateTime.UtcNow;
+
+    /// <summary>每 24h 运行期执行一次过期清理（v0.14，同 UsageRecorder）。</summary>
+    private void PruneDaily()
+    {
+        if ((DateTime.UtcNow - _lastPruneUtc).TotalHours < 24) return;
+        _lastPruneUtc = DateTime.UtcNow;
+        Prune();
+    }
+
     private string PathFor(DateTime localDate) => Path.Combine(_dir, $"gpu-{localDate:yyyyMMdd}.jsonl");
 
     private DateTime LoadLastSampleUtc()
@@ -79,6 +89,7 @@ public sealed class GpuRecorder
         IReadOnlyList<GpuAdapterInfo> adapters, IReadOnlyDictionary<int, double>? gpuPercent,
         int intervalSeconds, DateTime nowUtc, Func<int, string?>? nameResolver = null)
     {
+        PruneDaily();
         int gapSec = _lastSampleUtc == DateTime.MinValue
             ? 0
             : Math.Max(0, (int)Math.Round((nowUtc - _lastSampleUtc).TotalSeconds));

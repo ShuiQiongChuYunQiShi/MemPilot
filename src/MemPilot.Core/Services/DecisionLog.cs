@@ -143,9 +143,21 @@ public class DecisionLog
         lock (_lock) return _entries.GroupBy(e => e.Kind).ToDictionary(g => g.Key, g => g.Count());
     }
 
+    /// <summary>
+    /// 最近 n 条（新的在前）。
+    /// v0.14 性能债：列表本身按时间追加序（Load/Log 都是尾部 Add，Trim 只做删除保序），
+    /// 旧实现在锁内对全量 5,000 条做 OrderByDescending 拷贝——RuleAudit 一次调用 3 遍 Recent
+    /// 就是 15,000 条排序。直接取尾部反转，O(n)。
+    /// </summary>
     public List<DecisionEntry> Recent(int n = 300)
     {
-        lock (_lock) return _entries.OrderByDescending(e => e.TimestampUtc).Take(n).ToList();
+        lock (_lock)
+        {
+            if (n >= _entries.Count) return _entries.AsEnumerable().Reverse().ToList();
+            var tail = _entries.GetRange(_entries.Count - n, n);
+            tail.Reverse();
+            return tail;
+        }
     }
 
 }

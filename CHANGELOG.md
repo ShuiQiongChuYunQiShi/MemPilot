@@ -4,6 +4,29 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.14.0] — architecture & performance round
+
+### Changed
+- **MainViewModel split by responsibility** (prism's #1 hotspot two rounds
+  running: 1,052 lines / 87 branches). The 1,150-line file is now 713 with the
+  relief card / lease / collections / make-room moved to partials
+  (`MainViewModel.{Relief,Lease,Collections,MakeRoom}.cs`), class name and
+  public surface unchanged. Split was gated by a **golden test** that locks the
+  public surface via reflection and the two-track status semantics by behaviour —
+  written before the split, unchanged after (per the house rule: golden first,
+  then refactor). The test project now references the App project for this.
+- **Performance debt** (all previously located, none fixed until now):
+  - `DecisionLog.Recent(n)` sliced the tail instead of sorting all 5,000
+    entries inside the lock on every call (RuleAudit called it 3× per run).
+  - `BehaviorLedger` capped at 1,000 names with oldest-observed eviction
+    (previously unbounded, +41 names/day).
+  - `UsageRecorder`/`GpuRecorder` retention prune runs every 24 h at runtime,
+    not just once in the constructor (long-running instances never pruned).
+  - `GpuMonitor` pid-name cache pruned against live pids each sample (was
+    wholesale-clear at 4,096); command-line cache trim threshold 4,096 → 512.
+  - One-click batch trim is deduped within 10 minutes (measured: the second
+    firing reclaimed only +19–419 MB).
+
 ## [0.13.1] — blank-window fix + documentation governance
 
 ### Fixed

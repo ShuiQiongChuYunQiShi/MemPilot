@@ -128,7 +128,13 @@ public sealed class GpuMonitor : IDisposable
             LastSnapshot = snap;
             var procs = _procs?.Invoke() ?? Array.Empty<ProcessInfo>();
             foreach (var p in procs) _pidNames[p.Pid] = p.Name;      // 名称缓存：进程快照缺项时兜底
-            if (_pidNames.Count > 4096) _pidNames.Clear();
+            // v0.14：按存活集合裁剪（旧实现只在 >4096 时整体清空，死 PID 条目常驻）
+            if (_pidNames.Count > 512)
+            {
+                var alive = new System.Collections.Generic.HashSet<int>(procs.Select(x => x.Pid));
+                var dead = _pidNames.Keys.Where(k => !alive.Contains(k)).ToList();
+                foreach (var k in dead) _pidNames.Remove(k);
+            }
             var adapters = _info.GetAdapters(snap); // 10s 缓存 + PDH 兜底
             Last = _recorder.Write(snap,
                 procs,

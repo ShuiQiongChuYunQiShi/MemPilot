@@ -56,10 +56,9 @@ public class OpenSourceReadinessTests
     {
         // 同一条规则在租约路径上也要守：租约响应会告诉调用方"已清备用列表"，
         // 非提权时那同样是假话。
-        var src = Read("MemPilot.App", "ViewModels", "MainViewModel.cs");
-        // 第一次出现是 XML 文档注释，第二次才是方法定义
+        // v0.14：ExecuteLeaseRelief 拆分到 MainViewModel.Lease.cs
+        var src = Read("MemPilot.App", "ViewModels", "MainViewModel.Lease.cs");
         int idx = src.IndexOf("ExecuteLeaseRelief", StringComparison.Ordinal);
-        idx = src.IndexOf("ExecuteLeaseRelief", idx + 1, StringComparison.Ordinal);
         Assert.True(idx > 0);
         var tail = src[idx..Math.Min(src.Length, idx + 1400)];
         Assert.Contains("IsAdmin()", tail);

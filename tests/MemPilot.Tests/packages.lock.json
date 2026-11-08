@@ -130,6 +130,12 @@
           "xunit.extensibility.core": "[2.5.3]"
         }
       },
+      "MemPilot": {
+        "type": "Project",
+        "dependencies": {
+          "MemPilot.Core": "[1.0.0, )"
+        }
+      },
       "mempilot.core": {
         "type": "Project",
         "dependencies": {

@@ -44,8 +44,17 @@ public partial class MainViewModel
     /// 一键压缩低负载后台的工作集（只压缩、不结束任何进程）。
     /// v0.9.2：改为只压安全子集——原来传全部进程，会把游戏/AI/工作进程一起压（与 README 承诺矛盾）。
     /// </summary>
+    private DateTime _lastBatchTrimUtc = DateTime.MinValue;
+
     public async Task<string> TrimAllWorkingSetsAsync()
     {
+        // v0.14：双发去重——实测连续两次调用第二次仅 +19~419 MB（第一次已把可回收的都收了）
+        if ((DateTime.UtcNow - _lastBatchTrimUtc).TotalMinutes < 10)
+        {
+            var dup = "10 分钟内已执行过批量回收——工作集回收的收益集中在第一轮，稍后再试意义不大。";
+            Status = dup;
+            return dup;
+        }
         var all = _lastProcs.ToList();
         var audio = new HashSet<int>(all.Where(p => p.AudioActive).Select(p => p.Pid));
         var procs = TrimSelection.BuildSafeTrimSet(all, Engine.LastForegroundPid, audio);
@@ -61,6 +70,7 @@ public partial class MainViewModel
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
         var msg = $"已压缩 {r.Trimmed} 个低负载进程的工作集（{r.Failed} 个失败，跳过 {all.Count - procs.Count} 个工作/游戏/前台进程），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
+        _lastBatchTrimUtc = DateTime.UtcNow;
         Status = msg;
         return msg;
     }
