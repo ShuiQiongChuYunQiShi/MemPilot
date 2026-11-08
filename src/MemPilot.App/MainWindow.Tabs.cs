@@ -76,6 +76,7 @@ public partial class MainWindow : Window
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.OriginalSource is not TabControl) return;
+        if (_vm == null) return;   // v0.13.1：IsSelected=True 在 BAML 加载期就触发本事件，_vm 尚未构造
         var tag = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Tag?.ToString() ?? "";
         // v0.13.1 兜底：分组头（裸 TextBlock）占据 items[0]，TabControl 初始默认选中可能落在
         // 它上面（v0.6.0 起的"打开界面空白"根因）。若选中项不是任何已知页签，强制回主页，
