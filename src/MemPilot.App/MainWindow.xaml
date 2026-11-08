@@ -310,7 +310,7 @@
 
             <!-- ============ 主页 ============ -->
             <TextBlock Text="核心" Style="{StaticResource NavGroup}"/>
-            <TabItem Header="🏠  主页" Tag="home" Style="{StaticResource NavTab}">
+            <TabItem Header="🏠  主页" Tag="home" Style="{StaticResource NavTab}" IsSelected="True">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="20,18,20,20" HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>

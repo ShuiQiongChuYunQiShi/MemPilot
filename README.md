@@ -18,15 +18,14 @@ browser tabs, IDE, or game becoming collateral damage.
   <img src="docs/screenshots/home.png" width="760" alt="MemPilot main window" />
 </p>
 
-> 🇨🇳 中文说明：见 [docs/README-zh-v0.9.md](docs/README-zh-v0.9.md)（中文界面、
-> 中文文档历史上一直是本项目的主要语言；英文 README 从 v0.10.0 开始）。
+> 🇨🇳 中文说明：见 [docs/README-zh.md](docs/README-zh.md)。
 
 ## Download
 
 | Channel | File | Size | Needs |
 |---|---|---|---|
-| **Portable (recommended)** | `MemPilot-<ver>-portable.zip` | ~3 MB | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
-| Self-contained | `MemPilot-<ver>-win-x64.exe` | ~65 MB | nothing — runtime is bundled |
+| **Portable (recommended)** | `MemPilot-<ver>-portable.zip` | **~440 KB** | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| Self-contained | `MemPilot-<ver>-win-x64.exe` | ~62 MB | nothing — runtime is bundled |
 
 Both are on the [Releases page](https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/latest).
 Every release ships a `SHA256SUMS.txt`; verify before running:
@@ -39,7 +38,8 @@ Get-Content .\SHA256SUMS.txt
 
 Releases are **unsigned** — SmartScreen or your antivirus may warn on first run.
 That is expected for a new project, not a sign the file is broken. See
-[SECURITY.md](SECURITY.md) for the full trust model.
+[SECURITY.md](SECURITY.md) for the trust model and [docs/PRIVACY.md](docs/PRIVACY.md)
+for what data is stored (and what never leaves your machine).
 
 ## Why another memory tool
 
@@ -123,8 +123,9 @@ finally:
 - Single active lease; TTL clamped 30 s–24 h; breach of the granted floor raises an alert
 - `hard` policy suspends at most 8 "idle enough" processes and **restores every one** on release
 - Working / gaming / foreground / audio / protected processes are never touched by either policy
-- Working example: [`tools/lease-example.py`](tools/lease-example.py) ·
+- Full reference: [docs/LEASE-API.md](docs/LEASE-API.md) · working example: [`tools/lease-example.py`](tools/lease-example.py) ·
   load simulation that asserts the whole chain: [`tools/lease-load-test.py`](tools/lease-load-test.py)
+- Notification behaviour (what pings you and how often): [docs/NOTIFICATION-POLICY.md](docs/NOTIFICATION-POLICY.md)
 
 ### 6. Watches VRAM too
 

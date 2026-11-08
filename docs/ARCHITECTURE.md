@@ -26,11 +26,11 @@ explicitly. This is intentional — it keeps the dependency graph honest
 | `TrimSelection` | The single source of truth for "who may be trimmed" | 12 exclusion dimensions; every batch action goes through it |
 | `CleanupEngine` | Executes L1 trim / L2 suspend / L3 graceful close / L4 kill | Re-checks `(pid, startTime)` before any state change — PID reuse must not cause a wrong kill |
 | `ResidentEngine` | The tick: scene scoring, auto actions, commit pressure, growth watch | Automatic paths never reach L4; fullscreen/AI-session gates |
-| `CommitReliefPolicy` | Pure function deciding the commit-pressure response | One-level purge → two-minute wait → safe-subset trim → optional user-confirmed L3 |
+| `CommitReliefPolicy` | Pure function deciding the commit-pressure response | v0.13: a failed purge escalates to the trim immediately (no cooldown for failures), plus the independent FloorTrim trigger (avail < 3 GB or commit margin < 10% → batch trim, logged as Target=FloorTrim) |
 | `LeaseManager` / `LeaseApiService` | The lease contract over local HTTP | Atomic `TryReserve` → relief → `CompleteReservation`; single active lease; restore happens before the HTTP response |
 | `GpuMonitor` / `GpuMemoryService` | VRAM observation and AI-session detection | Adapter usage comes **only** from PDH — DXGI's `QueryVideoMemoryInfo` is per-process and is stored separately as a diagnostic |
 | `DecisionLog` | Every automatic decision, with reasons | Kind-bucketed quotas so `Lease`/`AiSession` records cannot be evicted by noise |
-| `ConfigStore` | JSON config with DPAPI-protected API key | Saves a deep-copied snapshot under a lock; migrating persisted keys uses stable ids (`PersistedIds`) |
+| `ConfigStore` | JSON config with DPAPI-protected API key | Saves a deep-copied snapshot under a lock; persisted keys use stable ids (`PersistedIds`); user-visible strings go through `UiTerms` |
 
 ## The action ladder
 
@@ -66,6 +66,10 @@ decisions.json         decision log (5,000 cap, kind quotas)
 audit.json             action audit with before/after measurements
 history/samples-*.jsonl  5-minute system snapshots, 30-day retention
 history/gpu-*.jsonl    30-second VRAM snapshots, 30-day retention
+ai-session.json        open AI session state (survives restart; deleted on session end)
+behavior.json          per-process behaviour ledger (capped at 1,000 names)
+feedback.json          user marks (keep/cleanable/workload) — copy-on-write store
+killed.json            recently disposed processes (for one-click relaunch)
 lease-token.txt        lease API bearer token (same-user boundary, documented)
 programs.json          program catalog cache (24 h TTL)
 suspended.json         currently suspended processes (survives restart)

@@ -2,20 +2,6 @@
   "version": 1,
   "dependencies": {
     "net10.0-windows7.0": {
-      "Microsoft.NET.ILLink.Tasks": {
-        "type": "Direct",
-        "requested": "[10.0.14, )",
-        "resolved": "10.0.14",
-        "contentHash": "YlTamXppEQls6DYWt7RdUuwWDb0lyw/vXCaGeQpLCpsLmfwGuCkOz/vIGgMTV7ECsJcavkCOkxZXv9s8rdAHkQ=="
-      },
-      "System.Diagnostics.EventLog": {
-        "type": "Direct",
-        "requested": "[9.0.0, )",
-        "resolved": "9.0.0",
-        "contentHash": "qd01+AqPhbAG14KtdtIqFk+cxHQFZ/oqRSCoxU1F+Q6Kv0cl726sl7RzU9yLFGd4BUOKdN4XojXF0pQf/R6YeA=="
-      }
-    },
-    "net10.0-windows7.0/win-x64": {
       "System.Diagnostics.EventLog": {
         "type": "Direct",
         "requested": "[9.0.0, )",

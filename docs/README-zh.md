@@ -1,0 +1,99 @@
+# MemPilot 中文说明
+
+> [English README](../README.md) ｜ 中文版（当前，随 v0.13.1 更新）
+
+MemPilot 是 Windows 常驻内存与进程领航员，面向「并行开发 + 游戏 + AI 生图/生视频」混合场景：
+识别每个进程的真实身份，判定谁真正未使用，**按进程**腾内存/回收内存——让 ComfyUI 拿到它需要的
+内存，而不把你的 IDE、浏览器、游戏当代价。
+
+核心立场：**处置具体进程，而不是清系统缓存**。standby list 本来就是"可用"内存，
+游戏纹理和文件缓存驻留其中——全量 purge 只会让游戏重新读盘。
+
+## 为什么不是又一个内存清理器
+
+11 天 1,839 个采样实测：**这台机器真正紧张的指标是提交（commit），不是物理内存**——
+提交峰值 73.3 GB vs 物理仅 31.7 GB，11.2% 的时间提交余量 <10%。清 standby list 不降提交，
+这就是"清了 3 GB 却照样 OOM"的原因。MemPilot 把提交当一等公民：
+提交告急时唯一真正有效的动作（优雅关闭闲置后台）由你逐次确认，其余动作只针对物理内存。
+
+## 下载
+
+| 渠道 | 文件 | 体积 | 需要 |
+|---|---|---|---|
+| **Portable（推荐）** | `MemPilot-<ver>-portable.zip` | **约 440 KB** | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| 自包含 | `MemPilot-<ver>-win-x64.exe` | 约 62 MB | 无——运行时已打包 |
+
+发布均带 `SHA256SUMS.txt`，安装前校验：
+
+```powershell
+(Get-FileHash .\MemPilot-<ver>-win-x64.exe -Algorithm SHA256).Hash.ToLower()
+Get-Content .\SHA256SUMS.txt
+# 两个值一致 = 未被改动
+```
+
+产物**未签名**（不购商业证书的决策见英文 README），首次运行被 360/SmartScreen 提示属预期；
+信任模型见 [SECURITY.md](../SECURITY.md)，数据说明见 [PRIVACY.md](PRIVACY.md)。
+
+## 核心能力
+
+### 1. 先分类，再动手
+精确名规则 + 路径片段 + **WinVerifyTrust 签名验证后的发布者规则**（自签证书冒充
+"Microsoft" 骗不过）+ Steam 库解析 + 程序清单证据。未识别（Unknown）**永不自动处置**。
+
+### 2. 诚实的"未使用"判定
+最小存活期（默认 120 秒）+ 连续 N 轮空闲观察 + 无窗口 + 低 CPU/IO + **无音频活动**
+（WASAPI 峰值检测——后台放歌的进程不算未使用）。空闲状态按 `(pid, startTime)` 累计，
+PID 复用不会污染。
+
+### 3. 动作阶梯，永不跳级
+L1 回收工作集 → L2 挂起（原子、可恢复）→ L3 优雅关闭（需确认）→ L4 强制结束（**永不自动**，
+人工双确认）。自动路径只到 L1/L2。
+
+### 4. 决策可解释
+每个自动决定——切了什么模式、执行/跳过了谁、**哪条守卫拦下的**——写入 `decisions.json`
+（5,000 条，按 Kind 分桶保护重要记录）。没有管理员权限时日志写「跳过：需要管理员」，
+而不是假装成功。
+
+### 5. 租约 API——像申请锁一样申请内存
+AI 任务开跑前申请、结束后归还；返回**实测达成量**而非承诺量。详见
+[LEASE-API.md](LEASE-API.md)。默认关闭，设置页打开。
+
+### 6. 显存观测
+逐进程专用/共享显存（PDH）+ 30 秒采样 + AI 会话识别（N-of-M 滞回，单点回落不劈断会话）。
+谁吃了 15 GB 显存、吃了多久，事后可查。
+
+### 7. 提交兜底（v0.13 起三级）
+提交告急时：清备用列表 → （失败或不达标）**立即**安全子集压缩 → 低可用兜底
+（可用 <3GB 或提交余量 <10% 直接触发，10 分钟去重）→ 可选 L3（非模态确认卡）。
+
+## 安全模型
+
+| 防线 | 行为 |
+|---|---|
+| 分类保护 | 系统关键/安全软件/反作弊/驱动/服务/启动项 永不候选 |
+| Unknown 豁免 | 未识别进程永不自动处置 |
+| 前台/音频豁免 | 前台、全屏、正在发声的进程永不触碰 |
+| PID 复用复检 | 每次状态变更前按 `(pid, startTime)` 复核 |
+| L4 双确认 | 强制结束只能人工、两次确认 |
+| 诚实日志 | 权限缺失记「跳过」，失败记「失败 + 原因」 |
+
+## 构建
+
+```bash
+git clone https://github.com/ShuiQiongChuYunQiShi/MemPilot.git
+cd MemPilot
+dotnet build src/MemPilot.App/MemPilot.App.csproj -c Release
+dotnet test  tests/MemPilot.Tests/MemPilot.Tests.csproj
+```
+
+无 `.sln`（有意为之），命令显式指定 csproj。需要 .NET 10 SDK + Windows 10/11。
+
+## 已知边界
+
+- 界面为中文（英文 README 已就绪，界面字符串抽取进行中，欢迎贡献）
+- 提权进程的内存/命令行读取受限（已标记，不影响分类）
+- 混合显卡笔记本：适配器用量按 LUID 匹配，匹配不上显示"不可用"而非猜测
+
+## 许可
+
+[Apache-2.0](../LICENSE)。第三方组件见 [NOTICE](../NOTICE)。

@@ -77,4 +77,19 @@ public class UiStructureTests
         Assert.DoesNotContain("系统/保护", xaml);                 // 旧图例文字（圆点）删除
         Assert.Contains("ToolBtn", xaml);                        // 工具栏统一样式
     }
+
+    /// <summary>
+    /// v0.13.1 守卫："打开界面空白"根因——分组头（裸 TextBlock）占据 TabControl items[0]，
+    /// WPF Selector 默认选中第一个 item 即它本身，内容区渲染出"核心"二字。
+    /// 防线：① home TabItem 必须 IsSelected="True"；② SelectionChanged 必须有空 tag 兜底回主页。
+    /// </summary>
+    [Fact]
+    public void Nav_HomeTabIsSelectedAtStartup_AndSelectionChangedHasFallback()
+    {
+        var xaml = Xaml();
+        Assert.True(Regex.IsMatch(xaml, "<TabItem Header=\"[^\"]+\" Tag=\"home\"[^>]*IsSelected=\"True\""),
+            "home TabItem 必须带 IsSelected=\"True\"（否则初始选中落在分组头 TextBlock 上，界面空白）");
+        Assert.Contains("if (tag == \"\")", TabsCs());
+        Assert.Contains("SwitchToTab(\"home\");", TabsCs());
+    }
 }

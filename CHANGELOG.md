@@ -4,6 +4,36 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.13.1] — blank-window fix + documentation governance
+
+### Fixed
+- **The app opened to a blank content area.** Root cause dated to v0.6.0: the
+  navigation group headers are raw TextBlocks inserted as TabControl items, and
+  "核心" sits at index 0 — WPF's Selector defaults to the first item, so the
+  content region rendered the TextBlock itself and no page. Nothing ever set an
+  initial selection (no `SelectedIndex`/`IsSelected` exists in the file's entire
+  git history). The home TabItem now carries `IsSelected="True"` (immune to
+  group-header position), `SelectionChanged` falls back to home when the
+  selected item is not a page, and a structure guard fails the build if either
+  line regresses.
+
+### Changed
+- **Documentation governance** (12 findings from a full-doc audit):
+  - README: portable size "~3 MB" → ~440 KB; self-contained → ~62 MB (both were
+    7×/stale vs. reality and contradicted the changelog).
+  - `docs/README-zh-v0.9.md` archived as a historical snapshot — it claimed
+    "未声明开源许可" while the repo is Apache-2.0, said the decision log caps at
+    1,000 (now 5,000 kind-bucketed), and used the retired term 腾挪 twice.
+    Replaced by a current `docs/README-zh.md`.
+  - New docs: `docs/PRIVACY.md` (what is recorded, where, 30-day retention,
+    what never leaves the machine), `docs/LEASE-API.md` (endpoints, fields,
+    policies, error codes — the flagship feature previously had no reference),
+    `docs/NOTIFICATION-POLICY.md` (balloon whitelist, cooldowns, non-modal card).
+  - ARCHITECTURE data layout now lists ai-session/feedback/behavior/killed
+    files and the v0.13 relief semantics; HANDOFF.md roadmap updated to reality;
+    wharf.project.json notes carried forward.
+  - Guard tests (`DocsGuardTests`) block the corrected errors from returning.
+
 ## [0.13.0] — fourth retrospective: engine effectiveness
 
 A deep retrospective combined 11-day action-effectiveness audit with root-cause

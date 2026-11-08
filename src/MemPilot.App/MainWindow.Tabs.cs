@@ -77,6 +77,14 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is not TabControl) return;
         var tag = e.AddedItems.OfType<TabItem>().FirstOrDefault()?.Tag?.ToString() ?? "";
+        // v0.13.1 兜底：分组头（裸 TextBlock）占据 items[0]，TabControl 初始默认选中可能落在
+        // 它上面（v0.6.0 起的"打开界面空白"根因）。若选中项不是任何已知页签，强制回主页，
+        // 使"分组头即 item"的结构永远不可能再产生空白窗。
+        if (tag == "")
+        {
+            SwitchToTab("home");
+            return;
+        }
         // 页签感知：VM 只重建当前可见页签的集合（性能优化，见 UpdateCollections 注释）。
         // 这里把稳定 Tag 翻译成 TabRebuildPolicy 的键（Core 不感知 UI 文案）。
         var key = tag switch
