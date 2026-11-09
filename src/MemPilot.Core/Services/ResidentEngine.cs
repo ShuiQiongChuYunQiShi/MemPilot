@@ -114,6 +114,8 @@ public partial class ResidentEngine
 
     /// <summary>垃圾进程建议（v0.15.0）：一天最多触发一次，VM 负责弹卡 + 气球。</summary>
     public event Action<JunkAdvice>? JunkAdvised;
+    /// <summary>用户标记为「可清理」的进程名提供者（v0.15.1，由 VM 注入 FeedbackStore）。</summary>
+    public Func<IReadOnlyCollection<string>>? MarkedCleanableProvider { get; set; }
     private DateTime _lastJunkAdviceDay = DateTime.MinValue.Date;
     /// <summary>建议学习账本（v0.15.0，只调频率不加白名单）。</summary>
     public JunkAdviceStore? JunkAdvice { get; set; }

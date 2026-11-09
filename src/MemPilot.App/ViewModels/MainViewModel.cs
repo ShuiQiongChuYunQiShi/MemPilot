@@ -378,6 +378,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 记决策日志后自动放弃——引擎从不被 UI 阻塞，安全确认依然存在。
         // v0.15.0：垃圾进程建议卡片接线 + 学习账本
         Engine.JunkAdvice = new JunkAdviceStore(ConfigStore.DataDirectory);
+        Engine.MarkedCleanableProvider = () => Feedback.All()
+            .Where(f => f.MarkCleanable && f.Status == "applied")
+            .Select(f => f.ProcessName).ToList();   // v0.15.1：用户标记直接喂给建议器
         AttachJunkAdvice();
 
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>

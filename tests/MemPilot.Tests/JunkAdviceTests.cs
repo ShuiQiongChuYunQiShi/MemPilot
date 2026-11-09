@@ -27,7 +27,7 @@ public class JunkAdviceTests : IDisposable
 
     private static ProcessInfo P(int pid, string name, bool window = false,
         ProcessCategory cat = ProcessCategory.Bloatware, DateTime? start = null,
-        double cpu = 0, long privateBytes = 200L * 1024 * 1024)
+        double cpu = 0, long privateBytes = 200L * 1024 * 1024, bool audio = false)
         => new()
         {
             Pid = pid,
@@ -35,7 +35,7 @@ public class JunkAdviceTests : IDisposable
             Category = cat,
             HasVisibleWindow = window,
             StartTime = start ?? DateTime.UtcNow - TimeSpan.FromHours(10),  // 默认已运行 10h
-            AudioActive = false,
+            AudioActive = audio,
             Memory = new MemoryMetrics
             {
                 PrivateWorkingSetBytes = privateBytes,
@@ -246,7 +246,110 @@ public class JunkAdviceTests : IDisposable
         Assert.Equal(1, ledger.Entries["act"].TodayActiveObs);   // 跨天清零后重新计 1
     }
 
-    // ---- 5. 配置默认值 + 卡片状态 ----
+    // ---- v0.15.1：瞬态窗口（弹窗骚扰 ≠ 使用）+ 用户标记接入 ----
+
+    [Fact]
+    public void TransientWindow_ShortSilentStreak_IsHarassmentNotUse()
+    {
+        // 实测案例：MmMessagingNotifier 弹窗有可见窗口 → 旧判定算"今天用过" → 建议漏报
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        var now = DateTime.UtcNow;
+        var p = P(1, "notifier", window: true, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p }, now);                       // 窗口出现
+        ledger.Observe(new List<ProcessInfo> { }, now + TimeSpan.FromSeconds(10)); // 下一 tick 消失
+
+        var b = ledger.Entries["notifier"];
+        Assert.Equal(1, b.TransientWindowObs);               // 记一次弹窗骚扰
+        Assert.Equal(DateTime.MinValue, b.LastActiveUtc);    // 不算使用 → 建议器仍会说"今天未使用"
+        Assert.Equal(0, b.TodayActiveObs);
+    }
+
+    [Fact]
+    public void WindowStreak_Long_CountsAsRealUse()
+    {
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        var now = DateTime.UtcNow;
+        var p = P(1, "realapp", window: true, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p }, now);                          // 出现
+        ledger.Observe(new List<ProcessInfo> { p }, now + TimeSpan.FromMinutes(3)); // 还在（>5min 才结束，这里构造 6 分钟）
+        ledger.Observe(new List<ProcessInfo> { }, now + TimeSpan.FromMinutes(6));
+
+        var b = ledger.Entries["realapp"];
+        Assert.Equal(0, b.TransientWindowObs);
+        Assert.True(b.LastActiveUtc >= now + TimeSpan.FromMinutes(6), "长窗口 = 真实使用");
+    }
+
+    [Fact]
+    public void AudioDuringStreak_CountsAsUse()
+    {
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        var now = DateTime.UtcNow;
+        var p1 = P(1, "media", window: true, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p1 }, now);
+        var p2 = P(1, "media", window: false, cpu: 0, audio: true);
+        ledger.Observe(new List<ProcessInfo> { p2 }, now + TimeSpan.FromSeconds(10));
+        ledger.Observe(new List<ProcessInfo> { }, now + TimeSpan.FromSeconds(20));
+
+        var b = ledger.Entries["media"];
+        Assert.Equal(0, b.TransientWindowObs);    // 期间有音频 → 不是弹窗骚扰
+        Assert.True(b.LastActiveUtc > DateTime.MinValue);
+    }
+
+    [Fact]
+    public void StreakEndedByProcessExit_IsEvaluated()
+    {
+        // 弹完就退出的进程：名字从快照消失时也要补判定
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        var now = DateTime.UtcNow;
+        var p = P(1, "popup-and-exit", window: true, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p }, now);
+        ledger.Observe(new List<ProcessInfo> { }, now + TimeSpan.FromSeconds(10));  // 进程没了
+
+        var b = ledger.Entries["popup-and-exit"];
+        Assert.Equal(1, b.TransientWindowObs);
+        Assert.Equal(DateTime.MinValue, b.LastActiveUtc);
+    }
+
+    [Fact]
+    public void MarkedCleanable_Process_IsAdvised_EvenIfNotBloatware()
+    {
+        // 用户在进程页右键「可清理」→ 建议器直接认（不要求进内置垃圾名单）
+        var procs = new List<ProcessInfo> { P(1, "MmMessagingNotifier", cat: ProcessCategory.ThirdPartyApp) };
+        var advice = JunkAdvisor.Recommend(procs, Behaviors(("MmMessagingNotifier", null)),
+            -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
+            markedCleanable: new[] { "MmMessagingNotifier" });
+        Assert.NotNull(advice);
+        Assert.Equal("MmMessagingNotifier", advice!.Candidates[0].Name);
+    }
+
+    [Fact]
+    public void MarkedCleanable_ProtectedOrActive_NeverAdvised()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "svc1", cat: ProcessCategory.SystemCritical),
+            P(2, "activesvc"),
+        };
+        var behaviors = Behaviors(("activesvc", DateTime.UtcNow - TimeSpan.FromMinutes(5)));
+        var advice = JunkAdvisor.Recommend(procs, behaviors,
+            -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
+            markedCleanable: new[] { "svc1", "activesvc" });
+        Assert.Null(advice);   // 保护类与今天活跃的都不推
+    }
+
+    [Fact]
+    public void TransientWindowObs_IsPersisted()
+    {
+        var path = Path.Combine(_dir, "behavior.json");
+        var ledger = BehaviorLedger.Load(path);
+        var p = P(1, "pop", window: true, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p }, DateTime.UtcNow);
+        ledger.Observe(new List<ProcessInfo> { }, DateTime.UtcNow + TimeSpan.FromSeconds(10));
+        ledger.Save();
+
+        var reloaded = BehaviorLedger.Load(path);
+        Assert.Equal(1, reloaded.Entries["pop"].TransientWindowObs);
+    }
 
     [Fact]
     public void JunkAdvice_DefaultsOn()

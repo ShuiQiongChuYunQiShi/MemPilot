@@ -47,11 +47,12 @@ public static class JunkAdvisor
         IReadOnlyCollection<string> whitelist,
         int minAgeSeconds,
         JunkAdviceStore? adviceStore,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        IReadOnlyCollection<string>? markedCleanable = null)
     {
         // ① 安全候选：完全复用 JunkSweeper（不复制任何安全判定）
         var junk = JunkSweeper.BuildPlan(procs, foregroundPid, audioPids, whitelist, minAgeSeconds);
-        if (junk.Count == 0) return null;
+        // 注意：junk 为空不能提前返回——下面还有「用户标记可清理」独立通道
 
         var nowLocal = nowUtc.ToLocalTime();
         var dayStartUtc = nowLocal.Date.ToUniversalTime();   // 本地今天 00:00 对应的 UTC
@@ -73,6 +74,30 @@ public static class JunkAdvisor
             if (adviceStore != null && !adviceStore.ShouldSuggest(p.Name, nowUtc))
                 continue;
 
+            picked.Add(p);
+        }
+
+        // v0.15.1：用户右键标记过「可清理」的进程独立纳入（它们不在内置垃圾名单里，
+        // BuildPlan 抓不到）。安全过滤逐条复制自 JunkSweeper.BuildPlan——两处必须同步，
+        // 改一处必须改另一处（有守卫测试锁定）。
+        var pickedNames = picked.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var marked = markedCleanable ?? Array.Empty<string>();
+        foreach (var p in procs)
+        {
+            if (!marked.Any(m => string.Equals(m, p.Name, StringComparison.OrdinalIgnoreCase))) continue;
+            if (pickedNames.Contains(p.Name)) continue;
+            if (p.IsProtected || p.IsSystemProcess || p.IsService) continue;
+            if (p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware
+                or ProcessCategory.AntiCheat or ProcessCategory.Driver or ProcessCategory.Unknown) continue;
+            if (p.Pid == foregroundPid || p.AudioActive || audioPids.Contains(p.Pid)) continue;
+            if (p.IsWhitelisted) continue;
+            if (whitelist.Any(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                   (!string.IsNullOrEmpty(p.ExecutablePath) &&
+                                    p.ExecutablePath.Contains(w, StringComparison.OrdinalIgnoreCase)))) continue;
+            if (p.StartTime != DateTime.MinValue && nowUtc.ToLocalTime() - p.StartTime < TimeSpan.FromSeconds(minAgeSeconds)) continue;
+            if (behaviors.TryGetValue(p.Name, out var mb) && mb.LastActiveUtc >= dayStartUtc) continue;
+            if (p.StartTime != DateTime.MinValue && nowUtc - p.StartTime.ToUniversalTime() < MinResidentAge) continue;
+            if (adviceStore != null && !adviceStore.ShouldSuggest(p.Name, nowUtc)) continue;
             picked.Add(p);
         }
         if (picked.Count == 0) return null;

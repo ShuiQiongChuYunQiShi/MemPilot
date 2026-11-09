@@ -4,6 +4,28 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.16.0] — popup-junk detection + user marks feed the advisor
+
+Real-world case that exposed both gaps: a MindManager marketing notifier
+(MmMessagingNotifier) popped an ad window; the user had AI kill it and disable
+its scheduled task — MemPilot had six days of ledger data on it (46
+observations, 23 windowless) yet never suggested anything, and the disposal
+never reached the audit.
+
+### Fixed
+- **Popup windows counted as "use".** A window appearing for ≤5 minutes with no
+  audio and <2% CPU — the classic marketing-popup pattern — now lands in
+  `TransientWindowObs` instead of `LastActiveUtc`, so popup-only processes stay
+  "unused today" and the advisor can catch them. Long/audible/busy window
+  streaks still count as real use.
+
+### Added
+- **User marks feed the advisor**: processes you right-click-marked
+  "可清理" (cleanable) are now suggestion candidates directly — they no longer
+  need to be in the built-in junk list. The full JunkSweeper safety filter set
+  is replicated for this channel (guard-commented: change both or neither).
+  The advisor's reason text notes the user mark.
+
 ## [0.15.0] — junk process advice (feature)
 
 When a junk process goes **a whole day without any user-visible activity**, MemPilot

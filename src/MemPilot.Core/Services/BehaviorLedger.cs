@@ -24,6 +24,13 @@ public class ProcessBehavior
     public string DayKey { get; set; } = "";
     /// <summary>今日被观察到"活跃"的次数（跨天清零）。</summary>
     public int TodayActiveObs { get; set; }
+    /// <summary>
+    /// 瞬态窗口次数（v0.15.1）：窗口出现 ≤5 分钟后消失、期间无音频、CPU&lt;2%——
+    /// 典型的营销弹窗模式。**不计入 LastActiveUtc**（弹窗骚扰 ≠ 用户使用）。
+    /// 实测案例：MmMessagingNotifier 弹窗有可见窗口，旧判定把它当成"今天用过"，
+    /// 垃圾建议因此漏报。
+    /// </summary>
+    public int TransientWindowObs { get; set; }
 
     /// <summary>指定时刻是否已"今日活跃过"（LastActiveUtc 落在该本地日之内）。</summary>
     public bool WasActiveOn(DateTime localDayStartUtc) => LastActiveUtc >= localDayStartUtc;
@@ -85,14 +92,35 @@ public class BehaviorLedger
             if (ResidualDetector.FindOrphanHost(p.Name, runningNames) != null) b.OrphanObs++;
             b.LastSeenUtc = now;
 
-            // v0.15.0：用户可见活动 → LastActiveUtc；今日计数按本地日跨天重置
+            // v0.15.0：今日计数按本地日跨天重置
             string today = now.ToLocalTime().ToString("yyyyMMdd");
             if (b.DayKey != today) { b.DayKey = today; b.TodayActiveObs = 0; }
-            bool active = p.HasVisibleWindow || p.AudioActive || p.Memory.CpuPercent >= 2;
-            if (active)
+
+            // v0.15.1：活跃判定拆成两路。
+            // 音频/CPU≥2% → 立即算使用；可见窗口 → 延迟判定（窗口消失时看：
+            // ≤5 分钟且无音频且 CPU<2% = 弹窗骚扰，只记 TransientWindowObs；
+            // 否则 = 真实使用，回填 LastActiveUtc）。解决"MmMessagingNotifier
+            // 弹窗有窗口就被当成今天用过"的漏报。
+            bool working = p.AudioActive || p.Memory.CpuPercent >= 2;
+            if (working)
             {
                 b.LastActiveUtc = now;
                 b.TodayActiveObs++;
+                _windowStreaks.Remove(p.Name);
+            }
+            else
+            {
+                UpdateWindowStreak(p, now, runningNames);
+            }
+        }
+
+        // 进程已退出但窗口 streak 还挂着：补判定（否则弹完就退出的进程永远停在"进行中"）
+        foreach (var gone in _windowStreaks.Keys.Where(k => !runningNames.Contains(k)).ToList())
+        {
+            if (_windowStreaks.TryGetValue(gone, out var s))
+            {
+                _windowStreaks.Remove(gone);
+                EvaluateEndedStreak(gone, s.StartUtc, s.HadAudio, s.MaxCpu, now);
             }
         }
         // v0.14：上限 1,000 条——超出按 LastSeenUtc 淘汰最久未观察的
@@ -103,6 +131,45 @@ public class BehaviorLedger
                 Entries.Remove(victim.Name);
         }
         if (++_dirty >= 60) { Save(); _dirty = 0; }
+    }
+
+    // ---- v0.15.1：窗口生命周期追踪（运行时状态，不持久化）----
+    private static readonly TimeSpan TransientWindowMax = TimeSpan.FromMinutes(5);
+    private readonly Dictionary<string, (DateTime StartUtc, int Ticks, bool HadAudio, double MaxCpu)>
+        _windowStreaks = new(StringComparer.OrdinalIgnoreCase);
+
+    private void UpdateWindowStreak(ProcessInfo p, DateTime now, HashSet<string> runningNames)
+    {
+        if (p.HasVisibleWindow)
+        {
+            if (_windowStreaks.TryGetValue(p.Name, out var s))
+                _windowStreaks[p.Name] = (s.StartUtc, s.Ticks + 1, s.HadAudio || p.AudioActive,
+                                          Math.Max(s.MaxCpu, p.Memory.CpuPercent));
+            else
+                _windowStreaks[p.Name] = (now, 1, p.AudioActive, p.Memory.CpuPercent);
+            return;   // 可见 ≠ 使用——等窗口消失时统一判定
+        }
+        if (_windowStreaks.TryGetValue(p.Name, out var ended))
+        {
+            _windowStreaks.Remove(p.Name);
+            EvaluateEndedStreak(p.Name, ended.StartUtc, ended.HadAudio, ended.MaxCpu, now);
+        }
+    }
+
+    private void EvaluateEndedStreak(string name, DateTime startUtc, bool hadAudio, double maxCpu, DateTime now)
+    {
+        if (!Entries.TryGetValue(name, out var b)) return;
+        if (now - startUtc <= TransientWindowMax && !hadAudio && maxCpu < 2)
+        {
+            b.TransientWindowObs++;   // 弹窗骚扰：不算使用
+        }
+        else
+        {
+            b.LastActiveUtc = now;    // 真实使用（窗口存在超过 5 分钟 / 期间有音频 / CPU 忙）
+            string today = now.ToLocalTime().ToString("yyyyMMdd");
+            if (b.DayKey != today) { b.DayKey = today; b.TodayActiveObs = 0; }
+            b.TodayActiveObs++;
+        }
     }
 
     /// <summary>驻留分 0..10＝(无窗口占比×0.4 + 空闲占比×0.3 + 在场频率×0.3) × 体量因子；

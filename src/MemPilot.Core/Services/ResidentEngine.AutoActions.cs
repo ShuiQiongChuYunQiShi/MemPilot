@@ -117,7 +117,8 @@ public partial class ResidentEngine
             var advice = JunkAdvisor.Recommend(
                 procs, _behaviors?.Entries ?? new Dictionary<string, ProcessBehavior>(),
                 _lastForegroundPid, audio, _config.Config.Whitelist,
-                _config.Config.MinProcessAgeSeconds, JunkAdvice, DateTime.UtcNow);
+                _config.Config.MinProcessAgeSeconds, JunkAdvice, DateTime.UtcNow,
+                MarkedCleanableProvider?.Invoke());
             if (advice == null) return;
             JunkAdvice?.RecordSuggested(advice.Candidates[0].Name, DateTime.UtcNow);
             foreach (var p in advice.Candidates) JunkAdvice?.RecordSuggested(p.Name, DateTime.UtcNow);
