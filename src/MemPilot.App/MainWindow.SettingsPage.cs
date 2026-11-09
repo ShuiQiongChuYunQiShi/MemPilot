@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         SetAutoCleanup.IsChecked = _config.Config.AutoCleanupEnabled;
         SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
+        SetJunkAdvice.IsChecked = _config.Config.JunkAdviceEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
         SetCommitReliefL3.IsChecked = _config.Config.CommitReliefL3Enabled;
@@ -121,6 +122,7 @@ public partial class MainWindow : Window
         _config.Config.AutoCleanupEnabled = SetAutoCleanup.IsChecked == true;
         _config.Config.AutoCloseCleanMatches = SetAutoClose.IsChecked == true;
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
+        _config.Config.JunkAdviceEnabled = SetJunkAdvice.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
         _config.Config.CommitReliefL3Enabled = SetCommitReliefL3.IsChecked == true;

@@ -4,6 +4,40 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.15.0] — junk process advice (feature)
+
+When a junk process goes **a whole day without any user-visible activity**, MemPilot
+now asks what to do about it — instead of either silently killing it (never) or
+silently ignoring it forever (the old behaviour, and the reason HabitHint's 111
+unanswered prompts mattered).
+
+### Added
+- **Junk advice card** (home page, non-modal): lists junk processes with zero
+  window/audio/CPU activity today, offering **suspend 2 h / suspend 8 h /
+  close / ignore**. One suggestion per day, at most 5 processes, ranked by
+  private commit. Tray balloon once per day (notification policy now has 5
+  whitelisted classes). On by default; a settings checkbox turns it off.
+- **Timed suspend with auto-resume**: `SuspendRecord.ResumeAtUtc` +
+  `SuspendRegistry.TakeExpired`; the engine resumes expired suspends on every
+  tick **and** at startup (covers hold periods that expired while the app was
+  closed). "(pid, startTime)" recheck applies, PID reuse cannot suspend the
+  wrong process.
+- **Feedback learning** (`junk-advice.json`): ignoring the same process name
+  stretches the next suggestion to 30 then 90 days; accepting (suspend/close)
+  resets it to 7 days. Never auto-adds to any whitelist — it only tunes how
+  often you are asked, and logs "已学会：X 90 天内不再提示".
+- "Used today" signal in the behaviour ledger: `LastActiveUtc` /
+  `DayKey` / `TodayActiveObs`, updated when a process has a window, plays
+  audio, or burns ≥2% CPU; the daily counter resets automatically at the local
+  day boundary.
+
+### Safety
+- All JunkSweeper safety filters are inherited untouched (protected/system/
+  service/foreground/audio/whitelist/min-age); the advisor adds only the
+  "unused today" + "running ≥2 h" gates.
+- Close for windowless candidates still requires the standard double-confirm
+  modal — the card cannot force-kill in one click.
+
 ## [0.14.0] — architecture & performance round
 
 ### Changed

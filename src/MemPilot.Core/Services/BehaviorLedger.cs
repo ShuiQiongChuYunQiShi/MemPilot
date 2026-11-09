@@ -15,6 +15,18 @@ public class ProcessBehavior
     public long PeakPrivateWsBytes { get; set; }
     public DateTime FirstSeenUtc { get; set; }
     public DateTime LastSeenUtc { get; set; }
+
+    // ---- v0.15.0（垃圾进程建议）：今日活跃信号 ----
+    /// <summary>最后一次"用户可见活动"（有窗口 / 有音频 / CPU≥2%）的 UTC 时刻。
+    /// 与 LastSeenUtc 的区别：在场 ≠ 被使用。JunkAdvisor 用它判定"当天未使用"。</summary>
+    public DateTime LastActiveUtc { get; set; }
+    /// <summary>今日活跃计数所归属的本地日期（yyyyMMdd）。跨天在 Observe 里自动重置。</summary>
+    public string DayKey { get; set; } = "";
+    /// <summary>今日被观察到"活跃"的次数（跨天清零）。</summary>
+    public int TodayActiveObs { get; set; }
+
+    /// <summary>指定时刻是否已"今日活跃过"（LastActiveUtc 落在该本地日之内）。</summary>
+    public bool WasActiveOn(DateTime localDayStartUtc) => LastActiveUtc >= localDayStartUtc;
 }
 
 /// <summary>
@@ -72,6 +84,16 @@ public class BehaviorLedger
                 b.PeakPrivateWsBytes = p.Memory.PrivateWorkingSetBytes;
             if (ResidualDetector.FindOrphanHost(p.Name, runningNames) != null) b.OrphanObs++;
             b.LastSeenUtc = now;
+
+            // v0.15.0：用户可见活动 → LastActiveUtc；今日计数按本地日跨天重置
+            string today = now.ToLocalTime().ToString("yyyyMMdd");
+            if (b.DayKey != today) { b.DayKey = today; b.TodayActiveObs = 0; }
+            bool active = p.HasVisibleWindow || p.AudioActive || p.Memory.CpuPercent >= 2;
+            if (active)
+            {
+                b.LastActiveUtc = now;
+                b.TodayActiveObs++;
+            }
         }
         // v0.14：上限 1,000 条——超出按 LastSeenUtc 淘汰最久未观察的
         // （旧实现无上限，实测 9 天 368 条且持续 +41/天；每个条目含峰值等字段，长期驻留无意义）

@@ -127,7 +127,16 @@ finally:
   load simulation that asserts the whole chain: [`tools/lease-load-test.py`](tools/lease-load-test.py)
 - Notification behaviour (what pings you and how often): [docs/NOTIFICATION-POLICY.md](docs/NOTIFICATION-POLICY.md)
 
-### 6. Watches VRAM too
+### 6. Suggests action for junk you never used
+
+A daily prompt (non-modal card, one balloon max) lists junk processes that got
+**zero window/audio/CPU activity all day**, offering: suspend 2 h / suspend 8 h
+(auto-resume at expiry) / close (with the standard confirmation flow) / ignore.
+Your choices are learned: ignoring the same process repeatedly stretches the
+next suggestion from 7 to 30 to 90 days — never an automatic whitelist entry.
+See [docs/NOTIFICATION-POLICY.md](docs/NOTIFICATION-POLICY.md).
+
+### 7. Watches VRAM too
 
 Per-process dedicated/shared GPU memory via PDH (`\GPU Process Memory(*)`),
 adapter totals via PDH (`\GPU Adapter Memory(*)`) — sampled every 30 s to a

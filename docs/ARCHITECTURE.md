@@ -72,7 +72,9 @@ feedback.json          user marks (keep/cleanable/workload) — copy-on-write st
 killed.json            recently disposed processes (for one-click relaunch)
 lease-token.txt        lease API bearer token (same-user boundary, documented)
 programs.json          program catalog cache (24 h TTL)
-suspended.json         currently suspended processes (survives restart)
+suspended.json         currently suspended processes (survives restart;
+                       v0.15 adds ResumeAtUtc for timed suspend with auto-resume)
+junk-advice.json       junk-suggestion learning ledger (dismiss/accept counts)
 ```
 
 Nothing is written outside that directory (the exception is the optional

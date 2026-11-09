@@ -167,6 +167,34 @@ public class CleanupEngine
         catch { return false; }   // 进程已退出 / 无法打开 → 不能确认是同一个
     }
 
+    /// <summary>
+    /// 定时挂起（v0.15.0）：挂起并登记到期恢复时刻。到期由 ResidentEngine 的
+    /// ResumeExpiredSuspends 自动恢复；应用关闭期间到期则在下次启动时补恢复。
+    /// 沿用 Execute 的 (pid,startTime) 复检，防止 PID 复用挂错进程。
+    /// </summary>
+    public ActionResult SuspendTimed(ProcessInfo p, string reason, TimeSpan holdDuration)
+    {
+        if (!IsStillSameProcess(p))
+            return new ActionResult(false, "目标已不是原进程（PID 可能已被复用或已退出），已拒绝", false);
+        try
+        {
+            _procs.SuspendProcess(p.Pid);
+            Suspended.Add(p.Pid, p.StartTime, p.Name, reason, DateTime.UtcNow + holdDuration);
+            _audit.Log(new AuditEntry
+            {
+                Action = "L2Suspend",
+                Target = $"{p.Name} (PID {p.Pid})",
+                Level = "L2Suspend",
+                Result = $"定时挂起 {holdDuration.TotalHours:F0} 小时（{reason}），到期自动恢复"
+            });
+            return new ActionResult(true, $"已挂起 {holdDuration.TotalHours:F0} 小时，到期自动恢复", false);
+        }
+        catch (Exception ex)
+        {
+            return new ActionResult(false, "挂起失败: " + ex.Message, false);
+        }
+    }
+
     public ActionResult Resume(int pid, string name)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;

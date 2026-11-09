@@ -99,6 +99,63 @@ public partial class ResidentEngine
         if (_lastSkipLogUtc.Count > 2048) _lastSkipLogUtc.Clear();
     }
 
+    // ---- 垃圾进程建议 + 定时挂起到期恢复（v0.15.0）----
+
+    /// <summary>
+    /// 每日一次：找出"整天未使用"的垃圾进程，交给用户决定挂起/结束。
+    /// 只发事件不执行任何动作；用户不在场（托盘）时由 VM 记录后跳过。
+    /// </summary>
+    private void MaybeAdviseJunk(List<ProcessInfo> procs)
+    {
+        if (!_config.Config.JunkAdviceEnabled) return;
+        var today = DateTime.Now.Date;
+        if (_lastJunkAdviceDay == today) return;          // 一天最多一次
+        _lastJunkAdviceDay = today;
+        try
+        {
+            var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+            var advice = JunkAdvisor.Recommend(
+                procs, _behaviors?.Entries ?? new Dictionary<string, ProcessBehavior>(),
+                _lastForegroundPid, audio, _config.Config.Whitelist,
+                _config.Config.MinProcessAgeSeconds, JunkAdvice, DateTime.UtcNow);
+            if (advice == null) return;
+            JunkAdvice?.RecordSuggested(advice.Candidates[0].Name, DateTime.UtcNow);
+            foreach (var p in advice.Candidates) JunkAdvice?.RecordSuggested(p.Name, DateTime.UtcNow);
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "JunkAdvice",
+                Target = advice.NamesText,
+                Decision = "建议",
+                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB"
+            });
+            JunkAdvised?.Invoke(advice);
+        }
+        catch (Exception ex) { Helpers.Diag.Record("junk-advice", ex); }
+    }
+
+    /// <summary>定时挂起到期自动恢复（每 tick 检查；Start 时也补跑一次覆盖关闭期间到期）。</summary>
+    internal void ResumeExpiredSuspends()
+    {
+        try
+        {
+            var due = _cleanup.Suspended.TakeExpired(DateTime.UtcNow);
+            foreach (var rec in due)
+            {
+                var r = _cleanup.Resume(rec.Pid, rec.Name);
+                _decisions.Log(new DecisionEntry
+                {
+                    Kind = "JunkAdvice",
+                    Target = $"{rec.Name} (PID {rec.Pid})",
+                    Decision = "自动恢复",
+                    Reason = r.Success
+                        ? $"定时挂起到期，已自动恢复（挂起于 {rec.SuspendedAtUtc.ToLocalTime():HH:mm}）"
+                        : $"定时挂起到期但恢复失败：{r.Message}"
+                });
+            }
+        }
+        catch (Exception ex) { Helpers.Diag.Record("junk-resume", ex); }
+    }
+
     // ---- junk resident sweep (auto mode, opt-in) ----
 
     private void AutoJunkSweep(List<ProcessInfo> procs)

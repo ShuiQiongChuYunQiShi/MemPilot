@@ -376,6 +376,10 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 模态框的问题：提交 <5% 时随时弹出抢焦点；无人值守时永远没人点，引擎只能一直等。
         // 现在渲染成确认卡（候选名单+确认/放弃），30 分钟冷却；用户不在场（托盘模式）则
         // 记决策日志后自动放弃——引擎从不被 UI 阻塞，安全确认依然存在。
+        // v0.15.0：垃圾进程建议卡片接线 + 学习账本
+        Engine.JunkAdvice = new JunkAdviceStore(ConfigStore.DataDirectory);
+        AttachJunkAdvice();
+
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
             System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {

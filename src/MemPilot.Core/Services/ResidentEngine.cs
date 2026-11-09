@@ -82,6 +82,7 @@ public partial class ResidentEngine
     public void Start(Func<CancellationToken, Task> refreshAsync)
     {
         Stop();
+        ResumeExpiredSuspends();   // v0.15.0：应用关闭期间到期的定时挂起，启动即恢复
         var interval = TimeSpan.FromSeconds(Math.Max(3, _config.Config.RefreshIntervalSeconds));
         _timer = new System.Threading.Timer(async _ =>
         {
@@ -111,6 +112,12 @@ public partial class ResidentEngine
         _timer?.Change(interval, interval);
     }
 
+    /// <summary>垃圾进程建议（v0.15.0）：一天最多触发一次，VM 负责弹卡 + 气球。</summary>
+    public event Action<JunkAdvice>? JunkAdvised;
+    private DateTime _lastJunkAdviceDay = DateTime.MinValue.Date;
+    /// <summary>建议学习账本（v0.15.0，只调频率不加白名单）。</summary>
+    public JunkAdviceStore? JunkAdvice { get; set; }
+
     /// <summary>Called by the VM after every completed refresh, with the fresh snapshot.</summary>
     public void AfterRefresh(List<ProcessInfo> procs, SystemMemoryInfo mem)
     {
@@ -124,7 +131,9 @@ public partial class ResidentEngine
         WatchCommitRelief(procs, mem);   // v0.5.0：提交余量兜底（分级 + 安全子集）
         WatchAvailableFloor(procs, mem); // v0.13.0：低可用兜底（四轮复盘 P1，数据驱动新触发器）
         CheckHabitHint();
-        _behaviors?.Observe(procs);
+        _behaviors?.Observe(procs);          // 先记行为，再据此判断"今天用没用过"
+        MaybeAdviseJunk(procs);              // v0.15.0：垃圾进程建议（每日一次）
+        ResumeExpiredSuspends();             // v0.15.0：定时挂起到期自动恢复
         if (cfg.AutoJunkSweepEnabled) AutoJunkSweep(procs);
         _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds);
     }

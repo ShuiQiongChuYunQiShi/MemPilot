@@ -354,6 +354,8 @@ public class SuspendRecord
     public DateTime StartTime { get; set; }
     public string Name { get; set; } = "";
     public DateTime SuspendedAtUtc { get; set; } = DateTime.UtcNow;
+    /// <summary>定时挂起的到期恢复时刻（v0.15.0）。null = 手动挂起，需人工恢复。</summary>
+    public DateTime? ResumeAtUtc { get; set; }
     public string Reason { get; set; } = "";
     public string Display => $"{Name} (PID {Pid})  挂起于 {SuspendedAtUtc.ToLocalTime():HH:mm:ss}  {Reason}";
 }
@@ -448,6 +450,9 @@ public class AppConfig
     public bool AutoOptimizeEnabled { get; set; } = false;
     // 垃圾驻守清扫：自动结束无窗口/无音频/低负载的 Bloatware 与孤儿残留（默认关闭）
     public bool AutoJunkSweepEnabled { get; set; } = false;
+    // 垃圾进程建议（v0.15.0）：整天未使用的垃圾进程在主页提示「挂起 2h/8h 或结束」。
+    // 只建议不执行，动作必须用户点；默认开启（用户 2026-11-09 决策：启动即检测）。
+    public bool JunkAdviceEnabled { get; set; } = true;
     // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
     // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，

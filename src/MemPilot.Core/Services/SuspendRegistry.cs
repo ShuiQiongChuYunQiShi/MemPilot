@@ -45,7 +45,8 @@ public class SuspendRegistry
         catch { return false; }
     }
 
-    public void Add(int pid, DateTime startTime, string name, string reason)
+    public void Add(int pid, DateTime startTime, string name, string reason,
+        DateTime? resumeAtUtc = null)
     {
         lock (_lock)
         {
@@ -54,10 +55,33 @@ public class SuspendRegistry
                 Pid = pid,
                 StartTime = startTime.ToUniversalTime(),  // normalize: Process.StartTime is local
                 Name = name,
-                Reason = reason
+                Reason = reason,
+                ResumeAtUtc = resumeAtUtc?.ToUniversalTime()
             };
             Save();
         }
+    }
+
+    /// <summary>
+    /// 取出所有已到期的定时挂起记录并从账本移除（v0.15.0）。
+    /// 调用方负责真正的恢复动作——本类不碰进程，只记账。
+    /// </summary>
+    public List<SuspendRecord> TakeExpired(DateTime nowUtc)
+    {
+        var due = new List<SuspendRecord>();
+        lock (_lock)
+        {
+            foreach (var (pid, rec) in _records.ToList())
+            {
+                if (rec.ResumeAtUtc is { } at && at <= nowUtc)
+                {
+                    due.Add(rec);
+                    _records.Remove(pid);
+                }
+            }
+            if (due.Count > 0) Save();
+        }
+        return due;
     }
 
     public bool Remove(int pid)
