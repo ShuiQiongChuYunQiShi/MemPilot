@@ -152,12 +152,12 @@ public class JunkAdviceTests : IDisposable
         var store = new JunkAdviceStore(_dir);
         var now = DateTime.UtcNow;
         for (int i = 0; i < 520; i++) store.RecordSuggested($"n{i}", now);
-        // 重新加载确认落盘且条数被裁到上限
-        var reloaded = new JunkAdviceStore(_dir);
-        int count = 0;
-        for (int i = 0; i < 520; i++)
-            if (reloaded.ShouldSuggest($"n{i}", now)) count++;
-        Assert.True(count <= 500, $"上限未生效：{count}");
+
+        // v0.17.0：旧断言 `count <= 500` 恒真（清空上限也通过）。改为直接读落盘条目数。
+        var raw = File.ReadAllText(Path.Combine(_dir, "junk-advice.json"));
+        using var doc = System.Text.Json.JsonDocument.Parse(raw);
+        int entries = doc.RootElement.GetProperty("Entries").GetArrayLength();
+        Assert.Equal(500, entries);
     }
 
     // ---- 3. 定时挂起与到期恢复 ----
@@ -215,21 +215,24 @@ public class JunkAdviceTests : IDisposable
     // ---- 4. 行为账本今日活跃 ----
 
     [Fact]
-    public void BehaviorLedger_LastActive_UpdatesOnlyOnVisibleActivity()
+    public void BehaviorLedger_LongOpenWindow_RollsActiveWithoutWaitingForClose()
     {
+        // v0.17.0：旧测试用 window+cpu=10 走 working 分支，删掉 streak 逻辑也能过。
+        // 现在走纯窗口路径（cpu=0），断言连续开窗 >5 分钟后每个 tick 都回填 LastActiveUtc。
         var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
-        var active = P(1, "act", window: true, cpu: 10);
-        var silent = P(2, "silent", window: false, cpu: 0);
         var now = DateTime.UtcNow;
-        ledger.Observe(new List<ProcessInfo> { active, silent }, now);
+        var p = P(1, "browser", window: true, cpu: 0);
 
-        var a = ledger.Entries["act"];
-        var s = ledger.Entries["silent"];
-        Assert.True(a.LastActiveUtc >= now.AddSeconds(-5), "有窗口 → 活跃");
-        Assert.Equal(DateTime.MinValue, s.LastActiveUtc);   // 无窗口/音频/CPU → 不算活跃
-        Assert.Equal(1, a.TodayActiveObs);
-        Assert.Equal(0, s.TodayActiveObs);
-        Assert.NotEqual("", a.DayKey);
+        ledger.Observe(new List<ProcessInfo> { p }, now);                            // streak 开始
+        Assert.Equal(DateTime.MinValue, ledger.Entries["browser"].LastActiveUtc);    // 尚未定论
+        ledger.Observe(new List<ProcessInfo> { p }, now + TimeSpan.FromMinutes(6));  // 超过瞬态阈值
+        Assert.True(ledger.Entries["browser"].LastActiveUtc >= now + TimeSpan.FromMinutes(6) - TimeSpan.FromSeconds(1),
+            "连续开窗 >5 分钟应立刻算使用（不等窗口关闭）");
+        Assert.True(ledger.Entries["browser"].TodayActiveObs > 0);
+
+        var silent = P(2, "silent", window: false, cpu: 0);
+        ledger.Observe(new List<ProcessInfo> { p, silent }, now + TimeSpan.FromMinutes(7));
+        Assert.Equal(DateTime.MinValue, ledger.Entries["silent"].LastActiveUtc);      // 无窗口/音频/CPU → 不算活跃
     }
 
     [Fact]
@@ -349,6 +352,168 @@ public class JunkAdviceTests : IDisposable
 
         var reloaded = BehaviorLedger.Load(path);
         Assert.Equal(1, reloaded.Entries["pop"].TransientWindowObs);
+    }
+
+    // ---- v0.17.0：时间窗/交付确认/窗口排除/PID 隔离/恢复复检 ----
+
+    [Fact]
+    public void DailyGate_RespectsEveningWindow_AndDeliveredDay()
+    {
+        var evening = new DateTime(2026, 11, 11, 19, 5, 0);
+        var noon = new DateTime(2026, 11, 11, 12, 0, 0);
+        var today = evening.ToString("yyyyMMdd");
+        var yesterday = evening.AddDays(-1).ToString("yyyyMMdd");
+
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null));
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, yesterday));   // 昨天交付过 → 今天可评
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(noon, 19, null));          // 傍晚前不评估
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, today));      // 今天已交付
+    }
+
+    [Fact]
+    public void Store_AdviceDayKey_PersistsAndClears()
+    {
+        var store = new JunkAdviceStore(_dir);
+        Assert.Equal("", store.AdviceDayKey);
+        store.MarkAdviceDelivered("20261111");
+        Assert.Equal("20261111", new JunkAdviceStore(_dir).AdviceDayKey);   // 跨重启保留
+
+        store.ClearAdviceDay();                                            // 托盘回滚
+        Assert.Equal("", new JunkAdviceStore(_dir).AdviceDayKey);
+    }
+
+    [Fact]
+    public void Store_MigratesLegacyBareArrayFormat()
+    {
+        File.WriteAllText(Path.Combine(_dir, "junk-advice.json"),
+            "[{\"Name\":\"legacy\",\"LastSuggestedUtc\":\"2026-11-01T00:00:00Z\",\"DismissCount\":2}]");
+        var store = new JunkAdviceStore(_dir);
+        Assert.Equal(2, store.DismissCountOf("legacy"));
+        Assert.Equal("", store.AdviceDayKey);
+    }
+
+    [Fact]
+    public void Advisor_ExcludesCurrentlyWindowed_EvenIfUnusedToday()
+    {
+        // v0.17.0：账本说"今天未使用"，但此刻有窗口 → 不能推荐（防误关正在用的窗口）
+        var procs = new List<ProcessInfo> { P(1, "wps", window: true) };
+        var advice = JunkAdvisor.Recommend(procs, Behaviors(("wps", null)),
+            -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow);
+        Assert.Null(advice);
+    }
+
+    [Fact]
+    public void BehaviorLedger_SameNameNewPid_DoesNotInheritStreak()
+    {
+        // v0.17.0：旧实现按名字键控，第二 PID 的短弹窗继承旧 StartUtc → 误判"长窗口 = 使用"
+        var ledger = BehaviorLedger.Load(Path.Combine(_dir, "behavior.json"));
+        var now = DateTime.UtcNow;
+        ledger.Observe(new List<ProcessInfo> { P(1, "notifier", window: true, cpu: 0) }, now);
+        ledger.Observe(new List<ProcessInfo> { P(2, "notifier", window: true, cpu: 0) }, now + TimeSpan.FromMinutes(30));
+        ledger.Observe(new List<ProcessInfo> { }, now + TimeSpan.FromMinutes(31));
+
+        Assert.True(ledger.Entries["notifier"].TransientWindowObs >= 1,
+            "新 PID 的短窗口应记为瞬态，而不是继承旧 streak 当长窗口");
+    }
+
+    [Fact]
+    public void Resume_RejectsReusedPid()
+    {
+        // v0.17.0：定时挂起记录可能存活数小时，恢复前必须复检 (pid, startTime)
+        using var me = System.Diagnostics.Process.GetCurrentProcess();
+        Assert.True(CleanupEngine.IsAliveSame(me.Id, me.StartTime.ToUniversalTime()));
+        Assert.False(CleanupEngine.IsAliveSame(me.Id, me.StartTime.ToUniversalTime().AddHours(-1)));
+        Assert.False(CleanupEngine.IsAliveSame(999999, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void ResumeRecord_DropsRecordWhenProcessGone()
+    {
+        var engine = new CleanupEngine(new ProcessService(), new AuditLogger(_dir), _dir);
+        var rec = new SuspendRecord
+        {
+            Pid = 999999, StartTime = DateTime.UtcNow.AddHours(-1),
+            Name = "ghost", Reason = "测试", ResumeAtUtc = DateTime.UtcNow.AddMinutes(-1)
+        };
+        engine.Suspended.Add(rec.Pid, rec.StartTime, rec.Name, rec.Reason, rec.ResumeAtUtc);
+        var r = engine.ResumeRecord(rec);
+        Assert.False(r.Success);
+        Assert.Contains("无需恢复", r.Message);
+        Assert.False(engine.Suspended.IsSuspended(rec.Pid));
+    }
+
+    [Fact]
+    public void SharedSafetyFilter_AppliesToMarkedChannel()
+    {
+        // v0.17.0：七条过滤单源化后，标记通道也必须遵守白名单/发声过滤
+        var whitelisted = P(1, "marked1");
+        whitelisted.IsWhitelisted = true;
+        var audioProc = P(2, "marked2");
+        audioProc.AudioActive = true;
+        var advice = JunkAdvisor.Recommend(new List<ProcessInfo> { whitelisted, audioProc },
+            Behaviors(("marked1", null), ("marked2", null)),
+            -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
+            markedCleanable: new[] { "marked1", "marked2" });
+        Assert.Null(advice);
+    }
+
+    [Fact]
+    public void Advice_ReasonDistinguishesUserMarked()
+    {
+        var procs = new List<ProcessInfo> { P(1, "MmMessagingNotifier", cat: ProcessCategory.ThirdPartyApp) };
+        var advice = JunkAdvisor.Recommend(procs, Behaviors(("MmMessagingNotifier", null)),
+            -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
+            markedCleanable: new[] { "MmMessagingNotifier" });
+        Assert.NotNull(advice);
+        Assert.Contains("你标记的", advice!.NamesText);
+        Assert.Equal(1, advice.MarkedCount);
+    }
+
+    [Fact]
+    public void ForceCheck_EndToEnd_FiresEventAndPersistsDayKey()
+    {
+        // v0.17.0：行为级验证「立即检查」全链路（UI 自动化在本机不可靠，改测引擎侧）
+        var config = new ConfigStore(_dir);
+        var decisions = new DecisionLog(_dir);
+        var engine = new ResidentEngine(config,
+            new CleanupEngine(new ProcessService(), new AuditLogger(_dir), _dir),
+            new NativeMemoryCleanerService(), new AuditLogger(_dir), decisions,
+            new UsageRecorder(_dir), BehaviorLedger.Load(Path.Combine(_dir, "behavior.json")));
+        engine.JunkAdvice = new JunkAdviceStore(_dir);
+
+        JunkAdvice? got = null;
+        engine.JunkAdvised += a => got = a;
+
+        var procs = new List<ProcessInfo> { P(1, "wetype_update") };
+        engine.ForceJunkAdviceNow(procs);
+
+        Assert.NotNull(got);                                     // 事件送到 VM
+        Assert.Contains("wetype_update", got!.NamesText);
+        Assert.Equal(DateTime.Now.ToString("yyyyMMdd"), engine.JunkAdvice!.AdviceDayKey);  // 当日标记已落
+        decisions.Flush();
+        var log = decisions.Recent(10);
+        Assert.Contains(log, e => e.Kind == "JunkAdvice" && e.Decision == "建议");
+    }
+
+    [Fact]
+    public void ForceCheck_NoCandidates_LogsVisibleRecord()
+    {
+        // "点了没反应"体验差：无候选也必须留痕
+        var config = new ConfigStore(_dir);
+        var decisions = new DecisionLog(_dir);
+        var engine = new ResidentEngine(config,
+            new CleanupEngine(new ProcessService(), new AuditLogger(_dir), _dir),
+            new NativeMemoryCleanerService(), new AuditLogger(_dir), decisions,
+            new UsageRecorder(_dir), BehaviorLedger.Load(Path.Combine(_dir, "behavior.json")));
+        engine.JunkAdvice = new JunkAdviceStore(_dir);
+
+        // 有窗口的垃圾进程 → 排除 → 无候选
+        engine.ForceJunkAdviceNow(new List<ProcessInfo> { P(1, "wetype_update", window: true) });
+
+        decisions.Flush();
+        var log = decisions.Recent(10);
+        Assert.Contains(log, e => e.Kind == "JunkAdvice" && e.Decision == "无候选");
+        Assert.Equal("", engine.JunkAdvice!.AdviceDayKey);       // 无候选不消费当日标记
     }
 
     [Fact]

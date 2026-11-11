@@ -195,6 +195,31 @@ public class CleanupEngine
         }
     }
 
+    /// <summary>
+    /// 按记录恢复（v0.17.0）：先复检 (pid, startTime)，再调 Resume——定时挂起记录可能
+    /// 存活数小时，期间原进程退出、PID 被复用时，绝不能再调 ResumeProcess（会恢复错进程）。
+    /// </summary>
+    public ActionResult ResumeRecord(MemPilot.Models.SuspendRecord rec)
+    {
+        if (!IsAliveSame(rec.Pid, rec.StartTime))
+        {
+            Suspended.Remove(rec.Pid);   // 记账清除（进程已不在）
+            return new ActionResult(false, "进程已退出或 PID 已被复用，无需恢复", false);
+        }
+        return Resume(rec.Pid, rec.Name);
+    }
+
+    /// <summary>(pid, startTime) 是否仍是同一个活着的进程。</summary>
+    public static bool IsAliveSame(int pid, DateTime startUtc)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.StartTime.ToUniversalTime() == startUtc.ToUniversalTime();
+        }
+        catch { return false; }
+    }
+
     public ActionResult Resume(int pid, string name)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;

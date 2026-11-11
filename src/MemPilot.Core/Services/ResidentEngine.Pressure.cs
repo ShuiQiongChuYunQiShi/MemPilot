@@ -312,8 +312,9 @@ public partial class ResidentEngine
             int nextHour = (nowLocal.Hour + 1) % 24;
             var hp = _habit.ForHour(nextHour);
             if (hp == null || hp.Level is not (PressureLevel.Tight or PressureLevel.Critical)) return;
-            // v0.13.0：冷却 6h → 24h（四轮复盘效果审计：111 次发射零用户响应，降为每日 1 条）
-            if (_lastHabitHintHour == nextHour && (nowLocal - _lastHabitHintUtc).TotalHours < 24) return;
+            // v0.17.0：**全局**每天 1 条。v0.13 的实现是"每时段 24h"，实测 15 条/天
+            // （11-10 数据），与"降为每日 1 条"的意图不符。
+            if ((nowLocal - _lastHabitHintUtc).TotalHours < 24) return;
 
             _lastHabitHintHour = nextHour;
             _lastHabitHintUtc = nowLocal;

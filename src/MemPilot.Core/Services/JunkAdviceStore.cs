@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using MemPilot.Helpers;
 
 namespace MemPilot.Services;
@@ -31,21 +32,50 @@ public class JunkAdviceStore
         TimeSpan.FromDays(90),   // 忽略 3 次及以上
     };
 
+    /// <summary>落盘结构（v0.17.0）：条目 + 当日已交付标记（跨重启不重复建议）。</summary>
+    private sealed class StoreDto
+    {
+        public string AdviceDayKey { get; set; } = "";
+        public List<JunkAdviceEntry> Entries { get; set; } = new();
+    }
+
     private readonly string _path;
     private readonly object _gate = new();
-    private List<JunkAdviceEntry> _entries;
+    private List<JunkAdviceEntry> _entries = new();
+    private string _adviceDayKey = "";
 
     public JunkAdviceStore(string dataDir)
     {
         try { Directory.CreateDirectory(dataDir); } catch { }
         _path = Path.Combine(dataDir, "junk-advice.json");
-        _entries = Load();
+        LoadAll();
     }
 
-    private List<JunkAdviceEntry> Load()
+    private void LoadAll()
     {
-        var list = JsonFileStore.Load<List<JunkAdviceEntry>>(_path) ?? new();
-        return list.Where(e => !string.IsNullOrWhiteSpace(e.Name)).ToList();
+        // 兼容 v0.15/0.16 的旧格式（裸数组）与 v0.17 的 {AdviceDayKey, Entries}
+        try
+        {
+            var raw = File.Exists(_path) ? File.ReadAllText(_path) : "";
+            if (raw.TrimStart().StartsWith("["))
+            {
+                _entries = JsonSerializer.Deserialize<List<JunkAdviceEntry>>(raw) ?? new();
+            }
+            else
+            {
+                var dto = string.IsNullOrWhiteSpace(raw)
+                    ? new StoreDto()
+                    : JsonSerializer.Deserialize<StoreDto>(raw) ?? new StoreDto();
+                _entries = dto.Entries;
+                _adviceDayKey = dto.AdviceDayKey;
+            }
+        }
+        catch (Exception ex)
+        {
+            try { Helpers.Diag.Record("junk-advice-load", ex); } catch { }
+            _entries = new();
+        }
+        _entries = _entries.Where(e => !string.IsNullOrWhiteSpace(e.Name)).ToList();
     }
 
     private void SaveLocked()
@@ -53,7 +83,26 @@ public class JunkAdviceStore
         // 上限 500：按 LastSuggestedUtc 淘汰最久未提示的
         if (_entries.Count > MaxEntries)
             _entries = _entries.OrderByDescending(e => e.LastSuggestedUtc).Take(MaxEntries).ToList();
-        JsonFileStore.Save(_path, _entries, JsonFileStore.Pretty);
+        JsonFileStore.Save(_path, new StoreDto { AdviceDayKey = _adviceDayKey, Entries = _entries },
+            JsonFileStore.Pretty);
+    }
+
+    /// <summary>当天是否已交付过一次建议（跨重启）：key 形如 yyyyMMdd。null/空=未交付。</summary>
+    public string AdviceDayKey
+    {
+        get { lock (_gate) return _adviceDayKey; }
+    }
+
+    /// <summary>标记当天已交付（弹卡或用户拒绝）。</summary>
+    public void MarkAdviceDelivered(string dayKey)
+    {
+        lock (_gate) { _adviceDayKey = dayKey; SaveLocked(); }
+    }
+
+    /// <summary>回滚当天标记（托盘模式没交付成功时用，下一次 tick 可重试）。</summary>
+    public void ClearAdviceDay()
+    {
+        lock (_gate) { _adviceDayKey = ""; SaveLocked(); }
     }
 
     /// <summary>该进程名现在是否值得再提示一次（学习后的冷却判定）。</summary>

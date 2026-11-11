@@ -4,6 +4,51 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.17.0] — junk advice actually reaches the user
+
+One day of v0.16 data settled the question: the advice fired exactly once
+(11-11 00:00, 8 candidates, 850 MB) and **was skipped because the app was in
+tray mode** — while the 7-day per-name cooldown was already on disk. The
+feature worked technically and failed product-wise.
+
+### Fixed
+- **Never suggests at midnight.** Evaluation now starts at 19:00 local ("unused
+  all day" is only meaningful in the evening; at 00:00 every process is
+  trivially "unused today").
+- **Tray mode no longer burns the cooldown.** The engine emits; the VM records
+  "suggested" only when the card is actually shown. In tray mode the VM logs
+  the skip and calls `RejectJunkAdvice()` — the day's delivered-mark is rolled
+  back so the next tick (window visible) can show it.
+- **Daily mark is persisted** (`junk-advice.json` now `{AdviceDayKey, Entries}`
+  with backward-compatible migration from the old bare array), so restarts do
+  not re-suggest the same day.
+- **An open window no longer counts as "unused".** A window streak longer than
+  5 minutes rolls `LastActiveUtc` forward every tick (previously it was stamped
+  only when the window closed — an all-day browser could be advised for closing),
+  and the advisor additionally rejects any candidate with a visible window right
+  now.
+- **Window streaks are keyed by (name, pid)** — a short popup from a new PID no
+  longer inherits the previous PID's start time and gets misclassified as
+  "long window = real use".
+- **Timed-suspend resume re-checks (pid, startTime)** (`ResumeRecord`): a record
+  alive for hours can no longer resume an unrelated process after PID reuse.
+  A failed resume is re-queued (+5 min) instead of silently losing the record;
+  a dead process drops the record with a clear log line.
+
+### Added
+- Settings → 立即检查 button (`ForceJunkAdviceNow`) to trigger the check on
+  demand — useful for verification and for users who do not want to wait until
+  19:00.
+
+### Changed
+- **HabitHint is now globally once per day** (was per-time-window: 15/day
+  measured). This matches the original intent from the v0.13 retrospective.
+- **Junk safety filters unified** into `JunkSafetyFilter` — JunkSweeper and the
+  advisor's user-marked channel now share one implementation instead of two
+  copies kept in sync by comment.
+- Advice text distinguishes user-marked candidates ("（你标记的）") and no longer
+  double-counts multiple PIDs of the same name.
+
 ## [0.16.0] — popup-junk detection + user marks feed the advisor
 
 Real-world case that exposed both gaps: a MindManager marketing notifier

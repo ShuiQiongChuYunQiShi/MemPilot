@@ -25,15 +25,9 @@ public static class JunkSweeper
 
         foreach (var p in procs)
         {
-            if (p.IsProtected || p.IsSystemProcess || p.IsService) continue;
-            if (p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware
-                or ProcessCategory.AntiCheat or ProcessCategory.Driver or ProcessCategory.Unknown) continue;
-            if (p.Pid == foregroundPid || p.AudioActive || audioPids.Contains(p.Pid)) continue;
-            if (p.IsWhitelisted) continue;
-            if (whitelist.Any(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                                   (!string.IsNullOrEmpty(p.ExecutablePath) &&
-                                    p.ExecutablePath.Contains(w, StringComparison.OrdinalIgnoreCase)))) continue;
-            if (p.StartTime != DateTime.MinValue && (now - p.StartTime).TotalSeconds < minAgeSeconds) continue;
+            // v0.17.0：七条安全过滤收敛到 JunkSafetyFilter（与 JunkAdvisor 共用一份）
+            if (!JunkSafetyFilter.IsEligible(p, foregroundPid, audioPids, whitelist, minAgeSeconds, now))
+                continue;
 
             string reason;
             string evidence;

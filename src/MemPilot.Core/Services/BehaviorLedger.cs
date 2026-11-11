@@ -106,7 +106,7 @@ public class BehaviorLedger
             {
                 b.LastActiveUtc = now;
                 b.TodayActiveObs++;
-                _windowStreaks.Remove(p.Name);
+                _windowStreaks.Remove((p.Name, p.Pid));
             }
             else
             {
@@ -115,13 +115,12 @@ public class BehaviorLedger
         }
 
         // 进程已退出但窗口 streak 还挂着：补判定（否则弹完就退出的进程永远停在"进行中"）
-        foreach (var gone in _windowStreaks.Keys.Where(k => !runningNames.Contains(k)).ToList())
+        foreach (var gone in _windowStreaks.Keys
+                     .Where(k => !runningNames.Contains(k.Name)).ToList())
         {
-            if (_windowStreaks.TryGetValue(gone, out var s))
-            {
-                _windowStreaks.Remove(gone);
-                EvaluateEndedStreak(gone, s.StartUtc, s.HadAudio, s.MaxCpu, now);
-            }
+            var s = _windowStreaks[gone];
+            _windowStreaks.Remove(gone);
+            EvaluateEndedStreak(gone.Name, s.StartUtc, s.HadAudio, s.MaxCpu, now);
         }
         // v0.14：上限 1,000 条——超出按 LastSeenUtc 淘汰最久未观察的
         // （旧实现无上限，实测 9 天 368 条且持续 +41/天；每个条目含峰值等字段，长期驻留无意义）
@@ -135,25 +134,62 @@ public class BehaviorLedger
 
     // ---- v0.15.1：窗口生命周期追踪（运行时状态，不持久化）----
     private static readonly TimeSpan TransientWindowMax = TimeSpan.FromMinutes(5);
-    private readonly Dictionary<string, (DateTime StartUtc, int Ticks, bool HadAudio, double MaxCpu)>
-        _windowStreaks = new(StringComparer.OrdinalIgnoreCase);
+    // v0.17.0：键改为 (name, pid)——同名新 PID 的短弹窗不得继承旧 streak 的 StartUtc
+    // （旧实现按名字键控，第二 PID 的 30 秒弹窗被误判成"长窗口 = 真实使用"）。
+    private readonly Dictionary<(string Name, int Pid), (DateTime StartUtc, int Ticks, bool HadAudio, double MaxCpu)>
+        _windowStreaks = new();
 
     private void UpdateWindowStreak(ProcessInfo p, DateTime now, HashSet<string> runningNames)
     {
+        var key = (p.Name, p.Pid);
         if (p.HasVisibleWindow)
         {
-            if (_windowStreaks.TryGetValue(p.Name, out var s))
-                _windowStreaks[p.Name] = (s.StartUtc, s.Ticks + 1, s.HadAudio || p.AudioActive,
-                                          Math.Max(s.MaxCpu, p.Memory.CpuPercent));
+            if (_windowStreaks.TryGetValue(key, out var s))
+            {
+                _windowStreaks[key] = (s.StartUtc, s.Ticks + 1, s.HadAudio || p.AudioActive,
+                                       Math.Max(s.MaxCpu, p.Memory.CpuPercent));
+                // v0.17.0：窗口已连续存在超过瞬态阈值 → 就是在用，滚动回填 LastActiveUtc。
+                // 旧实现只在 streak 结束时回填，整天空开的浏览器/IDE 永远不回填 →
+                // 被建议器判为"今天未使用"，可能建议关闭用户正在用的窗口。
+                if (now - s.StartUtc > TransientWindowMax)
+                    MarkActive(p.Name, now);
+            }
             else
-                _windowStreaks[p.Name] = (now, 1, p.AudioActive, p.Memory.CpuPercent);
-            return;   // 可见 ≠ 使用——等窗口消失时统一判定
+            {
+                // 同名但 PID 变了：旧 streak 立即结算，再开新 streak
+                SettleOrphanedStreaks(p.Name, p.Pid, now);
+                _windowStreaks[key] = (now, 1, p.AudioActive, p.Memory.CpuPercent);
+            }
+            return;
         }
-        if (_windowStreaks.TryGetValue(p.Name, out var ended))
+        if (_windowStreaks.TryGetValue(key, out var ended))
         {
-            _windowStreaks.Remove(p.Name);
+            _windowStreaks.Remove(key);
             EvaluateEndedStreak(p.Name, ended.StartUtc, ended.HadAudio, ended.MaxCpu, now);
         }
+    }
+
+    /// <summary>同名其他 PID 的残留 streak 结算（PID 变化即视为新窗口会话）。</summary>
+    private void SettleOrphanedStreaks(string name, int keepPid, DateTime now)
+    {
+        foreach (var k in _windowStreaks.Keys
+                     .Where(k => string.Equals(k.Name, name, StringComparison.OrdinalIgnoreCase) && k.Pid != keepPid)
+                     .ToList())
+        {
+            var s = _windowStreaks[k];
+            _windowStreaks.Remove(k);
+            EvaluateEndedStreak(name, s.StartUtc, s.HadAudio, s.MaxCpu, now);
+        }
+    }
+
+    /// <summary>标记一次真实使用（LastActiveUtc + 今日计数，跨天自动重置）。</summary>
+    private void MarkActive(string name, DateTime now)
+    {
+        if (!Entries.TryGetValue(name, out var b)) return;
+        b.LastActiveUtc = now;
+        string today = now.ToLocalTime().ToString("yyyyMMdd");
+        if (b.DayKey != today) { b.DayKey = today; b.TodayActiveObs = 0; }
+        b.TodayActiveObs++;
     }
 
     private void EvaluateEndedStreak(string name, DateTime startUtc, bool hadAudio, double maxCpu, DateTime now)
@@ -165,10 +201,9 @@ public class BehaviorLedger
         }
         else
         {
-            b.LastActiveUtc = now;    // 真实使用（窗口存在超过 5 分钟 / 期间有音频 / CPU 忙）
-            string today = now.ToLocalTime().ToString("yyyyMMdd");
-            if (b.DayKey != today) { b.DayKey = today; b.TodayActiveObs = 0; }
-            b.TodayActiveObs++;
+            // 真实使用（窗口存在超过 5 分钟 / 期间有音频 / CPU 忙）
+            b.LastActiveUtc = now;
+            MarkActive(name, now);
         }
     }
 

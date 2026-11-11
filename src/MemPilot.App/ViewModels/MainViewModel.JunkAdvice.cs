@@ -33,15 +33,22 @@ public partial class MainViewModel
         {
             if (!UiActive)
             {
+                // v0.17.0：这里**回滚当日标记**，窗口可见后的下一次 tick 还能再弹。
+                // 实测教训：v0.16 在这里写"次日再评估"就返回，但引擎已在发送前落了
+                // 7 天冷却（junk-advice.json 4 条）——用户永远看不到这张卡。
+                Engine.RejectJunkAdvice();
                 Decisions.Log(new DecisionEntry
                 {
                     Kind = "JunkAdvice",
                     Target = advice.NamesText,
                     Decision = "跳过",
-                    Reason = "用户不在场（托盘模式），未弹卡打扰——次日仍会重新评估"
+                    Reason = "用户不在场（托盘模式），未弹卡——窗口可见后会自动重试（不消耗提示冷却）"
                 });
                 return;
             }
+            // 真正展示前才写"已建议"冷却（引擎不再提前写）
+            foreach (var p in advice.Candidates)
+                Engine.JunkAdvice?.RecordSuggested(p.Name, DateTime.UtcNow);
             _junkAdvice = advice;
             OnPropertyChanged(nameof(JunkAdviceNames));
             OnPropertyChanged(nameof(JunkAdviceTotalMb));
@@ -50,6 +57,9 @@ public partial class MainViewModel
             RaiseAlert("垃圾进程建议", $"整天未使用：{advice.NamesText}（约 {JunkAdviceTotalMb} MB）。可在主页选择挂起或结束。");
         }));
     }
+
+    /// <summary>最近一次刷新得到的进程快照（设置页「立即检查」用）。</summary>
+    public List<ProcessInfo> LastProcessSnapshot() => _lastProcs.ToList();
 
     /// <summary>当前候选快照（供 UI 的结束流程读取）。</summary>
     public List<ProcessInfo> JunkAdviceCandidatesSnapshot()
@@ -60,6 +70,7 @@ public partial class MainViewModel
     {
         var advice = _junkAdvice;
         JunkAdvicePending = false;
+        _junkAdvice = null;                      // v0.17.0：清空，避免快照读到已处理候选
         OnPropertyChanged(nameof(JunkAdviceNames));
         OnPropertyChanged(nameof(JunkAdviceTotalMb));
         if (advice == null) return;
@@ -99,12 +110,16 @@ public partial class MainViewModel
         return advice.Candidates.Where(p => !p.HasVisibleWindow).ToList();
     }
 
-    /// <summary>结束流程的公共收尾：记录接受 + 刷新。</summary>
-    public async Task FinishJunkCleanupAsync(List<int> cleanedPids)
+    /// <summary>
+    /// 结束流程的公共收尾：记录接受 + 刷新。
+    /// v0.17.0：接收**捕获的候选快照**——L4 双确认是模态框（泵消息），期间可能到达新的
+    /// JunkAdvised 事件替换 _junkAdvice，用实时字段会把 pid 归到错误的名字上。
+    /// </summary>
+    public async Task FinishJunkCleanupAsync(List<int> cleanedPids, List<ProcessInfo> captured)
     {
         foreach (var pid in cleanedPids)
         {
-            var name = _junkAdvice?.Candidates.FirstOrDefault(p => p.Pid == pid)?.Name;
+            var name = captured.FirstOrDefault(p => p.Pid == pid)?.Name;
             if (!string.IsNullOrEmpty(name)) Engine.JunkAdvice?.RecordAccepted(name, DateTime.UtcNow);
         }
         _junkAdvice = null;

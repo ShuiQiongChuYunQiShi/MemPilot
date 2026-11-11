@@ -224,6 +224,17 @@ public partial class MainWindow : Window
         _ = _vm.RefreshAsync();
     }
 
+    /// <summary>设置页「立即检查垃圾建议」：忽略晚 19 点时间窗与当日标记，安全过滤照常。</summary>
+    private void ForceJunkAdvice_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _vm.Engine.ForceJunkAdviceNow(_vm.LastProcessSnapshot());
+            _vm.SetActionStatus("已触发垃圾进程检查——有整天未使用的垃圾时，主页会出现建议卡。");
+        }
+        catch (Exception ex) { _vm.SetActionStatus("触发垃圾检查失败：" + ex.Message); }
+    }
+
     private void SelectAllAreas_Click(object sender, RoutedEventArgs e)
     {
         // v0.11.0 P0-4：漏了 ChkCombinedMemory——"全选"只勾 8/9，用户以为全选了其实没有

@@ -14,18 +14,29 @@ public partial class MainWindow
     /// <summary>结束进程：无窗口候选走既有 L4 双确认（不绕过安全流程），有窗口的走 L3。</summary>
     private async void CleanupJunk_Click(object sender, RoutedEventArgs e)
     {
-        var windowless = _vm.PrepareJunkCleanup();
+        // v0.17.0：先取快照再动状态——L4 双确认是模态框（泵消息），期间可能到达新的建议事件
         var candidates = _vm.JunkAdviceCandidatesSnapshot();
+        var windowless = _vm.PrepareJunkCleanup();
         if (candidates.Count == 0) return;
 
-        // 有窗口 → L3 优雅关闭（逐个确认结果）；无窗口 → 统一一次双确认
+        // 有窗口 → L3 优雅关闭。v0.17.0：移到后台线程——每个 L3 最多等 8 秒，
+        // 之前同步跑在 UI 线程上，点一次「结束」可能卡住整个界面数十秒。
         var windowed = candidates.Where(p => p.HasVisibleWindow).ToList();
         var done = new List<int>();
-        foreach (var p in windowed)
+        if (windowed.Count > 0)
         {
-            var r = _vm.Cleanup.Execute(p, CleanupActionLevel.L3GracefulClose,
-                _config.Config.GracefulCloseTimeoutSeconds);
-            if (r.Success) done.Add(p.Pid);
+            var l3Done = await Task.Run(() =>
+            {
+                var ok = new List<int>();
+                foreach (var p in windowed)
+                {
+                    var r = _vm.Cleanup.Execute(p, CleanupActionLevel.L3GracefulClose,
+                        _config.Config.GracefulCloseTimeoutSeconds);
+                    if (r.Success) ok.Add(p.Pid);
+                }
+                return ok;
+            });
+            done.AddRange(l3Done);
         }
         if (windowless.Count > 0)
         {
@@ -47,7 +58,7 @@ public partial class MainWindow
                 }
             }
         }
-        await _vm.FinishJunkCleanupAsync(done);
+        await _vm.FinishJunkCleanupAsync(done, candidates);
         _vm.SetActionStatus($"已处理 {done.Count}/{candidates.Count} 个垃圾进程。");
     }
 

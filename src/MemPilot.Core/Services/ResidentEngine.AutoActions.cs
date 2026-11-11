@@ -103,14 +103,20 @@ public partial class ResidentEngine
 
     /// <summary>
     /// 每日一次：找出"整天未使用"的垃圾进程，交给用户决定挂起/结束。
-    /// 只发事件不执行任何动作；用户不在场（托盘）时由 VM 记录后跳过。
+    ///
+    /// v0.17.0 三处修正（运行数据驱动）：
+    /// ① **19:00 之后才评估**——实测午夜 00:00 触发时"今天还没用"对所有进程都成立，
+    ///    天然产出 8 个候选（含用户白天会用的），且报告是"一整天没用到"就该在黄昏说。
+    /// ② **每日标记持久化**（JunkAdviceStore.AdviceDayKey），重启不重复建议。
+    /// ③ **交付确认**：引擎只发事件；弹卡与冷却由 VM 在真正展示时决定。
+    ///    托盘模式没显示 → VM 调 RejectJunkAdvice() 回滚当日标记，窗口可见后还能再弹。
     /// </summary>
-    private void MaybeAdviseJunk(List<ProcessInfo> procs)
+    private bool MaybeAdviseJunk(List<ProcessInfo> procs, bool force = false)
     {
-        if (!_config.Config.JunkAdviceEnabled) return;
-        var today = DateTime.Now.Date;
-        if (_lastJunkAdviceDay == today) return;          // 一天最多一次
-        _lastJunkAdviceDay = today;
+        if (!_config.Config.JunkAdviceEnabled) return false;
+        // force=true（设置页「立即检查」）跳过时间窗与当日标记，安全过滤与学习冷却照常
+        if (!force && !ShouldEvaluateJunkAdvice(DateTime.Now, JunkAdviceEarliestHour, JunkAdvice?.AdviceDayKey))
+            return false;
         try
         {
             var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
@@ -119,9 +125,8 @@ public partial class ResidentEngine
                 _lastForegroundPid, audio, _config.Config.Whitelist,
                 _config.Config.MinProcessAgeSeconds, JunkAdvice, DateTime.UtcNow,
                 MarkedCleanableProvider?.Invoke());
-            if (advice == null) return;
-            JunkAdvice?.RecordSuggested(advice.Candidates[0].Name, DateTime.UtcNow);
-            foreach (var p in advice.Candidates) JunkAdvice?.RecordSuggested(p.Name, DateTime.UtcNow);
+            if (advice == null) return false;   // 没有候选：不消费当日标记，晚些再评估
+            JunkAdvice?.MarkAdviceDelivered(DateTime.Now.ToString("yyyyMMdd"));
             _decisions.Log(new DecisionEntry
             {
                 Kind = "JunkAdvice",
@@ -130,8 +135,53 @@ public partial class ResidentEngine
                 Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB"
             });
             JunkAdvised?.Invoke(advice);
+            return true;
         }
-        catch (Exception ex) { Helpers.Diag.Record("junk-advice", ex); }
+        catch (Exception ex) { Helpers.Diag.Record("junk-advice", ex); return false; }
+    }
+
+    /// <summary>建议最早评估时刻（本地小时）。19 点后"一整天没用过"才有意义。</summary>
+    public const int JunkAdviceEarliestHour = 19;
+
+    /// <summary>
+    /// 是否到了评估垃圾建议的时候（v0.17.0，纯函数便于测试）：
+    /// ① 本地时间 ≥ earliestHour（默认 19 点——午夜评估等于把所有进程都算"今天未使用"）；
+    /// ② 当天尚未交付（deliveredDayKey 持久化在 junk-advice.json，跨重启有效）。
+    /// </summary>
+    public static bool ShouldEvaluateJunkAdvice(DateTime nowLocal, int earliestHour, string? deliveredDayKey)
+    {
+        if (nowLocal.Hour < earliestHour) return false;
+        if (string.Equals(deliveredDayKey, nowLocal.ToString("yyyyMMdd"), StringComparison.Ordinal))
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// VM 报告"没能交付"（托盘模式/窗口隐藏）：回滚当日标记，下一次 tick 可重试。
+    /// 不烧任何进程的 7 天冷却——冷却只在真正弹卡时由 VM 写入。
+    /// </summary>
+    public void RejectJunkAdvice()
+    {
+        try { JunkAdvice?.ClearAdviceDay(); }
+        catch (Exception ex) { Helpers.Diag.Record("junk-advice-reject", ex); }
+    }
+
+    /// <summary>设置页「立即检查」：忽略时间窗与当日标记，安全过滤与冷却照常。</summary>
+    public void ForceJunkAdviceNow(List<ProcessInfo> procs)
+    {
+        try { JunkAdvice?.ClearAdviceDay(); } catch { }
+        bool delivered = MaybeAdviseJunk(procs, force: true);
+        if (!delivered)
+        {
+            // v0.17.0：立即检查无果也要留痕——否则用户点了按钮"没反应"，无法判断是没候选还是坏了
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "JunkAdvice",
+                Target = "-",
+                Decision = "无候选",
+                Reason = "立即检查：没有符合条件的目标（今日有活动 / 当前有窗口 / 运行不足 2 小时 / 学习中冷却）"
+            });
+        }
     }
 
     /// <summary>定时挂起到期自动恢复（每 tick 检查；Start 时也补跑一次覆盖关闭期间到期）。</summary>
@@ -142,15 +192,23 @@ public partial class ResidentEngine
             var due = _cleanup.Suspended.TakeExpired(DateTime.UtcNow);
             foreach (var rec in due)
             {
-                var r = _cleanup.Resume(rec.Pid, rec.Name);
+                var r = _cleanup.ResumeRecord(rec);
+                // v0.17.0：恢复失败时**重新挂回**（5 分钟后重试）——旧实现先删记录再恢复，
+                // 失败后记录消失，进程永久留在挂起状态且无重试路径。
+                // 进程已退出/PID 复用的（ResumeRecord 的失败文案）不重试。
+                bool retry = !r.Success && CleanupEngine.IsAliveSame(rec.Pid, rec.StartTime);
+                if (retry)
+                    _cleanup.Suspended.Add(rec.Pid, rec.StartTime, rec.Name,
+                        rec.Reason + "（恢复失败，5 分钟后重试）", DateTime.UtcNow.AddMinutes(5));
                 _decisions.Log(new DecisionEntry
                 {
                     Kind = "JunkAdvice",
                     Target = $"{rec.Name} (PID {rec.Pid})",
-                    Decision = "自动恢复",
+                    Decision = r.Success ? "自动恢复" : (retry ? "恢复重试" : "恢复取消"),
                     Reason = r.Success
                         ? $"定时挂起到期，已自动恢复（挂起于 {rec.SuspendedAtUtc.ToLocalTime():HH:mm}）"
-                        : $"定时挂起到期但恢复失败：{r.Message}"
+                        : (retry ? $"定时挂起到期但恢复失败：{r.Message}；已安排 5 分钟后重试"
+                                 : $"定时挂起到期但{r.Message}，已清除记录")
                 });
             }
         }
