@@ -15,6 +15,93 @@ public partial class ProcessService
 {
     // ---- action primitives ----
 
+    // v0.18.0：复检与动作共用同一句柄。
+    // 旧实现是「按 PID 复检一次，再按 PID OpenProcess 一次」——两次打开之间进程可能退出、
+    // PID 被复用，复检通过不代表动作打在同一对象上（TOCTOU）。现在：一次 OpenProcess →
+    // GetProcessTimes 校验启动时间 → 用同一句柄执行。启动时间读不到（MinValue）一律拒绝，
+    // 因为挂起登记会把这个未知值写进 SuspendRegistry，到期恢复时必然比对失败 → 进程永久挂起。
+
+    /// <summary>打开进程并校验它仍是快照里的那个。成功返回调用方负责关闭的句柄；失败返回 Zero。</summary>
+    public IntPtr OpenVerified(int pid, uint access, DateTime expectedStartTime)
+    {
+        if (pid <= 0 || expectedStartTime == DateTime.MinValue) return IntPtr.Zero;
+        var h = NativeMethods.OpenProcess(access | NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (h == IntPtr.Zero) return IntPtr.Zero;
+        if (HandleMatchesStartTime(h, expectedStartTime)) return h;
+        NativeMethods.CloseHandle(h);
+        return IntPtr.Zero;
+    }
+
+    /// <summary>句柄指向的进程创建时间是否等于快照里的启动时间（UTC 归一比较）。</summary>
+    public static bool HandleMatchesStartTime(IntPtr h, DateTime expectedStartTime)
+    {
+        if (h == IntPtr.Zero || expectedStartTime == DateTime.MinValue) return false;
+        try
+        {
+            if (!NativeMethods.GetProcessTimes(h, out var created, out _, out _, out _)) return false;
+            return DateTime.FromFileTimeUtc(created.ToInt64()) == expectedStartTime.ToUniversalTime();
+        }
+        catch { return false; }
+    }
+
+    public void TerminateProcessHandle(IntPtr h)
+    {
+        if (h == IntPtr.Zero) throw new Exception("无效的进程句柄");
+        if (!NativeMethods.TerminateProcess(h, 1)) throw new Exception("TerminateProcess failed");
+    }
+
+    /// <summary>Suspend the whole process atomically using an already-verified handle.</summary>
+    public void SuspendProcessHandle(IntPtr h)
+    {
+        if (h == IntPtr.Zero) throw new Exception("无效的进程句柄");
+        int status = NativeMethods.NtSuspendProcess(h);
+        if (status != 0) throw new Exception($"NtSuspendProcess 0x{status:X}");
+    }
+
+    public void ResumeProcessHandle(IntPtr h)
+    {
+        if (h == IntPtr.Zero) throw new Exception("无效的进程句柄");
+        int status = NativeMethods.NtResumeProcess(h);
+        if (status != 0) throw new Exception($"NtResumeProcess 0x{status:X}");
+    }
+
+    public bool TrimWorkingSetHandle(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return false;
+        try
+        {
+            var psapi = NativeLibrary.Load("kernel32.dll"); // K32* exports live here, not in psapi
+            try
+            {
+                var proc = NativeLibrary.GetExport(psapi, "K32EmptyWorkingSet");
+                var del = Marshal.GetDelegateForFunctionPointer<EmptyWsDelegate>(proc);
+                return del(h);
+            }
+            finally { NativeLibrary.Free(psapi); }
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Read private working set through an already-open handle (no second OpenProcess).</summary>
+    public long ReadPrivateWorkingSetHandle(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return -1;
+        try
+        {
+            var counters = new NativeMethods.PROCESS_MEMORY_COUNTERS_EX2();
+            counters.cb = (uint)Marshal.SizeOf<NativeMethods.PROCESS_MEMORY_COUNTERS_EX2>();
+            return NativeMethods.K32GetProcessMemoryInfo(hProcess: h, ref counters, counters.cb)
+                ? (long)counters.PrivateWorkingSetSize
+                : -1;
+        }
+        catch { return -1; }
+    }
+
+    public static void CloseProcessHandle(IntPtr h)
+    {
+        if (h != IntPtr.Zero) NativeMethods.CloseHandle(h);
+    }
+
     public void TerminateProcess(int pid)
     {
         var h = NativeMethods.OpenProcess(NativeMethods.PROCESS_TERMINATE, false, pid);

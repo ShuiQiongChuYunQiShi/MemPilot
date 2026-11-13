@@ -41,6 +41,10 @@ public static class TrimSelection
     {
         if (p == null) return false;
 
+        // v0.18.0：永不压缩 MemPilot 自己——托盘模式下它满足"无窗口、低 CPU"，
+        // 旧实现只靠 CleanupEngine.TrimWorkingSets 的 self 判断兜底，筛选器本身会把它放进候选集。
+        if (p.Pid == Environment.ProcessId) return false;
+
         // ① 保护类身份：一律不动
         if (p.IsProtected || p.IsSystemProcess || p.IsService) return false;
         if (p.IsWhitelisted || p.ModeKeep || p.IsSuspended) return false;

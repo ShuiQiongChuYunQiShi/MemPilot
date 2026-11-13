@@ -4,6 +4,54 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.18.0] — 清缓存成为正式能力；身份复检与调度架构整改
+
+四视角锐评后的整改版本。第 1 条定调：**改为做清缓存**——不再以「不做清缓存」作定位，
+而是承认能力、讲清它降什么不降什么，并把入口前移。其余七条经代码复盘后落地，其中两个
+是复盘时新发现的严重缺陷。
+
+### Fixed
+- **进程永久挂起（P0，新发现）**：`IsStillSameProcess` 在 `StartTime == DateTime.MinValue`
+  时放行，而挂起登记写进 `SuspendRegistry` 的正是这个未知值；到期恢复时 `IsAliveSame`
+  必然比对失败，`ResumeRecord` 随即删除记账——进程永久挂起且不再重试。现在身份未知一律
+  拒绝 L2 及以上动作，并在审计里写「无法确认进程身份，已跳过」。
+- **复检与动作共用同一句柄（P0）**：旧实现按 PID 复检一次、再按 PID `OpenProcess` 一次，
+  两次打开之间 PID 可能被复用（TOCTOU）。`OpenVerified` 一次打开 + `GetProcessTimes`
+  校验启动时间，后续 `NtSuspendProcess` / `TerminateProcess` / `EmptyWorkingSet` 全部复用
+  同一句柄；L3 升级强杀也用已验证句柄，避免 8 秒后按 PID 重开时杀错。
+- **tick 逐阶段异常隔离（P0）**：`AfterRefresh` 旧实现一个 try 包住整条流水线，任一阶段
+  抛出都会终止同 tick 的后续阶段——而「到期恢复挂起」排在队尾。现在每阶段独立 `RunStage`，
+  失败记 `Diag` 并累计；连续 3 次失败向用户告警（30 分钟冷却），避免策略静默停摆。
+- **事件回调不再击穿 tick**：`CommitReliefL3Suggested` 的订阅方抛异常会被捕获并记诊断。
+- **审计不再被条数上限吃掉**：「每个自动决策都可审计」原来受 5,000 / 2,000 条 FIFO 限制，
+  重度使用两三周后查不到历史。现在淘汰条目写入 `archive/{decisions,audit}-yyyyMM.jsonl`，
+  默认保留 12 个月（`ArchiveRetentionMonths`），热窗口仍守原上限。
+- **自身进程全链路排除**：`TrimSelection.IsSafe` 与 `JunkSafetyFilter` 补上
+  `Environment.ProcessId` 判断——托盘模式下 MemPilot 自己满足「无窗口、低 CPU」，
+  旧实现只靠 `TrimWorkingSets` 的 self 判断兜底。
+
+### Added
+- **5 秒轻探针 + 自适应全量频率**：定时器固定 5s 只读系统内存并处理到期恢复（微秒级、
+  不枚举进程）；`ShouldFullRefresh` 裁决全量刷新——压力立即提频（最快 5s）、UI 可见按配置
+  间隔、托盘且无压力降到 `max(60, 3×间隔)`。实测 89% 的样本没有压力，旧实现却每 10 秒
+  枚举一次全部进程。
+- **自身开销可观测**：`SelfCostRecorder` 每分钟聚合 tick P50/P95/Max、自身 RSS、自身 CPU%
+  与阶段失败数，写 `history/self-yyyyMMdd.jsonl`（30 天），主页可见。调度内存的工具必须
+  能自证不是负担。
+- **「清缓存与工作集」入口前移**：「腾内存」页新增第 0 步卡片，主页「日常维护」加入口；
+  设置页标题由「系统内存区域清理」改为「清缓存与工作集」，文案明确「仅物理占用，不降提交」。
+- **操作审计并入决策日志**；「反馈记录」「模式」「操作审计」三页隐藏（代码保留、可配置恢复）。
+
+### Changed
+- README / docs/README-zh.md 的产品叙事改为「清缓存与降提交是两件事，两件都做」，
+  不再以「不做清缓存」作为定位声明。
+- `RefreshIntervalSeconds` 语义从「tick 间隔」改为「全量刷新间隔」；
+  `SetIntervalSeconds` 不再改定时器周期（壳层改用 `Engine.UiActive` 上报可见性）。
+- CI 的 Core 行覆盖门槛 50% → 60%（实测 66.5%）。
+
+### Tests
+- 456 项通过（新增 21 项用例）：身份复检 10、调度裁决 5、归档守恒 3、自身排除 3。
+
 ## [0.17.0] — junk advice actually reaches the user
 
 One day of v0.16 data settled the question: the advice fired exactly once

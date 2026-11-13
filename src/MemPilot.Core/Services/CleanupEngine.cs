@@ -66,20 +66,43 @@ public class CleanupEngine
 
     public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec, bool escalateToKill = false)
     {
-        // v0.9.0（三轮复盘 P0）：执行前按 (pid, startTime) 复检目标进程，防 PID 复用杀错。
-        // 腾挪计划从生成到执行可能隔几分钟，期间原进程退出、PID 被别的进程复用是真实风险。
-        // 只对"改变进程状态"的级别校验（L1 压缩影响很小，不阻塞）。
-        if (level >= CleanupActionLevel.L2Suspend && !IsStillSameProcess(p))
+        // v0.18.0（P0）：复检与动作共用同一句柄，消除 TOCTOU。
+        // 旧实现按 PID 复检一次、再按 PID OpenProcess 一次——两次打开之间进程可能退出、
+        // PID 被复用，复检通过不代表动作打在同一对象上。
+        // L2 及以上必须验证通过才动手；启动时间读不到（MinValue）一律拒绝——挂起登记会把
+        // 这个未知值写进 SuspendRegistry，到期恢复必然比对失败，进程会永久挂起。
+        // L1 只压缩工作集、不改变进程状态，验证失败时回退按 PID 执行（零风险动作不该被连坐）。
+        IntPtr handle = IntPtr.Zero;
+        if (level >= CleanupActionLevel.L2Suspend)
         {
-            var msg = $"目标已不是原进程（PID {p.Pid} 可能已被复用或已退出），已拒绝执行";
-            _audit.Log(new AuditEntry
+            uint access = level switch
             {
-                Action = level.ToString(),
-                Target = $"{p.Name} (PID {p.Pid})",
-                Level = level.ToString(),
-                Result = "跳过：" + msg
-            });
-            return new ActionResult(false, msg, false);
+                CleanupActionLevel.L2Suspend => NativeMethods.PROCESS_SUSPEND_RESUME,
+                CleanupActionLevel.L4ForceKill => NativeMethods.PROCESS_TERMINATE,
+                _ => escalateToKill
+                    ? NativeMethods.PROCESS_TERMINATE | NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION
+                    : NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION
+            };
+            handle = _procs.OpenVerified(p.Pid, access, p.StartTime);
+            if (handle == IntPtr.Zero)
+            {
+                var msg = p.StartTime == DateTime.MinValue
+                    ? "无法确认进程身份（读不到启动时间），已拒绝执行"
+                    : $"目标已不是原进程（PID {p.Pid} 可能已被复用或已退出），已拒绝执行";
+                _audit.Log(new AuditEntry
+                {
+                    Action = level.ToString(),
+                    Target = $"{p.Name} (PID {p.Pid})",
+                    Level = level.ToString(),
+                    Result = "跳过：" + msg
+                });
+                return new ActionResult(false, msg, false);
+            }
+        }
+        else if (level == CleanupActionLevel.L1Trim)
+        {
+            handle = _procs.OpenVerified(p.Pid,
+                NativeMethods.PROCESS_QUERY_INFORMATION | NativeMethods.PROCESS_SET_QUOTA, p.StartTime);
         }
 
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
@@ -93,26 +116,34 @@ public class CleanupEngine
                     {
                         // v0.13.0 遥测修复：记录被压缩进程自己的私有工作集差值（旧的全局
                         // Before/After 在 0.6s 窗口里全是系统噪声，出现"回收后可用反而降"的假账）
-                        long wsBefore = _procs.ReadPrivateWorkingSet(p.Pid);
-                        _procs.TrimWorkingSet(p.Pid);
+                        long wsBefore = handle != IntPtr.Zero
+                            ? _procs.ReadPrivateWorkingSetHandle(handle)
+                            : _procs.ReadPrivateWorkingSet(p.Pid);
+                        if (handle != IntPtr.Zero) _procs.TrimWorkingSetHandle(handle);
+                        else _procs.TrimWorkingSet(p.Pid);
                         System.Threading.Thread.Sleep(300);
-                        long wsAfter = _procs.ReadPrivateWorkingSet(p.Pid);
+                        long wsAfter = handle != IntPtr.Zero
+                            ? _procs.ReadPrivateWorkingSetHandle(handle)
+                            : _procs.ReadPrivateWorkingSet(p.Pid);
                         result = wsBefore > 0 && wsAfter >= 0
                             ? $"工作集已回收（该进程私有工作集 {wsBefore / 1048576.0:F0} → {wsAfter / 1048576.0:F0} MB）"
                             : "工作集已回收";
                     }
                     break;
                 case CleanupActionLevel.L2Suspend:
-                    _procs.SuspendProcess(p.Pid);
+                    _procs.SuspendProcessHandle(handle);
+                    // 身份已验证，StartTime 一定有效——到期恢复才能配对成功
                     Suspended.Add(p.Pid, p.StartTime, p.Name, "手动挂起");
                     result = "进程已挂起（可在“已挂起”中恢复）";
                     break;
                 case CleanupActionLevel.L3GracefulClose:
-                    var r = GracefulClose(p, gracefulTimeoutSec, escalateToKill);
+                    // 句柄所有权转移给 GracefulClose（它在 finally 里关闭）
+                    var r = GracefulClose(p, gracefulTimeoutSec, escalateToKill, handle);
+                    handle = IntPtr.Zero;
                     result = r.message; exited = r.exited;
                     break;
                 case CleanupActionLevel.L4ForceKill:
-                    _procs.TerminateProcess(p.Pid);
+                    _procs.TerminateProcessHandle(handle);
                     result = "已强制结束";
                     exited = true;
                     break;
@@ -124,6 +155,10 @@ public class CleanupEngine
         catch (Exception ex)
         {
             result = "失败: " + ex.Message;
+        }
+        finally
+        {
+            ProcessService.CloseProcessHandle(handle);   // L3 转移所有权时 handle 已置零
         }
         long after = _procs.GetSystemMemory().AvailablePhysicalBytes;
         _audit.Log(new AuditEntry
@@ -154,11 +189,13 @@ public class CleanupEngine
 
     /// <summary>
     /// 目标是否仍是快照里那个进程：PID 相同且启动时间一致（PID 复用会拿到不同 startTime）。
-    /// 快照里 StartTime 未知（提权进程读不到）时放行——不能因为读不到就永远不能处置。
+    /// v0.18.0（P0）：StartTime 未知时由「放行」改为**拒绝**。旧行为会把 DateTime.MinValue
+    /// 写进 SuspendRegistry，到期恢复时 IsAliveSame 必然比对失败 → 进程永久挂起且记账被清除，
+    /// 比「不能处置」严重得多。动作路径已改用 OpenVerified 共用同一句柄（见 Execute）。
     /// </summary>
-    private static bool IsStillSameProcess(ProcessInfo p)
+    internal static bool IsStillSameProcess(ProcessInfo p)
     {
-        if (p.StartTime == DateTime.MinValue) return true;   // 采集时就拿不到，无法比对
+        if (p.Pid <= 0 || p.StartTime == DateTime.MinValue) return false;
         try
         {
             using var live = System.Diagnostics.Process.GetProcessById(p.Pid);
@@ -174,11 +211,15 @@ public class CleanupEngine
     /// </summary>
     public ActionResult SuspendTimed(ProcessInfo p, string reason, TimeSpan holdDuration)
     {
-        if (!IsStillSameProcess(p))
+        // v0.18.0：身份未知直接拒绝——否则登记的是 MinValue，到期恢复必然失败。
+        if (p.StartTime == DateTime.MinValue)
+            return new ActionResult(false, "无法确认进程身份（读不到启动时间），已拒绝挂起", false);
+        var handle = _procs.OpenVerified(p.Pid, NativeMethods.PROCESS_SUSPEND_RESUME, p.StartTime);
+        if (handle == IntPtr.Zero)
             return new ActionResult(false, "目标已不是原进程（PID 可能已被复用或已退出），已拒绝", false);
         try
         {
-            _procs.SuspendProcess(p.Pid);
+            _procs.SuspendProcessHandle(handle);
             Suspended.Add(p.Pid, p.StartTime, p.Name, reason, DateTime.UtcNow + holdDuration);
             _audit.Log(new AuditEntry
             {
@@ -193,6 +234,10 @@ public class CleanupEngine
         {
             return new ActionResult(false, "挂起失败: " + ex.Message, false);
         }
+        finally
+        {
+            ProcessService.CloseProcessHandle(handle);
+        }
     }
 
     /// <summary>
@@ -201,12 +246,25 @@ public class CleanupEngine
     /// </summary>
     public ActionResult ResumeRecord(MemPilot.Models.SuspendRecord rec)
     {
+        // v0.18.0：MinValue 记录无法安全恢复（按 PID 恢复可能恢复错进程）——清除并留审计。
+        if (rec.StartTime == DateTime.MinValue)
+        {
+            Suspended.Remove(rec.Pid);
+            _audit.Log(new AuditEntry
+            {
+                Action = "Resume",
+                Target = $"{rec.Name} (PID {rec.Pid})",
+                Level = "Resume",
+                Result = "跳过：挂起记录没有可靠的启动时间，无法安全恢复（可能恢复错进程），请手动检查该进程"
+            });
+            return new ActionResult(false, "挂起记录没有可靠的启动时间，无法安全恢复", false);
+        }
         if (!IsAliveSame(rec.Pid, rec.StartTime))
         {
             Suspended.Remove(rec.Pid);   // 记账清除（进程已不在）
             return new ActionResult(false, "进程已退出或 PID 已被复用，无需恢复", false);
         }
-        return Resume(rec.Pid, rec.Name);
+        return Resume(rec.Pid, rec.Name, rec.StartTime);
     }
 
     /// <summary>(pid, startTime) 是否仍是同一个活着的进程。</summary>
@@ -220,17 +278,29 @@ public class CleanupEngine
         catch { return false; }
     }
 
-    public ActionResult Resume(int pid, string name)
+    public ActionResult Resume(int pid, string name, DateTime expectedStartTime = default)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
         string result;
+        IntPtr handle = IntPtr.Zero;
         try
         {
-            _procs.ResumeProcess(pid);
+            if (expectedStartTime != default)
+            {
+                // v0.18.0：句柄级验证 + 动作用同一句柄（恢复错进程比不恢复更糟）
+                handle = _procs.OpenVerified(pid, NativeMethods.PROCESS_SUSPEND_RESUME, expectedStartTime);
+                if (handle == IntPtr.Zero) throw new Exception("进程已退出或 PID 已被复用，无需恢复");
+                _procs.ResumeProcessHandle(handle);
+            }
+            else
+            {
+                _procs.ResumeProcess(pid);   // UI 明确指定进程的手动恢复
+            }
             Suspended.Remove(pid);
             result = "进程已恢复";
         }
         catch (Exception ex) { result = "失败: " + ex.Message; }
+        finally { ProcessService.CloseProcessHandle(handle); }
         long after = _procs.GetSystemMemory().AvailablePhysicalBytes;
         _audit.Log(new AuditEntry
         {
@@ -244,43 +314,52 @@ public class CleanupEngine
         return new ActionResult(!result.StartsWith("失败"), result, false);
     }
 
-    private (bool exited, string message) GracefulClose(ProcessInfo p, int timeoutSec, bool escalateToKill)
+    private (bool exited, string message) GracefulClose(ProcessInfo p, int timeoutSec, bool escalateToKill, IntPtr verifiedHandle = default)
     {
-        // v0.13.0（四轮复盘）：空句柄快速失败——无窗口进程对 WM_CLOSE 是空操作，
-        // 烧满 8 秒超时只会得到必然的失败（实测 4 次全部 Exited:false）。
-        if (!_procs.HasVisibleWindows(p.Pid))
-            return (false, "进程无可见窗口，无法优雅关闭（WM_CLOSE 无作用对象）；请用回收工作集或手动强制结束");
+        try
+        {
+            // v0.13.0（四轮复盘）：空句柄快速失败——无窗口进程对 WM_CLOSE 是空操作，
+            // 烧满 8 秒超时只会得到必然的失败（实测 4 次全部 Exited:false）。
+            if (!_procs.HasVisibleWindows(p.Pid))
+                return (false, "进程无可见窗口，无法优雅关闭（WM_CLOSE 无作用对象）；请用回收工作集或手动强制结束");
 
-        _procs.PostCloseToWindows(p.Pid);
-        var deadline = DateTime.UtcNow.AddSeconds(timeoutSec);
-        while (DateTime.UtcNow < deadline)
-        {
-            try
+            _procs.PostCloseToWindows(p.Pid);
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSec);
+            while (DateTime.UtcNow < deadline)
             {
-                var proc = Process.GetProcessById(p.Pid);
-                using var _ = proc;
-                if (proc.HasExited) return (true, "已通过窗口消息正常关闭");
+                try
+                {
+                    var proc = Process.GetProcessById(p.Pid);
+                    using var _ = proc;
+                    if (proc.HasExited) return (true, "已通过窗口消息正常关闭");
+                }
+                catch
+                {
+                    // process no longer exists == exited
+                    return (true, "已通过窗口消息正常关闭");
+                }
+                Thread.Sleep(500);
             }
-            catch
+            if (escalateToKill)
             {
-                // process no longer exists == exited
-                return (true, "已通过窗口消息正常关闭");
+                try
+                {
+                    // v0.18.0：升级强杀优先用已验证的句柄——8 秒后按 PID 重开可能已杀错
+                    if (verifiedHandle != IntPtr.Zero) _procs.TerminateProcessHandle(verifiedHandle);
+                    else _procs.TerminateProcess(p.Pid);
+                    return (true, $"优雅关闭超时（{timeoutSec}s），已升级为强制结束");
+                }
+                catch (Exception ex)
+                {
+                    return (false, "优雅关闭超时且强制结束失败: " + ex.Message);
+                }
             }
-            Thread.Sleep(500);
+            return (false, $"优雅关闭超时（{timeoutSec}s），进程仍在运行");
         }
-        if (escalateToKill)
+        finally
         {
-            try
-            {
-                _procs.TerminateProcess(p.Pid);
-                return (true, $"优雅关闭超时（{timeoutSec}s），已升级为强制结束");
-            }
-            catch (Exception ex)
-            {
-                return (false, "优雅关闭超时且强制结束失败: " + ex.Message);
-            }
+            ProcessService.CloseProcessHandle(verifiedHandle);
         }
-        return (false, $"优雅关闭超时（{timeoutSec}s），进程仍在运行");
     }
 
     // ---- make-room workflow ----

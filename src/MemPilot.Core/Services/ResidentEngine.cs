@@ -78,12 +78,19 @@ public partial class ResidentEngine
         _intervalSeconds = Math.Max(3, config.Config.RefreshIntervalSeconds);
     }
 
-    /// <summary>Start ticking. refreshAsync runs on a background thread (VM marshals UI updates).</summary>
+    /// <summary>
+    /// Start ticking. refreshAsync runs on a background thread (VM marshals UI updates).
+    ///
+    /// v0.18.0：双频调度。定时器固定 5s 跑一次**轻探针**（只读系统内存 + 处理到期挂起恢复，
+    /// 都是微秒级、不枚举进程）；是否升级为全量刷新由 <see cref="ShouldFullRefresh"/> 裁决——
+    /// 压力立即提频、UI 可见按配置间隔、托盘且无压力降到 max(60, 3×间隔)。
+    /// 旧实现无论有没有压力都每 10 秒枚举一次全部进程，而实测 89% 的样本没有压力。
+    /// </summary>
     public void Start(Func<CancellationToken, Task> refreshAsync)
     {
         Stop();
         ResumeExpiredSuspends();   // v0.15.0：应用关闭期间到期的定时挂起，启动即恢复
-        var interval = TimeSpan.FromSeconds(Math.Max(3, _config.Config.RefreshIntervalSeconds));
+        _sinceFullRefresh.Restart();
         _timer = new System.Threading.Timer(async _ =>
         {
             bool taken = false;
@@ -95,21 +102,66 @@ public partial class ResidentEngine
                     _ticking = true;
                     taken = true;
                 }
-                await refreshAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // ---- 轻探针：不依赖进程快照 ----
+                RunStage("probe-resume", ResumeExpiredSuspends);
+                SelfCost?.Heartbeat(StageFailures);
+
+                SystemMemoryInfo mem;
+                try { mem = _probe.GetSystemMemory(); }
+                catch (Exception ex) { Helpers.Diag.Record("tick:probe-mem", ex); return; }
+                bool pressure = IsPressure(mem);
+
+                if (!ShouldFullRefresh(_sinceFullRefresh.Elapsed, UiActive, pressure, _intervalSeconds)) return;
+                _sinceFullRefresh.Restart();
+                var sw = Stopwatch.StartNew();
+                try { await refreshAsync(CancellationToken.None).ConfigureAwait(false); }
+                finally { SelfCost?.RecordTick(sw.ElapsedMilliseconds, StageFailures); }
             }
             catch { }
             finally { if (taken) { lock (_tickLock) { _ticking = false; } } }
-        }, null, interval, interval);
+        }, null, LightProbeIntervalSeconds, LightProbeIntervalSeconds);
+    }
+
+    /// <summary>轻探针周期：固定 5s，与用户配置的全量间隔解耦。</summary>
+    public const int LightProbeIntervalSeconds = 5;
+
+    private readonly Stopwatch _sinceFullRefresh = new();
+
+    /// <summary>UI 是否可见/活跃（壳层设置）。不可见时全量刷新降频，但压力探测仍每 5s 一次。</summary>
+    public bool UiActive { get; set; } = true;
+
+    /// <summary>自身开销记录（v0.18.0，由 VM 注入）。</summary>
+    public SelfCostRecorder? SelfCost { get; set; }
+
+    /// <summary>压力判定（与 WatchAvailableFloor 同阈值）：可用 &lt;3 GB 或提交余量 &lt;10%。</summary>
+    public static bool IsPressure(SystemMemoryInfo mem)
+    {
+        double availGb = mem.AvailablePhysicalBytes / 1073741824.0;
+        double limitGb = mem.TotalCommitLimitBytes / 1073741824.0;
+        double commitFreeGb = (mem.TotalCommitLimitBytes - mem.TotalCommittedBytes) / 1073741824.0;
+        return availGb < 3.0 || (limitGb > 0 && commitFreeGb / limitGb * 100 < 10);
+    }
+
+    /// <summary>
+    /// 全量刷新频率裁决（纯函数，可单测）：
+    /// 压力优先（最快 5s，与轻探针同频）；UI 可见按配置间隔；不可见且无压力按 max(60, 3×间隔)。
+    /// </summary>
+    public static bool ShouldFullRefresh(TimeSpan sinceLast, bool uiActive, bool pressure, int intervalSeconds)
+    {
+        int fullInterval = Math.Max(3, intervalSeconds);
+        if (pressure) return sinceLast.TotalSeconds >= Math.Min(5, fullInterval);
+        if (uiActive) return sinceLast.TotalSeconds >= fullInterval;
+        return sinceLast.TotalSeconds >= Math.Max(60, fullInterval * 3);
     }
 
     public void Stop() => _timer?.Dispose();
 
-    /// <summary>Retune the tick period at runtime (tray lightweight mode uses a slower cadence).</summary>
+    /// <summary>Retune the full-refresh interval at runtime.
+    /// v0.18.0：定时器固定 5s（轻探针），这里只改"全量刷新"的目标间隔，不再 Change 定时器周期。</summary>
     public void SetIntervalSeconds(int seconds)
     {
         _intervalSeconds = Math.Max(3, seconds);
-        var interval = TimeSpan.FromSeconds(_intervalSeconds);
-        _timer?.Change(interval, interval);
     }
 
     /// <summary>垃圾进程建议（v0.15.0）：一天最多触发一次，VM 负责弹卡 + 气球。</summary>
@@ -124,20 +176,59 @@ public partial class ResidentEngine
     public void AfterRefresh(List<ProcessInfo> procs, SystemMemoryInfo mem)
     {
         var cfg = _config.Config;
-        SampleForeground();
-        EvaluateScene(procs);
+        // v0.18.0（P0）：逐阶段隔离。旧实现是一个 try 包住整条流水线，任一阶段抛出都会
+        // 终止同 tick 的后续阶段——而"到期恢复挂起"排在队尾，前面的提交兜底一抛异常，
+        // 已挂起的进程就不会被恢复。现在每阶段独立 try（RunStage），失败记 Diag 并累计。
+        RunStage("foreground", SampleForeground);
+        RunStage("scene", () => EvaluateScene(procs));
         if (cfg.AutoCleanupEnabled && cfg.CurrentMode is AppMode.Development or AppMode.Game or AppMode.AiGeneration)
-            AutoCleanup(procs);
-        WatchMemoryGrowth(procs);
-        WatchCommitPressure(mem);
-        WatchCommitRelief(procs, mem);   // v0.5.0：提交余量兜底（分级 + 安全子集）
-        WatchAvailableFloor(procs, mem); // v0.13.0：低可用兜底（四轮复盘 P1，数据驱动新触发器）
-        CheckHabitHint();
-        _behaviors?.Observe(procs);          // 先记行为，再据此判断"今天用没用过"
-        MaybeAdviseJunk(procs);              // v0.15.0：垃圾进程建议（每日一次）
-        ResumeExpiredSuspends();             // v0.15.0：定时挂起到期自动恢复
-        if (cfg.AutoJunkSweepEnabled) AutoJunkSweep(procs);
-        _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds);
+            RunStage("autoclean", () => AutoCleanup(procs));
+        RunStage("growth", () => WatchMemoryGrowth(procs));
+        RunStage("commit-pressure", () => WatchCommitPressure(mem));
+        RunStage("commit-relief", () => WatchCommitRelief(procs, mem));
+        RunStage("available-floor", () => WatchAvailableFloor(procs, mem));
+        RunStage("habit-hint", CheckHabitHint);
+        RunStage("behaviors", () => _behaviors?.Observe(procs));
+        RunStage("junk-advice", () => MaybeAdviseJunk(procs));
+        RunStage("junk-resume", ResumeExpiredSuspends);   // P2 起改由 5s 轻探针驱动，这里保留兜底
+        if (cfg.AutoJunkSweepEnabled) RunStage("junk-sweep", () => AutoJunkSweep(procs));
+        RunStage("usage", () => _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds));
+    }
+
+    private int _consecutiveStageFailures;
+    private int _totalStageFailures;
+    private DateTime _lastHealthAlertUtc = DateTime.MinValue;
+
+    /// <summary>累计阶段失败次数（诊断/健康度展示用）。</summary>
+    public int StageFailures => _totalStageFailures;
+
+    /// <summary>
+    /// 单阶段异常隔离：失败只影响自己，不拖垮同 tick 的后续阶段。
+    /// 连续 3 次失败 → 托盘/主页告警（30 分钟最多一次），避免"策略静默停摆而界面正常"。
+    /// </summary>
+    private void RunStage(string name, Action stage)
+    {
+        try
+        {
+            stage();
+            _consecutiveStageFailures = 0;
+        }
+        catch (Exception ex)
+        {
+            Helpers.Diag.Record("tick:" + name, ex);
+            _totalStageFailures++;
+            if (++_consecutiveStageFailures < 3) return;
+            _consecutiveStageFailures = 0;   // 告警后重新计数，避免每 tick 刷屏
+            if ((DateTime.UtcNow - _lastHealthAlertUtc).TotalMinutes < 30) return;
+            _lastHealthAlertUtc = DateTime.UtcNow;
+            try
+            {
+                Alert?.Invoke("自动策略运行异常",
+                    $"连续 3 次有阶段失败（{name}：{ex.Message}）。{Helpers.Diag.Summary()}",
+                    true);
+            }
+            catch { }
+        }
     }
 
     // ---- foreground / fullscreen sampling ----

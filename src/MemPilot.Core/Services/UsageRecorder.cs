@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using MemPilot.Helpers;
 using MemPilot.Models;
 
 namespace MemPilot.Services;
@@ -62,7 +63,7 @@ public class UsageRecorder
         Prune();
     }
 
-    private string PathFor(DateTime localDate) => Path.Combine(_dir, $"samples-{localDate:yyyyMMdd}.jsonl");
+    private string PathFor(DateTime localDate) => DailyJsonl.PathFor(_dir, "samples", localDate);
 
     /// <summary>Seed the gap baseline from the newest persisted sample so restarts and
     /// sleep/wake windows are distinguishable in the history.</summary>
@@ -157,18 +158,5 @@ public class UsageRecorder
         return result.OrderBy(s => s.T).ToList();
     }
 
-    private void Prune()
-    {
-        try
-        {
-            var cutoff = DateTime.Now.Date.AddDays(-_retentionDays);
-            foreach (var file in Directory.GetFiles(_dir, "samples-*.jsonl"))
-            {
-                var name = Path.GetFileNameWithoutExtension(file); // samples-20261028
-                if (name.Length >= 15 && DateTime.TryParseExact(name[^8..], "yyyyMMdd", null, System.Globalization.DateTimeStyles.AssumeLocal, out var day) && day.Date < cutoff)
-                    File.Delete(file);
-            }
-        }
-        catch { }
-    }
+    private void Prune() => DailyJsonl.Prune(_dir, "samples", _retentionDays);
 }

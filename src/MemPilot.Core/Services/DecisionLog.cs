@@ -31,11 +31,13 @@ public class DecisionLog
     private readonly string _path;
     private readonly List<DecisionEntry> _entries = new();
     private readonly object _lock = new();
+    private readonly ArchiveWriter _archive;
 
-    public DecisionLog(string dataDir)
+    public DecisionLog(string dataDir, int archiveRetentionMonths = 12)
     {
         _path = Path.Combine(dataDir, "decisions.json");
         try { Directory.CreateDirectory(dataDir); } catch { }
+        _archive = new ArchiveWriter(dataDir, archiveRetentionMonths);
         Load();
     }
 
@@ -44,7 +46,8 @@ public class DecisionLog
         var list = JsonFileStore.Load<List<DecisionEntry>>(_path);
         if (list == null) return;
         _entries.AddRange(list);
-        Trim();
+        var evicted = Trim();
+        _archive.Enqueue("decisions", evicted);   // v0.18.0：冷热分层，淘汰不丢
     }
 
     private int _dirty;
@@ -52,12 +55,15 @@ public class DecisionLog
 
     public void Log(DecisionEntry e)
     {
+        List<DecisionEntry> evicted;
         lock (_lock)
         {
             _entries.Add(e);
-            Trim();
+            evicted = Trim();
             _dirty = 1;
         }
+        // v0.18.0：归档入队放在锁外——Trim 在锁内高频调用，不能做 IO
+        if (evicted.Count > 0) _archive.Enqueue("decisions", evicted);
         // v0.9.2：不再每条全量重写（5000 条 × 每次动作 = 明显卡顿，且腾挪时每条都要写一次盘）。
         // 与 AuditLogger 同一策略：1.5 秒窗口合并落盘，退出前 Flush()。
         ScheduleFlush();
@@ -91,11 +97,12 @@ public class DecisionLog
         List<DecisionEntry> snapshot;
         lock (_lock)
         {
-            if (_dirty == 0) return;
+            if (_dirty == 0) { _archive.Flush(); return; }
             _dirty = 0;
             snapshot = _entries.ToList();
         }
         JsonFileStore.Save(_path, snapshot);
+        _archive.Flush();
     }
 
     /// <summary>
@@ -108,9 +115,12 @@ public class DecisionLog
     /// 旧实现先 `RemoveRange(0, 超出量)` 再从头部切——而列表是按时间追加的，
     /// 最早的恰恰是 Lease/AiSession 这类重要记录，于是"保重要"完全失效
     /// （测试当场抓到：10 条 Lease 被 5200 条 GrowthWatch 挤掉）。
+    ///
+    /// v0.18.0：返回被淘汰的条目，由调用方在锁外写入 archive/（冷热分层）。
     /// </summary>
-    private void Trim()
+    private List<DecisionEntry> Trim()
     {
+        var evicted = new List<DecisionEntry>();
         // ① 重要记录超过配额：从最老的开始删重要记录（同类内 FIFO，保证仍是最新优先）
         var importantIdx = new List<int>();
         for (int i = 0; i < _entries.Count; i++)
@@ -121,7 +131,10 @@ public class DecisionLog
             int excess = importantIdx.Count - ImportantQuota;
             // 从后往前删，索引不失效（删的是最老的那批）
             for (int k = excess - 1; k >= 0; k--)
+            {
+                evicted.Add(_entries[importantIdx[k]]);
                 _entries.RemoveAt(importantIdx[k]);
+            }
         }
 
         // ② 总量超限：仍从最老的次要记录删起，尽量不动重要记录
@@ -129,12 +142,18 @@ public class DecisionLog
         {
             int dropAt = _entries.FindIndex(e => !ImportantKinds.Contains(e.Kind));
             if (dropAt < 0) break;              // 全是重要记录（不可能：配额已限）
+            evicted.Add(_entries[dropAt]);
             _entries.RemoveAt(dropAt);
         }
 
         // ③ 兜底：若噪音删完了还超限（极端情况），才从头部切
         if (_entries.Count > MaxEntries)
-            _entries.RemoveRange(0, _entries.Count - MaxEntries);
+        {
+            int n = _entries.Count - MaxEntries;
+            evicted.AddRange(_entries.Take(n));
+            _entries.RemoveRange(0, n);
+        }
+        return evicted;
     }
 
     /// <summary>各 Kind 的当前条数（诊断页/测试用）。</summary>

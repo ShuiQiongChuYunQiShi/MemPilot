@@ -33,9 +33,9 @@ jobs:
         run: |
           $files = Get-ChildItem -Path TestResults -Filter coverage.cobertura.xml -Recurse -ErrorAction SilentlyContinue
           if (-not $files) { Write-Warning '未找到 coverage.cobertura.xml'; exit 0 }
-          # Core 行覆盖门槛：2026-10-31 实测基线 52.4%，先设 50% 只防倒退（目标 60%，见 ITERATION-BACKLOG）。
-          # 为什么 50 而不是 60：定一个当下就红的口槛等于没有门槛——先锁住现状，再靠迭代往上抬。
-          $coreGate = 0.50
+          # Core 行覆盖门槛：v0.18.0 实测 66.5%（新增身份复检/调度/归档用例后），设 60% 锁住现状。
+          # 目标 70%（见 ITERATION-BACKLOG）。为什么不设 66：留一次重构的余量，避免正常波动就红。
+          $coreGate = 0.60
           $coreRate = $null
           foreach ($f in $files) {
             [xml]$x = Get-Content $f.FullName

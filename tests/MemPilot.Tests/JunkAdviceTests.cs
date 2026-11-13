@@ -188,8 +188,10 @@ public class JunkAdviceTests : IDisposable
     {
         var root = Directory.GetParent(TestTmp.Dir)!.FullName;
         var engine = File.ReadAllText(Path.Combine(root, "src", "MemPilot.Core", "Services", "ResidentEngine.cs"));
-        Assert.Contains("MaybeAdviseJunk(procs);", engine);
-        Assert.Contains("ResumeExpiredSuspends();", engine);
+        // v0.18.0：流水线改为逐阶段隔离（RunStage），断言调用仍在且被隔离包裹
+        Assert.Contains("RunStage(\"junk-advice\", () => MaybeAdviseJunk(procs))", engine);
+        Assert.Contains("MaybeAdviseJunk(procs)", engine);
+        Assert.Contains("ResumeExpiredSuspends", engine);
         var autoActions = File.ReadAllText(Path.Combine(root, "src", "MemPilot.Core", "Services", "ResidentEngine.AutoActions.cs"));
         Assert.Contains("JunkAdviceEnabled", autoActions);
         Assert.Contains("JunkAdvisor.Recommend", autoActions);

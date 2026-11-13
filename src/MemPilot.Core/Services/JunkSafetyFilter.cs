@@ -30,6 +30,9 @@ public static class JunkSafetyFilter
     {
         if (p.IsProtected || p.IsSystemProcess || p.IsService) return false;
 
+        // v0.18.0：永不建议/处置 MemPilot 自己（托盘模式下它满足"无窗口、低 CPU"）
+        if (p.Pid == Environment.ProcessId) return false;
+
         if (p.Category is ProcessCategory.SystemCritical or ProcessCategory.SecuritySoftware
             or ProcessCategory.AntiCheat or ProcessCategory.Driver or ProcessCategory.Unknown) return false;
 

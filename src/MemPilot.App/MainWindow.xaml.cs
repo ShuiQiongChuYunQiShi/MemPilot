@@ -26,7 +26,7 @@ public partial class MainWindow : Window
         RegisterKeyBindings();   // v0.11.0：Esc/F5/Ctrl+F 全局键
         var dataDir = App.ResolveDataDir();
         _config = new ConfigStore(dataDir);
-        var audit = new AuditLogger(dataDir);
+        var audit = new AuditLogger(dataDir, _config.Config.ArchiveRetentionMonths);
         var feedback = new FeedbackStore(dataDir);
         _vm = new MainViewModel(_config, audit, feedback);
         DataContext = _vm;
@@ -184,8 +184,9 @@ public partial class MainWindow : Window
     {
         bool active = IsVisible && WindowState != WindowState.Minimized;
         _vm.UiActive = active;
-        int baseSec = Math.Max(3, _config.Config.RefreshIntervalSeconds);
-        _vm.Engine.SetIntervalSeconds(active ? baseSec : Math.Max(30, baseSec * 3));
+        // v0.18.0：频率由引擎统一裁决（压力提频 / UI 可见按配置 / 托盘无压力降频），
+        // 壳层只上报"用户是否在看"。旧的 SetIntervalSeconds(base*3) 会与压力提频互相覆盖。
+        _vm.Engine.UiActive = active;
         if (!active) ScheduleSelfTrim(TimeSpan.FromSeconds(3));
     }
 

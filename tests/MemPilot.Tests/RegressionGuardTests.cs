@@ -54,9 +54,22 @@ public class RegressionGuardTests
     public void Execute_RechecksProcessIdentity_BeforeStateChange()
     {
         // 故障：腾挪计划从生成到执行可能隔几分钟，PID 复用会杀错进程。
+        // v0.18.0：复检与动作必须共用同一句柄——旧版"复检一次、再按 PID OpenProcess 一次"
+        // 之间仍有 TOCTOU。
         var src = Read("MemPilot.Core", "Services", "CleanupEngine.cs");
+        Assert.Contains("OpenVerified", src);
+        Assert.Contains("SuspendProcessHandle", src);
         Assert.Contains("IsStillSameProcess", src);
         Assert.Contains("StartTime == p.StartTime", src);
+    }
+
+    [Fact]
+    public void Suspend_UnknownStartTime_IsNeverRegistered()
+    {
+        // 故障：StartTime 未知时放行 → 登记 MinValue → 到期恢复必然比对失败 → 进程永久挂起。
+        var src = Read("MemPilot.Core", "Services", "CleanupEngine.cs");
+        Assert.Contains("p.StartTime == DateTime.MinValue", src);
+        Assert.DoesNotContain("if (p.StartTime == DateTime.MinValue) return true", src);
     }
 
     [Fact]

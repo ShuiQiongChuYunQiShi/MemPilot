@@ -3,7 +3,7 @@
 MemPilot is two .NET 10 projects with a one-way dependency:
 
 ```
-MemPilot.App  (WPF shell, tray, 12 pages)
+MemPilot.App  (WPF shell, tray, 9 visible pages + 3 hidden-but-retained)
      │  only references
      ▼
 MemPilot.Core (engine: classification, detection, disposition, observation)

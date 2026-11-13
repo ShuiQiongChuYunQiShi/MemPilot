@@ -114,7 +114,9 @@ public partial class ResidentEngine
                 level = "L3Request";
                 decision = "请求确认";
                 detail = $"请求确认：优雅关闭 {candidates.Count} 个闲置后台（预计释放提交 {reclaim / 1048576.0:F0} MB；提交余量 {commitFreePct:F1}%）";
-                CommitReliefL3Suggested(candidates, reclaim);
+                // v0.18.0：事件订阅方在 tick 线程外执行，抛异常不能击穿整个阶段
+                try { CommitReliefL3Suggested(candidates, reclaim); }
+                catch (Exception ex) { Helpers.Diag.Record("commit-relief:l3-suggested", ex); }
             }
         }
         else

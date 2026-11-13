@@ -41,11 +41,10 @@ That is expected for a new project, not a sign the file is broken. See
 [SECURITY.md](SECURITY.md) for the trust model and [docs/PRIVACY.md](docs/PRIVACY.md)
 for what data is stored (and what never leaves your machine).
 
-## Why another memory tool
+## Two problems, not one
 
-Most memory utilities treat RAM as one number and flush it. MemPilot starts
-from a different observation, measured on a real machine over 9 days
-(1,392 samples):
+Most memory utilities treat RAM as one number and flush it. Measured on a real
+machine over 9 days (1,392 samples):
 
 ```
 Physical RAM        31.7 GB
@@ -59,9 +58,19 @@ Physical < 4 GB     only 3.2% of samples
 **The real bottleneck on a working machine is commit, not physical memory.**
 A standby-list purge does nothing about commit — which is why tools that only
 show "freed 2 GB" rarely make your next AI generation any less likely to fail.
-MemPilot treats commit as a first-class metric and, when it is the thing under
-pressure, offers the only action that genuinely reduces it: gracefully closing
-idle background processes, with your confirmation.
+
+So MemPilot does both, and keeps them apart:
+
+| You want | Action | What it actually changes |
+|---|---|---|
+| The "available" number back | Purge standby lists, flush file/registry cache, trim working sets | Physical occupancy only — **commit does not move** |
+| The next AI job not to fail | Gracefully close idle background processes | Commit drops by their private bytes |
+
+Both live in the UI. The cache tools are on the 「清缓存与工作集」 page: admin
+required, explicit item selection, with a risk warning. The commit-relieving
+action asks for confirmation per candidate and is written to the audit log.
+Every result says which of the two it changed — "released 2 GB, commit
+unchanged" is a valid and honest outcome, and it is never sold as an OOM fix.
 
 ## What it does
 

@@ -25,6 +25,8 @@ public partial class MainViewModel : INotifyPropertyChanged
     public ResidentEngine Engine { get; }
     public DecisionLog Decisions { get; }
     public UsageRecorder Usage { get; }
+    /// <summary>自身开销记录（v0.18.0）：调度内存的工具必须能自证开销。</summary>
+    public SelfCostRecorder SelfCost { get; }
     public BehaviorLedger Behaviors { get; }
     public ConfigStore ConfigStore { get; }
     public AuditLogger Audit { get; }
@@ -81,6 +83,20 @@ public partial class MainViewModel : INotifyPropertyChanged
     private List<GpuAdapterInfo> _gpu = new();
     private GpuMemorySnapshot? _lastGpuMem;
     public string GpuSummaryText => _gpu.Count == 0 ? "GPU 信息不可用" : string.Join("  |  ", _gpu.Select(g => g.Summary));
+
+    /// <summary>自身开销一行（主页卡片，v0.18.0）。数据来自 SelfCostRecorder 的分钟聚合，
+    /// 读的是内存预热值，不落每次刷新读盘。</summary>
+    public string SelfCostText
+    {
+        get
+        {
+            var s = SelfCost.Latest();
+            if (s == null) return $"自身开销：采集中（{ResidentEngine.LightProbeIntervalSeconds}s 探针，1 分钟后出首条）";
+            var text = $"自身开销：RSS {s.Rss} MB · CPU {s.Cpu:F1}% · 全量刷新 P95 {s.P95} ms（{s.N} 次/分）";
+            if (s.Fails > 0) text += $" · 阶段失败 {s.Fails}";
+            return text;
+        }
+    }
 
     /// <summary>显存用量一行（主页 GPU 卡第二行）：已用/总量（百分比）· 来源。不可用就说不可用。</summary>
     public string GpuMemorySummaryText
@@ -317,11 +333,13 @@ public partial class MainViewModel : INotifyPropertyChanged
         Classification = new ClassificationEngine(feedback, ProgramCatalog);
         UnusedDetector.Config = config.Config;
         OnlineLookup.Config = config.Config;
-        Decisions = new DecisionLog(ConfigStore.DataDirectory);
+        Decisions = new DecisionLog(ConfigStore.DataDirectory, ConfigStore.Config.ArchiveRetentionMonths);
         Usage = new UsageRecorder(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
+        SelfCost = new SelfCostRecorder(ConfigStore.DataDirectory, ConfigStore.Config.UsageRetentionDays);
         Cleanup = new CleanupEngine(ProcessService, audit, ConfigStore.DataDirectory);
         Behaviors = BehaviorLedger.Load(Path.Combine(ConfigStore.DataDirectory, "behavior.json"));
         Engine = new ResidentEngine(config, Cleanup, new NativeMemoryCleanerService(), audit, Decisions, Usage, Behaviors);
+        Engine.SelfCost = SelfCost;
         Engine.Alert += (title, message, warning) =>
         {
             if (title.Contains("时段")) SetUi(() => HabitHintText = message);
@@ -603,6 +621,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                 _lastGpuMem = gpuMemOut;
                 OnPropertyChanged(nameof(GpuSummaryText));
                 OnPropertyChanged(nameof(GpuMemorySummaryText));
+                OnPropertyChanged(nameof(SelfCostText));
                 RefreshStatus($"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。");
             });
 

@@ -127,7 +127,7 @@ public partial class ResidentEngine
         if (!_config.Config.ResumeSuspendedOnModeChange) return;
         var records = _cleanup.Suspended.LiveRecords();
         foreach (var rec in records)
-            _cleanup.Resume(rec.Pid, rec.Name);
+            _cleanup.ResumeRecord(rec);   // v0.18.0：走 (pid,startTime) 校验，不按裸 PID 恢复
         if (records.Count > 0)
             _decisions.Log(new DecisionEntry
             {

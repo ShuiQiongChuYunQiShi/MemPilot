@@ -79,6 +79,20 @@ public static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool GetProcessIoCounters(IntPtr hProcess, out IO_COUNTERS lpIoCounters);
 
+    // v0.18.0：句柄级身份复检。GetProcessTimes 只需 PROCESS_QUERY_LIMITED_INFORMATION，
+    // 与动作共用同一个句柄即可消除"复检通过 → 重新 OpenProcess → PID 已复用"的时间窗。
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FILETIME
+    {
+        public uint dwLowDateTime;
+        public uint dwHighDateTime;
+        public long ToInt64() => ((long)dwHighDateTime << 32) | dwLowDateTime;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetProcessTimes(IntPtr hProcess, out FILETIME lpCreationTime,
+        out FILETIME lpExitTime, out FILETIME lpKernelTime, out FILETIME lpUserTime);
+
     [StructLayout(LayoutKind.Sequential)]
     public struct IO_COUNTERS
     {

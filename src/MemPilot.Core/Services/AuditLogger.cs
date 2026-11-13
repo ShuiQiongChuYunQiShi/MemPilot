@@ -10,10 +10,14 @@ public class AuditLogger
     private readonly string _path;
     private readonly List<AuditEntry> _entries = new();
     private readonly object _lock = new();
-    public AuditLogger(string dataDir)
+    private readonly ArchiveWriter _archive;
+
+    public AuditLogger(string dataDir, int archiveRetentionMonths = 12)
     {
         Directory.CreateDirectory(dataDir);
         _path = Path.Combine(dataDir, "audit.json");
+        // v0.18.0：热窗口按条数淘汰，淘汰的条目按天/月归档，不再凭空消失
+        _archive = new ArchiveWriter(dataDir, archiveRetentionMonths);
         Load();
     }
     private void Load()
@@ -22,20 +26,30 @@ public class AuditLogger
         if (list == null) return;
         _entries.AddRange(list);
         if (_entries.Count > MaxEntries)
-            _entries.RemoveRange(0, _entries.Count - MaxEntries);
+        {
+            int n = _entries.Count - MaxEntries;
+            _archive.Enqueue("audit", _entries.Take(n));
+            _entries.RemoveRange(0, n);
+        }
     }
     private int _dirty;
     private int _flushScheduled;
 
     public void Log(AuditEntry e)
     {
+        List<AuditEntry>? evicted = null;
         lock (_lock)
         {
             _entries.Add(e);
             if (_entries.Count > MaxEntries)
-                _entries.RemoveRange(0, _entries.Count - MaxEntries);
+            {
+                int n = _entries.Count - MaxEntries;
+                evicted = _entries.Take(n).ToList();
+                _entries.RemoveRange(0, n);
+            }
             _dirty = 1;
         }
+        if (evicted != null) _archive.Enqueue("audit", evicted);   // 锁外入队
         // v0.9.1（复盘 P1）：不再每条都在锁内全量重写文件（腾挪 20 项 = 20 次全量写盘，
         // 且 UI 线程 Recent() 抢同一把锁）。改为合并写：1.5 秒窗口内的多条合并成一次落盘。
         ScheduleFlush();
@@ -69,11 +83,12 @@ public class AuditLogger
         List<AuditEntry> snapshot;
         lock (_lock)
         {
-            if (_dirty == 0) return;
+            if (_dirty == 0) { _archive.Flush(); return; }
             _dirty = 0;
             snapshot = _entries.ToList();
         }
         JsonFileStore.Save(_path, snapshot);
+        _archive.Flush();
     }
     public List<AuditEntry> Recent(int n = 500)
     {

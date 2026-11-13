@@ -72,6 +72,7 @@ public partial class MainWindow : Window
 
     private void GoClean_Click(object sender, RoutedEventArgs e) => SwitchToTab("cleanup");
     private void GoDecisions_Click(object sender, RoutedEventArgs e) => SwitchToTab("decisions");
+    private void GoSysMem_Click(object sender, RoutedEventArgs e) => SwitchToTab("sysmem");
 
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

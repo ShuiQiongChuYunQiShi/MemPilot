@@ -515,6 +515,8 @@ public class AppConfig
     public bool FirstRunNoticeDismissed { get; set; } = false;
     public bool WriteEventLogAudit { get; set; } = false;
     public int UsageRetentionDays { get; set; } = 30;
+    /// <summary>决策/审计日志的归档保留月数（v0.18.0）：热窗口按条数淘汰，淘汰的条目进 archive/。</summary>
+    public int ArchiveRetentionMonths { get; set; } = 12;
     public double CompactLeft { get; set; } = -1;
     public double CompactTop { get; set; } = -1;
     public bool ResumeSuspendedOnModeChange { get; set; } = false;
