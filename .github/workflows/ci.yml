@@ -4,10 +4,9 @@ on:
   # 2026-11-15：push 不再触发 CI。
   # 原因：windows-latest 是 2x 计费倍率，每次日常提交都跑一遍 test + coverage 太贵
   # （账号 Actions 额度当日已用到 90%）。
-  # 保留两条显式路径：开 PR（合并前把关，dependabot 的 PR 也走这条）与手动 Run workflow。
+  # 统一为手动 Run workflow；PR 也不再触发（dependabot 的 PR 同样不跑，
+  # 合并前需要验证时手动触发一次）。
   # 发版仍只走 release.yml 的 workflow_dispatch，不受影响。
-  pull_request:
-    branches: ['main']
   workflow_dispatch:
 
 jobs:
