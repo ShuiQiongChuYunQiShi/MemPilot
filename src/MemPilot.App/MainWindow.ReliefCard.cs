@@ -40,14 +40,14 @@ public partial class MainWindow
         }
         if (windowless.Count > 0)
         {
-            var names = string.Join("、", windowless.Select(p => $"{p.Name}(PID {p.Pid})"));
+            var names = string.Join(UiStrings.Get("Common_ListSeparator"), windowless.Select(p => $"{p.Name}(PID {p.Pid})"));
             if (System.Windows.MessageBox.Show(
-                    $"以下进程没有可见窗口，无法优雅关闭，只能强制结束：\n\n{names}\n\n该操作不可撤销。继续？",
+                    UiStrings.F("Relief_WindowlessConfirm", names),
                     UiStrings.Get("Btn_ConfirmForceKill"), MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
                 // 第二次确认（沿用 L4 双确认不变式）
                 if (System.Windows.MessageBox.Show(
-                        $"第二次确认：确定强制结束这 {windowless.Count} 个进程？",
+                        UiStrings.F("Relief_SecondConfirm", windowless.Count),
                         UiStrings.Get("Btn_FinalConfirm"), MessageBoxButton.YesNo, MessageBoxImage.Stop) == MessageBoxResult.Yes)
                 {
                     foreach (var p in windowless)
@@ -59,7 +59,7 @@ public partial class MainWindow
             }
         }
         await _vm.FinishJunkCleanupAsync(done, candidates);
-        _vm.SetActionStatus($"已处理 {done.Count}/{candidates.Count} 个垃圾进程。");
+        _vm.SetActionStatus(UiStrings.F("Relief_JunkDone", done.Count, candidates.Count));
     }
 
     private void DismissJunkAdvice_Click(object sender, RoutedEventArgs e) => _vm.DismissJunkAdvice();

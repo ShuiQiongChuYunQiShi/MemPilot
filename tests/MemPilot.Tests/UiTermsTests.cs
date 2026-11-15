@@ -113,8 +113,11 @@ public class UiTermsTests
         // 导航资源值、页面标题、热键路径必须是同一个词
         var zh = LoadDict("zh-CN");
         Assert.Equal("🚀  腾内存", zh["Nav_MakeRoom"]);
+        Assert.Contains("腾内存", zh["MakeRoom_Title"]);
         var page = File.ReadAllText(Path.Combine(AppDir(), "MainWindow.MakeRoomPage.cs"));
-        Assert.Contains("腾内存计划", page);
+        // v0.19.0：页面文案已资源化，断言稳定 key 而不是中文
+        Assert.Contains("MakeRoom_PlanReadyOtherPage", page);
+        Assert.Contains("MakeRoom_Progress", page);
         Assert.DoesNotContain("腾挪", page.Replace("腾内存", ""), StringComparison.Ordinal);
     }
 

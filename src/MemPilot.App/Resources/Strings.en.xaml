@@ -587,4 +587,110 @@
     <sys:String x:Key="Home_MemoryLabel">Memory</sys:String>
     <sys:String x:Key="Home_UsedOfTotal">{0} used / {1}</sys:String>
     <sys:String x:Key="Status_Enumerated">Enumerated {0} processes, {1} cleanable candidates (enum {2} ms · classify {3} ms).</sys:String>
+    <sys:String x:Key="Cleanup_TrimResult">Trimmed {0} items; available memory {1}{2:F1} GB</sys:String>
+    <sys:String x:Key="Cleanup_ChildNote">
+Note: this process has {0} child processes; ending it may affect them.</sys:String>
+    <sys:String x:Key="Cleanup_ForceKillConfirm">Force-kill {0} (PID {1})?
+Estimated reclaim: {2:F0} MB{3}
+This cannot be undone.</sys:String>
+    <sys:String x:Key="Cleanup_SuspendConfirm">Suspend {0}? Suspending only freezes CPU; it does not free memory. Resume it on the Suspended page.</sys:String>
+    <sys:String x:Key="Cleanup_CloseConfirm">Send a close message to {0} (PID {1})? The program gets a chance to save its data and exit on its own.{2}</sys:String>
+    <sys:String x:Key="Cleanup_MarkedCleanable">Recorded: {0} marked as cleanable (takes effect on the next refresh; undo on the Feedback page)</sys:String>
+    <sys:String x:Key="Cleanup_MarkedKeep">Recorded: {0} marked as keep (whitelisted, no further prompts)</sys:String>
+    <sys:String x:Key="Cleanup_LookupRunning">Looking up {0} online…</sys:String>
+    <sys:String x:Key="Cleanup_LookupResult">Lookup result ({0}): {1} — {2}</sys:String>
+    <sys:String x:Key="Common_ListSeparator">,</sys:String>
+    <sys:String x:Key="Common_AndMore"> and {0} more</sys:String>
+    <sys:String x:Key="Cleanup_JunkPlanConfirm">Junk sweep plan:
+  force-kill {0}, trim working sets {1}
+
+{2}{3}
+
+Continue?</sys:String>
+    <sys:String x:Key="Cleanup_TrimmingCandidates">Trimming working sets of {0} candidates…</sys:String>
+    <sys:String x:Key="Cleanup_BatchConfirm">About to batch-process {0} candidates: graceful close {1}, force kill {2}, suspend {3}.
+Involved: {4}
+
+Continue?</sys:String>
+    <sys:String x:Key="Cleanup_BatchRunning">Batch-processing {0} candidates…</sys:String>
+    <sys:String x:Key="Process_NotSuspendedByUs">{0} is not suspended by this tool.</sys:String>
+    <sys:String x:Key="Process_PriorityLowered">{0}: memory priority lowered to VERY_LOW (pages are reclaimed first; the process keeps running).</sys:String>
+    <sys:String x:Key="Process_PriorityRestored">{0}: memory priority restored to NORMAL.</sys:String>
+    <sys:String x:Key="Process_EcoOn">{0}: EcoQoS enabled (the scheduler gives it a lower energy priority).</sys:String>
+    <sys:String x:Key="Process_MarkRecorded">Recorded: {0} → {1} (effective on the next refresh).</sys:String>
+    <sys:String x:Key="Relief_WindowlessConfirm">These processes have no visible window and cannot be closed gracefully — only force-killed:\n\n{0}\n\nThis cannot be undone. Continue?</sys:String>
+    <sys:String x:Key="Relief_SecondConfirm">Second confirmation: really force-kill these {0} processes?</sys:String>
+    <sys:String x:Key="Relief_JunkDone">Handled {0}/{1} junk processes.</sys:String>
+    <sys:String x:Key="Tabs_RelaunchConfirm">Relaunch {0}?\n{1}</sys:String>
+    <sys:String x:Key="Tabs_Relaunched">Relaunched {0}</sys:String>
+    <sys:String x:Key="Tabs_EditingMode">Editing: {0}</sys:String>
+    <sys:String x:Key="Tabs_ModeRulesSaved">Saved rules for {0} (effective on the next refresh).</sys:String>
+    <sys:String x:Key="Tabs_FeedbackUndone">Undid the feedback for {0}; effective on the next refresh.</sys:String>
+    <sys:String x:Key="Settings_TrimConfirm">Will trim only {0} low-load background processes ({1} work / game / foreground / busy processes excluded). Continue?</sys:String>
+    <sys:String x:Key="Tray_ModeSwitchedBody">Automatically switched to {0} ({1}); see the decision log for details.</sys:String>
+    <sys:String x:Key="Tray_Tooltip">MemPilot - {0:F0}% used, {1} available, {2} suspended</sys:String>
+    <sys:String x:Key="Mini_Trimmed">Trimmed {0} items</sys:String>
+    <sys:String x:Key="MakeRoom_PlanReadyOtherPage">Make-room plan ready ({0} items) — open the Make room page to review it.</sys:String>
+    <sys:String x:Key="MakeRoom_PlanLine">{0}  {1} (PID {2})  est. physical {3:F0} MB</sys:String>
+    <sys:String x:Key="MakeRoom_PlanLineChildren"> (incl. {0} children)</sys:String>
+    <sys:String x:Key="MakeRoom_EscalateNote">Some L3 items will escalate to force kill if they do not close in time.\n</sys:String>
+    <sys:String x:Key="MakeRoom_ExecuteConfirm">About to execute {0} operations:\n\n{1}\n\n{2}</sys:String>
+    <sys:String x:Key="MakeRoom_Progress">Make room {0}/{1}</sys:String>
+    <sys:String x:Key="Process_WorkloadMarked">Marked {0} as "{1}" (effective on the next refresh; undo on the Feedback page).</sys:String>
+    <sys:String x:Key="Process_WorkloadCleared">Cleared the workload mark for {0}; back to rule-based classification.</sys:String>
+    <sys:String x:Key="Process_ReviewQueueCount">Unrecognized review queue ({0} · high-memory unrecognized processes; verified ones can be promoted to rules)</sys:String>
+    <sys:String x:Key="Relief_ClosedSummary">Commit relief: gracefully closed {0}/{1} idle background apps.</sys:String>
+    <sys:String x:Key="Tabs_ModeResumed">Mode switched; resumed {0} suspended processes.</sys:String>
+    <sys:String x:Key="Settings_CatalogInfo">Program catalog: {0} entries ({1})</sys:String>
+    <sys:String x:Key="Settings_CatalogRebuilt">Program catalog rebuilt: {0} entries ({1} directory index)</sys:String>
+    <sys:String x:Key="Cleanup_TrimSummary">Trimmed working sets of {0} low-load processes ({1} failed, {2} work / game / foreground skipped); available memory +{3:F0} MB</sys:String>
+    <sys:String x:Key="Cleanup_JunkSweepSummary">Junk sweep: ended {0}, trimmed {1}, failed {2}</sys:String>
+    <sys:String x:Key="Cleanup_BatchSummary">Batch processing done: {0} succeeded, {1} failed</sys:String>
+    <sys:String x:Key="Junk_BalloonBody">Unused all day: {0} (about {1} MB). Suspend or end them from the home page.</sys:String>
+    <sys:String x:Key="Junk_SuspendReason">Junk advice: unused all day, suspend {0:F0} h</sys:String>
+    <sys:String x:Key="Junk_SuspendedSummary">Suspended {0}/{1} junk processes (auto-resume in {2:F0} h).</sys:String>
+    <sys:String x:Key="Junk_Ignored">Ignored this junk advice (remembered: {0} processes paused).</sys:String>
+    <sys:String x:Key="Lease_StatusListening">Lease API listening on 127.0.0.1:{0}</sys:String>
+    <sys:String x:Key="Lease_StatusNotStartedBody">Lease API did not start: {0}</sys:String>
+    <sys:String x:Key="Lease_PurgeFailed">Standby purge failed ({0})</sys:String>
+    <sys:String x:Key="Lease_TrimDetail">{0}; trimmed the safe subset: {1} (excluded {2})</sys:String>
+    <sys:String x:Key="Lease_SuspendDetail">; suspended {0} idle processes (restorable)</sys:String>
+    <sys:String x:Key="Lease_AvailableDetail">{0}; available {1:F1} → {2:F1} GB</sys:String>
+    <sys:String x:Key="Lease_ActiveBody">Freed {1:F1} GB for {0} (target {2:F1} GB) until {3}.</sys:String>
+    <sys:String x:Key="Lease_ReturnedBody">{0} returned the lease.</sys:String>
+    <sys:String x:Key="Lease_RestoreSummary">Lease ended; resumed {0} suspended processes{1}.</sys:String>
+    <sys:String x:Key="Lease_RestoreFailedPart"> ({0} failed)</sys:String>
+    <sys:String x:Key="History_ModeDurationRow">{0}    {1:F1} h</sys:String>
+    <sys:String x:Key="History_Minutes">{0:F0} min</sys:String>
+    <sys:String x:Key="History_VramSummarySamples">24 h: {0} samples</sys:String>
+    <sys:String x:Key="History_VramSummaryPeak"> · peak {0}</sys:String>
+    <sys:String x:Key="History_VramSummaryLatest"> · latest {0} / {1} ({2:F0}%)</sys:String>
+    <sys:String x:Key="History_VramSummarySpikes"> · {0} spikes</sys:String>
+    <sys:String x:Key="History_VramSummarySource"> · source {0}</sys:String>
+    <sys:String x:Key="History_UsageSummary">24 h: {0} samples · from {1} · processes {2} → {3} · latest available {4}</sys:String>
+    <sys:String x:Key="History_UsageGap"> · longest gap {0} min (sleep/exit)</sys:String>
+    <sys:String x:Key="SelfCost_Collecting">Self cost: collecting ({0} s probe; first sample after 1 minute)</sys:String>
+    <sys:String x:Key="SelfCost_Summary">Self cost: RSS {0} MB · CPU {1:F1}% · full-refresh P95 {2} ms ({3}/min)</sys:String>
+    <sys:String x:Key="SelfCost_StageFailures"> · {0} stage failures</sys:String>
+    <sys:String x:Key="Gpu_SourcePdhAdapter">PDH adapter</sys:String>
+    <sys:String x:Key="Gpu_SourcePdhProcess">process aggregate</sys:String>
+    <sys:String x:Key="Gpu_UsageWithTotal">VRAM {0} / {1} ({2:F0}%) · {3}</sys:String>
+    <sys:String x:Key="Gpu_UsageOnly">VRAM {0} · {1}</sys:String>
+    <sys:String x:Key="Ai_InProgressText">AI session running: VRAM {0:F1} GB (dominant: {1})</sys:String>
+    <sys:String x:Key="Ai_StartedBody">AI generation session detected: VRAM {0:F1} GB (dominant: {1}). Recorded only; nothing is actioned.</sys:String>
+    <sys:String x:Key="Ai_ShortBody">VRAM {0:F1} GB ({1})</sys:String>
+    <sys:String x:Key="Ai_LastSessionText">Last AI session: {0:F0} min, peak {1:F1} GB</sys:String>
+    <sys:String x:Key="Ai_EndedBody">Duration {0:F0} min, peak {1:F1} GB ({2}).</sys:String>
+    <sys:String x:Key="Common_Unknown">unknown</sys:String>
+    <sys:String x:Key="Cleanup_CandidateRule">Candidate rule: no window + low CPU/IO + no audio + not foreground, idle for at least {0} minutes across {1} consecutive observations. An empty list right after launch is normal — observations are still accumulating; the first candidate usually appears after about {0} minutes.</sys:String>
+    <sys:String x:Key="Settings_ElevationPrompt">System-level cache clearing requires administrator rights.
+
+Restart MemPilot as administrator and run the selected areas automatically?</sys:String>
+    <sys:String x:Key="Settings_DiagRecent">Recent: </sys:String>
+    <sys:String x:Key="Workload_Unknown">Unknown</sys:String>
+    <sys:String x:Key="Workload_Work">Work</sys:String>
+    <sys:String x:Key="Workload_Entertainment">Entertainment</sys:String>
+    <sys:String x:Key="Workload_Ai">AI</sys:String>
+    <sys:String x:Key="Workload_System">System</sys:String>
+    <sys:String x:Key="Workload_Other">Other</sys:String>
 </ResourceDictionary>

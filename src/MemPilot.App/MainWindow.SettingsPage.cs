@@ -218,19 +218,19 @@ public partial class MainWindow : Window
                 MessageBox.Show(UiStrings.Get("Settings_NoSafeProcesses"), UiStrings.Get("Common_Notice"), MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            if (MessageBox.Show($"将只压缩 {safe.Count} 个低负载后台进程（排除 {_vm.Processes.Count - safe.Count} 个工作/游戏/前台/忙碌进程）。继续？",
+            if (MessageBox.Show(UiStrings.F("Settings_TrimConfirm", safe.Count, _vm.Processes.Count - safe.Count),
                     UiStrings.Get("Btn_ConfirmTrim"), MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
             _memCleaner.SetWorkingSetAllowList(safe.Select(p => p.Pid).ToList());
         }
         if (areas.Contains(MemoryArea.StandbyList) &&
-            MessageBox.Show(UiStrings.Get("Settings_StandbyWarning"), "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            MessageBox.Show(UiStrings.Get("Settings_StandbyWarning"), UiStrings.Get("Common_Confirm"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             return;
         if (!Elevation.IsAdmin())
         {
             var argList = areas.Select(a => "/" + a).ToList();
             var res2 = MessageBox.Show(
-                "系统级内存清理需要管理员权限。\n\n以管理员身份重启 MemPilot 并自动执行所选区域？",
+                UiStrings.Get("Settings_ElevationPrompt"),
                 UiStrings.Get("Settings_NeedElevation"), MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (res2 == MessageBoxResult.Yes &&
                 Elevation.RestartAsAdmin(string.Join(" ", argList)))

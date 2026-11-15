@@ -203,7 +203,7 @@ public partial class MainWindow : Window
     {
         var p = GetSelectedProcess();
         if (p == null) { _vm.Status = UiStrings.Get("Process_SelectRow"); return; }
-        if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { _vm.Status = $"{p.Name} 不是本工具挂起的进程。"; return; }
+        if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { _vm.Status = UiStrings.F("Process_NotSuspendedByUs", p.Name); return; }
         _vm.ResumeSuspended(new SuspendRecord { Pid = p.Pid, Name = p.Name });
     }
 
@@ -212,7 +212,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 1); // VERY_LOW
-        _vm.Status = ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : UiStrings.Get("Process_PriorityFail");
+        _vm.Status = ok ? UiStrings.F("Process_PriorityLowered", p.Name) : UiStrings.Get("Process_PriorityFail");
     }
 
     private void CtxMemPriorityNormal_Click(object sender, RoutedEventArgs e)
@@ -220,7 +220,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 5); // NORMAL
-        _vm.Status = ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : UiStrings.Get("Process_PriorityFailShort");
+        _vm.Status = ok ? UiStrings.F("Process_PriorityRestored", p.Name) : UiStrings.Get("Process_PriorityFailShort");
     }
 
     private void CtxEcoOn_Click(object sender, RoutedEventArgs e)
@@ -228,7 +228,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetEcoMode(p.Pid, true);
-        _vm.Status = ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : UiStrings.Get("Process_EcoFail");
+        _vm.Status = ok ? UiStrings.F("Process_EcoOn", p.Name) : UiStrings.Get("Process_EcoFail");
     }
 
     private void CtxEcoOff_Click(object sender, RoutedEventArgs e)
@@ -310,6 +310,8 @@ public partial class MainWindow : Window
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        _vm.Status = $"已记录：{p.Name} → {(keep ? "保留" : clean ? "可清理" : UiStrings.Get("Term_SystemProcess"))}（下次刷新生效）。";
+        var markLabel = keep ? UiStrings.Get("Concept_KeepMark")
+            : clean ? UiStrings.Get("Concept_CleanableMark") : UiStrings.Get("Term_SystemProcess");
+        _vm.Status = UiStrings.F("Process_MarkRecorded", p.Name, markLabel);
     }
 }

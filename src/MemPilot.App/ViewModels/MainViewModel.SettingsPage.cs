@@ -59,7 +59,7 @@ public partial class MainViewModel
     {
         var summary = MemPilot.Helpers.Diag.Summary();
         var recent = MemPilot.Helpers.Diag.Recent().FirstOrDefault();
-        StoreDiagnosticsText = recent == null ? summary : summary + "\n最近：" + recent;
+        StoreDiagnosticsText = recent == null ? summary : summary + "\n" + UiStrings.Get("Settings_DiagRecent") + recent;
     }
 
     private void BuildProgramCatalogInBackground()
@@ -72,7 +72,7 @@ public partial class MainViewModel
             {
                 ProgramCatalog = built;
                 Classification.Catalog = built;
-                ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
+                ProgramCatalogInfo = UiStrings.F("Settings_CatalogInfo", built.Count, built.BuiltUtc.ToLocalTime().ToString("MM-dd HH:mm"));
             });
         }
         catch { }
@@ -86,8 +86,8 @@ public partial class MainViewModel
         built.Save(ConfigStore.DataDirectory);
         ProgramCatalog = built;
         Classification.Catalog = built;
-        ProgramCatalogInfo = $"程序清单：{built.Count} 条（{built.BuiltUtc.ToLocalTime():MM-dd HH:mm}）";
-        Status = $"程序清单已重建：{built.Count} 条（目录索引 {built.DirectoryIndexCount}）";
+        ProgramCatalogInfo = UiStrings.F("Settings_CatalogInfo", built.Count, built.BuiltUtc.ToLocalTime().ToString("MM-dd HH:mm"));
+        Status = UiStrings.F("Settings_CatalogRebuilt", built.Count, built.DirectoryIndexCount);
         return Status;
     }
 }

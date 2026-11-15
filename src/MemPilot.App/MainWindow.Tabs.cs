@@ -121,9 +121,9 @@ public partial class MainWindow : Window
     private void RestartDisposal_Click(object sender, RoutedEventArgs e)
     {
         if (DisposalsGrid == null || DisposalsGrid.SelectedItem is not DisposalRecord rec) { _vm.Status = UiStrings.Get("Tabs_SelectDisposal"); return; }
-        if (MessageBox.Show($"重新启动 {rec.Name}？\n{rec.ExePath}", "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        if (MessageBox.Show(UiStrings.F("Tabs_RelaunchConfirm", rec.Name, rec.ExePath), UiStrings.Get("Common_Confirm"), MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         if (_vm.RestartDisposal(rec))
-            _vm.Status = $"已重新启动 {rec.Name}";
+            _vm.Status = UiStrings.F("Tabs_Relaunched", rec.Name);
         else
         {
             _vm.Status = UiStrings.Get("Tabs_LaunchFailed");
@@ -149,7 +149,7 @@ public partial class MainWindow : Window
         {
             KeepPatternsEditor.Text = string.Join("\n", profile.KeepPatterns);
             CleanPatternsEditor.Text = string.Join("\n", profile.CleanPatterns);
-            ModeEditorHint.Text = $"正在编辑: {profile.Name}";
+            ModeEditorHint.Text = UiStrings.F("Tabs_EditingMode", profile.Name);
         }
     }
 
@@ -169,7 +169,7 @@ public partial class MainWindow : Window
             .Where(s => s.Length > 0).ToList();
         _vm.ConfigStore.Save();
         _vm.Engine.SampleForeground(); // no-op; rules apply on the next engine tick
-        MessageBox.Show($"已保存 {profile.Name} 的规则（下一个刷新周期生效）。", UiStrings.Get("Common_Done"));
+        MessageBox.Show(UiStrings.F("Tabs_ModeRulesSaved", profile.Name), UiStrings.Get("Common_Done"));
     }
 
     /// <summary>撤销一条反馈（v0.3.7）：标记错了要能撤回，否则只能去改 feedback.json。</summary>
@@ -182,7 +182,7 @@ public partial class MainWindow : Window
         }
         if (_vm.RemoveFeedback(fe))
         {
-            _vm.Status = $"已撤销 {fe.ProcessName} 的反馈，下次刷新生效。";
+            _vm.Status = UiStrings.F("Tabs_FeedbackUndone", fe.ProcessName);
             _ = _vm.RefreshAsync();
         }
         else _vm.Status = UiStrings.Get("Tabs_UndoFailed");

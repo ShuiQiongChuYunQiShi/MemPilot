@@ -29,7 +29,7 @@ public partial class MainViewModel
     {
         public string Mode { get; set; } = "";
         public double Hours { get; set; }
-        public string Display => $"{Mode}    {Hours:F1} 小时";
+        public string Display => UiStrings.F("History_ModeDurationRow", Mode, Hours);
     }
     public sealed class TopUsageRow
     {
@@ -173,7 +173,7 @@ public partial class MainViewModel
                 AiSessionItems.Add(new AiSessionRow
                 {
                     StartText = session.StartUtc.ToLocalTime().ToString("MM-dd HH:mm"),
-                    DurationText = $"{minutes.TotalMinutes:F0} 分钟" + (session.EndUtc.HasValue ? "" : UiStrings.Get("Common_InProgress")),
+                    DurationText = UiStrings.F("History_Minutes", minutes.TotalMinutes) + (session.EndUtc.HasValue ? "" : UiStrings.Get("Common_InProgress")),
                     PeakText = $"{session.PeakUsedBytes / 1073741824.0:F1} GB",
                     CommitText = session.PeakCommitFreePct is { } cf ? $"{cf:F1}%" : "—",
                     DominantText = session.DominantName,
@@ -182,20 +182,22 @@ public partial class MainViewModel
             }
             GpuHistorySummary = gpuHist.SampleCount == 0
                 ? UiStrings.Get("History_NoVramDetail")
-                : $"24 小时 {gpuHist.SampleCount} 条采样"
-                  + (gpuHist.PeakUsed.HasValue ? $" · 峰值 {ByteFormat.Human(gpuHist.PeakUsed.Value)}" : "")
+                : UiStrings.F("History_VramSummarySamples", gpuHist.SampleCount)
+                  + (gpuHist.PeakUsed.HasValue ? UiStrings.F("History_VramSummaryPeak", ByteFormat.Human(gpuHist.PeakUsed.Value)) : "")
                   + (gpuHist.LastUsed.HasValue && gpuHist.Total > 0
-                        ? $" · 最近 {ByteFormat.Human(gpuHist.LastUsed.Value)} / {ByteFormat.Human(gpuHist.Total)}（{gpuHist.LastUsed.Value * 100.0 / gpuHist.Total:F0}%）"
+                        ? UiStrings.F("History_VramSummaryLatest", ByteFormat.Human(gpuHist.LastUsed.Value),
+                            ByteFormat.Human(gpuHist.Total), gpuHist.LastUsed.Value * 100.0 / gpuHist.Total)
                         : "")
-                  + (gpuHist.SpikeCount > 0 ? $" · 跳增 {gpuHist.SpikeCount} 次" : "")
-                  + (string.IsNullOrEmpty(gpuHist.Source) ? "" : $" · 来源 {gpuHist.Source}");
+                  + (gpuHist.SpikeCount > 0 ? UiStrings.F("History_VramSummarySpikes", gpuHist.SpikeCount) : "")
+                  + (string.IsNullOrEmpty(gpuHist.Source) ? "" : UiStrings.F("History_VramSummarySource", gpuHist.Source));
             int maxGapMin = 0;
             for (int i = 1; i < day.Count; i++)
                 maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
             HistorySummary = (day.Count == 0
                 ? UiStrings.Get("History_NoSamples")
-                : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs} · 最近可用 {ByteFormat.Human(day[^1].Avail)}")
-                + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
+                : UiStrings.F("History_UsageSummary", day.Count, day[0].T.ToLocalTime().ToString("HH:mm"),
+                    day[0].Procs, day[^1].Procs, ByteFormat.Human(day[^1].Avail)))
+                + (maxGapMin >= 30 ? UiStrings.F("History_UsageGap", maxGapMin) : "")
                 + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");
             });
         });

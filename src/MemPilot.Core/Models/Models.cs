@@ -1,4 +1,5 @@
 ﻿using MemPilot.Helpers;
+using MemPilot.Localization;
 using MemPilot.Services;   // PersistedIds（v0.10.0：持久化用稳定 id）
 
 namespace MemPilot.Models;
@@ -143,15 +144,8 @@ public class ProcessInfo
 /// </summary>
 public static class WorkloadText
 {
-    public static string Of(WorkloadKind kind) => kind switch
-    {
-        WorkloadKind.Work => "工作",
-        WorkloadKind.Entertainment => "娱乐",
-        WorkloadKind.Ai => "AI",
-        WorkloadKind.System => "系统",
-        WorkloadKind.Other => "其他",
-        _ => "未知",
-    };
+    /// <summary>显示名走 i18n 字典（v0.19.0）；未知枚举回退 key 而不是崩溃。</summary>
+    public static string Of(WorkloadKind kind) => UiStrings.Get("Workload_" + kind);
 
     /// <summary>稳定 id（写进 config.json 的那个值，永不随语言变化）。</summary>
     public static string IdOf(WorkloadKind kind) => kind switch

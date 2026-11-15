@@ -91,9 +91,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         get
         {
             var s = SelfCost.Latest();
-            if (s == null) return $"自身开销：采集中（{ResidentEngine.LightProbeIntervalSeconds}s 探针，1 分钟后出首条）";
-            var text = $"自身开销：RSS {s.Rss} MB · CPU {s.Cpu:F1}% · 全量刷新 P95 {s.P95} ms（{s.N} 次/分）";
-            if (s.Fails > 0) text += $" · 阶段失败 {s.Fails}";
+            if (s == null) return UiStrings.F("SelfCost_Collecting", ResidentEngine.LightProbeIntervalSeconds);
+            var text = UiStrings.F("SelfCost_Summary", s.Rss, s.Cpu, s.P95, s.N);
+            if (s.Fails > 0) text += UiStrings.F("SelfCost_StageFailures", s.Fails);
             return text;
         }
     }
@@ -109,13 +109,13 @@ public partial class MainViewModel : INotifyPropertyChanged
             var total = _gpu.Sum(a => a.DedicatedVideoMemoryBytes);
             var src = snap.Source switch
             {
-                "pdh-adapter" => "PDH 适配器",
-                "pdh-process" => "进程汇总",
+                "pdh-adapter" => UiStrings.Get("Gpu_SourcePdhAdapter"),
+                "pdh-process" => UiStrings.Get("Gpu_SourcePdhProcess"),
                 _ => "DXGI"   // v0.10.0：DXGI 已不再提供适配器用量，理论上不会走到这里
             };
             return total > 0
-                ? $"显存 {ByteFormat.Human(used)} / {ByteFormat.Human(total)}（{used * 100.0 / total:F0}%）· {src}"
-                : $"显存 {ByteFormat.Human(used)} · {src}";
+                ? UiStrings.F("Gpu_UsageWithTotal", ByteFormat.Human(used), ByteFormat.Human(total), used * 100.0 / total, src)
+                : UiStrings.F("Gpu_UsageOnly", ByteFormat.Human(used), src);
         }
     }
 
@@ -228,7 +228,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             if (records.Count > 0)
             {
                 SuspendedProcesses.Clear();
-                Status = $"模式已切换，恢复了 {records.Count} 个挂起进程。";
+                Status = UiStrings.F("Tabs_ModeResumed", records.Count);
             }
         }
     }
@@ -368,13 +368,14 @@ public partial class MainViewModel : INotifyPropertyChanged
                 case "开始":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
                         Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB（策略 {lease.Policy}，挂起 {lease.Suspended.Count} 个）；实测达成 {achieved:F1} GB（{lease.Details}）" });
-                    RaiseAlert(UiStrings.Get("Lease_Active"), $"已为 {lease.Requester} 腾出 {achieved:F1} GB 可用内存（目标 {peak:F1} GB），至 {lease.ExpiresUtc.ToLocalTime():HH:mm}。");
+                    RaiseAlert(UiStrings.Get("Lease_Active"), UiStrings.F("Lease_ActiveBody",
+                        lease.Requester, achieved, peak, lease.ExpiresUtc.ToLocalTime().ToString("HH:mm")));
                     AlertRaised?.Invoke(UiStrings.Get("Lease_Active"), $"{achieved:F1} / {peak:F1} GB", false);
                     break;
                 case "归还":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
                         Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟，策略 {lease.Policy}）" });
-                    RaiseAlert(UiStrings.Get("Lease_ReturnedTitle"), $"{lease.Requester} 已归还租约。");
+                    RaiseAlert(UiStrings.Get("Lease_ReturnedTitle"), UiStrings.F("Lease_ReturnedBody", lease.Requester));
                     break;
                 case "过期":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
@@ -444,7 +445,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             double sharedGb = summary.PeakSharedBytes / 1073741824.0;
             if (started)
             {
-                AiSessionText = $"AI 会话进行中：显存 {peakGb:F1} GB（主导 {summary.DominantName}）";
+                AiSessionText = UiStrings.F("Ai_InProgressText", peakGb, summary.DominantName);
                 Decisions.Log(new DecisionEntry
                 {
                     Kind = "AiSession",
@@ -452,12 +453,12 @@ public partial class MainViewModel : INotifyPropertyChanged
                     Decision = "开始",
                     Reason = $"显存 {peakGb:F1} GB（共享 {sharedGb:F1} GB）；判定阈值 8GB、最近 5 个 30 秒样本中 ≥3 个"
                 });
-                RaiseAlert(UiStrings.Get("Ai_SessionTitle"), $"检测到 AI 生成会话：显存 {peakGb:F1} GB（主导 {summary.DominantName}）。只记录，不处置。");
-                AlertRaised?.Invoke(UiStrings.Get("Ai_SessionTitle"), $"显存 {peakGb:F1} GB（{summary.DominantName}）", false);
+                RaiseAlert(UiStrings.Get("Ai_SessionTitle"), UiStrings.F("Ai_StartedBody", peakGb, summary.DominantName));
+                AlertRaised?.Invoke(UiStrings.Get("Ai_SessionTitle"), UiStrings.F("Ai_ShortBody", peakGb, summary.DominantName), false);
             }
             else
             {
-                AiSessionText = $"上次 AI 会话：{summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB";
+                AiSessionText = UiStrings.F("Ai_LastSessionText", summary.Duration.TotalMinutes, peakGb);
                 Decisions.Log(new DecisionEntry
                 {
                     Kind = "AiSession",
@@ -467,12 +468,13 @@ public partial class MainViewModel : INotifyPropertyChanged
                              (summary.PeakCommitFreePct is { } cf ? $"峰值提交余量 {cf:F1}%；" : "") +
                              $"主导进程出现过 {summary.PidCount} 个 PID"
                 });
-                RaiseAlert(UiStrings.Get("Ai_SessionEnded"), $"时长 {summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB（{summary.DominantName}）。");
+                RaiseAlert(UiStrings.Get("Ai_SessionEnded"), UiStrings.F("Ai_EndedBody",
+                    summary.Duration.TotalMinutes, peakGb, summary.DominantName));
             }
         });
         OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
         ProgramCatalogInfo = ProgramCatalog.Count > 0
-            ? $"程序清单：{ProgramCatalog.Count} 条（{ProgramCatalog.BuiltUtc.ToLocalTime():MM-dd HH:mm}）"
+            ? UiStrings.F("Settings_CatalogInfo", ProgramCatalog.Count, ProgramCatalog.BuiltUtc.ToLocalTime().ToString("MM-dd HH:mm"))
             : UiStrings.Get("Settings_CatalogNotBuilt");
         if (ProgramCatalog.Count == 0) _ = Task.Run(BuildProgramCatalogInBackground);
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
@@ -515,7 +517,8 @@ public partial class MainViewModel : INotifyPropertyChanged
         }
 
         int total = lease.Suspended.Count;
-        SetUi(() => Status = $"租约结束，已恢复 {restored} 个挂起进程" + (failed > 0 ? $"（{failed} 个失败）" : "") + "。");
+        var failedPart = failed > 0 ? UiStrings.F("Lease_RestoreFailedPart", failed) : "";
+        SetUi(() => Status = UiStrings.F("Lease_RestoreSummary", restored, failedPart));
         Decisions.Log(new DecisionEntry
         {
             Kind = "Lease", Target = lease.Id, Decision = "恢复",

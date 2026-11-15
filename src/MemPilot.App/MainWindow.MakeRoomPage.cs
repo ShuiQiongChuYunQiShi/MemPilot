@@ -64,7 +64,7 @@ public partial class MainWindow : Window
         // 页签懒加载：控件未实体化时不要 NRE（v0.9.0 修：路由键错曾导致这里空引用崩溃）
         if (PlanGrid == null || MakeRoomSummary == null || ExecutePlanBtn == null)
         {
-            _vm.Status = $"腾内存计划已生成（{plan.Items.Count} 项），请切到「腾内存」页查看。";
+            _vm.Status = UiStrings.F("MakeRoom_PlanReadyOtherPage", plan.Items.Count);
             return;
         }
         PlanGrid.ItemsSource = plan.Items;
@@ -79,11 +79,15 @@ public partial class MainWindow : Window
     {
         if (_currentPlan == null || _currentPlan.Items.Count == 0) return;
         var lines = string.Join("\n", _currentPlan.Items.Select(i =>
-            $"{i.ActionText}  {i.Process.Name} (PID {i.Process.Pid})  预计物理 {i.EstimatedPhysicalReclaimBytes / 1048576.0:F0} MB"
-            + (i.ChildCount > 0 ? $"（含 {i.ChildCount} 子进程）" : "")));
-        var res = MessageBox.Show($"将执行 {_currentPlan.Items.Count} 项操作：\n\n{lines}\n\n" +
-            (_currentPlan.Items.Any(i => i.KillIfCloseFails) ? "部分 L3 项在关闭超时后会升级为强制结束。\n" : "") +
-            UiStrings.Get("Common_Continue"), UiStrings.Get("Btn_ConfirmExecutePlan"), MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            UiStrings.F("MakeRoom_PlanLine", i.ActionText, i.Process.Name, i.Process.Pid,
+                i.EstimatedPhysicalReclaimBytes / 1048576.0)
+            + (i.ChildCount > 0 ? UiStrings.F("MakeRoom_PlanLineChildren", i.ChildCount) : "")));
+        var escalateNote = _currentPlan.Items.Any(i => i.KillIfCloseFails)
+            ? UiStrings.Get("MakeRoom_EscalateNote") : "";
+        var res = MessageBox.Show(
+            UiStrings.F("MakeRoom_ExecuteConfirm", _currentPlan.Items.Count, lines,
+                escalateNote + UiStrings.Get("Common_Continue")),
+            UiStrings.Get("Btn_ConfirmExecutePlan"), MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (res != MessageBoxResult.Yes) return;
 
         ExecutePlanBtn.IsEnabled = false;
@@ -99,7 +103,7 @@ public partial class MainWindow : Window
             while (!execTask.IsCompleted)
             {
                 int done = _currentPlan.Items.Count(i => i.ResultText.Length > 0);
-                _vm.LongOpText = $"腾内存 {done}/{total}";
+                _vm.LongOpText = UiStrings.F("MakeRoom_Progress", done, total);
                 await Task.Delay(300);
             }
             await execTask;

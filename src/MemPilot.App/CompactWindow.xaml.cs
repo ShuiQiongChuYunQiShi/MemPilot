@@ -63,7 +63,7 @@ public partial class CompactWindow : Window
         }
         foreach (var c in targets)
             await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim);
-        CompactStatus.Text = $"已回收 {targets.Count} 项";
+        CompactStatus.Text = UiStrings.F("Mini_Trimmed", targets.Count);
     }
 
     private void CompactMakeRoom_Click(object sender, RoutedEventArgs e)

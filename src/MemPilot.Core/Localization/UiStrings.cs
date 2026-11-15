@@ -13,14 +13,15 @@ public static class UiStrings
     /// <summary>由 App 启动时注入：key → 当前语言的文案；找不到返回 null。</summary>
     public static Func<string, string?>? Resolver { get; set; }
 
-    /// <summary>取一条文案；未命中先回退 key，并记一次 Diag（同 key 只记一次）。</summary>
+    /// <summary>取一条文案；未命中先回退 key，并记一次 Diag（同 key 只记一次）。
+    /// 字典里的 `\n` 字面量会转成真实换行（XAML 字符串无法直接写转义序列）。</summary>
     public static string Get(string key)
     {
         if (string.IsNullOrEmpty(key)) return "";
         if (Resolver != null)
         {
             var value = Resolver(key);
-            if (value != null) return value;
+            if (value != null) return value.Contains("\\n") ? value.Replace("\\n", "\n") : value;
             ReportMissing(key);
         }
         return key;

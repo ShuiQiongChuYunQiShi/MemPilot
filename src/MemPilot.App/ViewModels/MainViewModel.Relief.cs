@@ -31,8 +31,8 @@ public partial class MainViewModel
         {
             var c = _l3Candidates;
             if (c == null || c.Count == 0) return "";
-            var names = string.Join("、", c.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
-            return names + (c.Count > 6 ? $" 等 {c.Count} 个" : "");
+            var names = string.Join(UiStrings.Get("Common_ListSeparator"), c.Take(6).Select(p => $"{p.Name}(PID {p.Pid})"));
+            return names + (c.Count > 6 ? UiStrings.F("Common_AndMore", c.Count) : "");
         }
     }
 
@@ -60,7 +60,7 @@ public partial class MainViewModel
             }
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
             {
-                SetActionStatus($"提交兜底：已优雅关闭 {ok}/{candidates.Count} 个闲置后台。");
+                SetActionStatus(UiStrings.F("Relief_ClosedSummary", ok, candidates.Count));
                 await RefreshAsync();
             });
         });

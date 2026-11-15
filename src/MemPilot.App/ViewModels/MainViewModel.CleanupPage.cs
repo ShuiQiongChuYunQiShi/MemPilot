@@ -69,7 +69,7 @@ public partial class MainViewModel
         await Task.Delay(400).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
-        var msg = $"已压缩 {r.Trimmed} 个低负载进程的工作集（{r.Failed} 个失败，跳过 {all.Count - procs.Count} 个工作/游戏/前台进程），系统可用内存 +{r.FreedBytes / 1048576.0:F0} MB";
+        var msg = UiStrings.F("Cleanup_TrimSummary", r.Trimmed, r.Failed, all.Count - procs.Count, r.FreedBytes / 1048576.0);
         _lastBatchTrimUtc = DateTime.UtcNow;
         Status = msg;
         return msg;
@@ -107,7 +107,7 @@ public partial class MainViewModel
             SysMem = ProcessService.GetSystemMemory());
         var summary = plan.Count == 0
             ? UiStrings.Get("Cleanup_NoJunk")
-            : $"垃圾驻守清扫：结束 {kills} 个，回收工作集 {trims} 个，失败 {failed} 个";
+            : UiStrings.F("Cleanup_JunkSweepSummary", kills, trims, failed);
         Status = summary;
         return summary;
     }
@@ -135,7 +135,7 @@ public partial class MainViewModel
         await Task.Delay(600).ConfigureAwait(true);
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
-        var summary = $"批量处置完成：成功 {done} 个，失败 {failed} 个";
+        var summary = UiStrings.F("Cleanup_BatchSummary", done, failed);
         Status = summary;
         return (done, failed, summary);
     }

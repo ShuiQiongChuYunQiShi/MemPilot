@@ -54,7 +54,7 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(JunkAdviceTotalMb));
             JunkAdvicePending = true;
             // 每日一次托盘气球（通知策略第 5 类白名单）
-            RaiseAlert(UiStrings.Get("Junk_BalloonTitle"), $"整天未使用：{advice.NamesText}（约 {JunkAdviceTotalMb} MB）。可在主页选择挂起或结束。");
+            RaiseAlert(UiStrings.Get("Junk_BalloonTitle"), UiStrings.F("Junk_BalloonBody", advice.NamesText, JunkAdviceTotalMb));
         }));
     }
 
@@ -79,7 +79,7 @@ public partial class MainViewModel
             int ok = 0;
             foreach (var p in advice.Candidates)
             {
-                var r = Cleanup.SuspendTimed(p, $"垃圾进程建议：整天未使用，挂起 {hold.TotalHours:F0} 小时", hold);
+                var r = Cleanup.SuspendTimed(p, UiStrings.F("Junk_SuspendReason", hold.TotalHours), hold);
                 if (r.Success) ok++;
                 if (r.Success) Engine.JunkAdvice?.RecordAccepted(p.Name, DateTime.UtcNow);
                 Decisions.Log(new DecisionEntry
@@ -92,7 +92,7 @@ public partial class MainViewModel
             }
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
             {
-                SetActionStatus($"已定时挂起 {ok}/{advice.Candidates.Count} 个垃圾进程（{hold.TotalHours:F0} 小时后自动恢复）。");
+                SetActionStatus(UiStrings.F("Junk_SuspendedSummary", ok, advice.Candidates.Count, hold.TotalHours));
                 await RefreshAsync();
             });
         });
@@ -150,6 +150,6 @@ public partial class MainViewModel
                 Reason = $"已学会：{p.Name} 在 {cool.TotalDays:F0} 天内不再提示（累计忽略 {n} 次）"
             });
         }
-        SetActionStatus($"已忽略本次垃圾进程建议（已记住：{advice.Candidates.Count} 个进程暂停提示）。");
+        SetActionStatus(UiStrings.F("Junk_Ignored", advice.Candidates.Count));
     }
 }

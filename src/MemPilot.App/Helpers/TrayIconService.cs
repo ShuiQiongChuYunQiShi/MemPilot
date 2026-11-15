@@ -134,8 +134,8 @@ public sealed class TrayIconService : IDisposable
 
     public void ShowBalloon(string title, string text, bool warning = false)
     {
-        Modify(NIF_INFO, IntPtr.Zero, null, title, text,
-            warning ? NIIF_WARNING : text.StartsWith("失败") ? NIIF_ERROR : NIIF_INFO);
+        // v0.19.0：不再用"文案以「失败」开头"猜错误图标——英文界面会失效；错误级别由调用方传 warning。
+        Modify(NIF_INFO, IntPtr.Zero, null, title, text, warning ? NIIF_WARNING : NIIF_INFO);
     }
 
     public void Dispose()

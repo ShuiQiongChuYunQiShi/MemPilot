@@ -26,9 +26,9 @@ public partial class MainViewModel
                 return;
             }
             if (LeaseApi.Start())
-                LeaseApiStatus = $"租约 API 监听中：127.0.0.1:{LeaseApi.BoundPort}";
+                LeaseApiStatus = UiStrings.F("Lease_StatusListening", LeaseApi.BoundPort);
             else
-                LeaseApiStatus = $"租约 API 未启动：{LeaseApi.LastError}";
+                LeaseApiStatus = UiStrings.F("Lease_StatusNotStartedBody", LeaseApi.LastError);
         }
         catch (Exception ex)
         {
@@ -65,13 +65,14 @@ public partial class MainViewModel
         {
             var purge = _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
             bool ok = purge.TryGetValue(MemoryArea.StandbyListLowPriority, out var pr) && pr.success;
-            purgeNote = ok ? UiStrings.Get("Lease_Purged") : $"备用列表清理失败（{pr.message ?? "未知"}）";
+            purgeNote = ok ? UiStrings.Get("Lease_Purged")
+                : UiStrings.F("Lease_PurgeFailed", pr.message ?? UiStrings.Get("Common_Unknown"));
         }
 
         // 二级：安全子集压缩
         var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio);
         var trim = Cleanup.TrimWorkingSets(safe);
-        var detail = $"{purgeNote}；压缩安全子集 {trim.Trimmed} 个（排除 {_lastProcs.Count - safe.Count} 个）";
+        var detail = UiStrings.F("Lease_TrimDetail", purgeNote, trim.Trimmed, _lastProcs.Count - safe.Count);
 
         var suspended = new List<LeaseSuspendedProcess>();
         if (policy == LeasePolicy.Hard)
@@ -99,13 +100,14 @@ public partial class MainViewModel
                     }
                     catch (Exception ex) { Diag.Record("lease:suspend", ex); }
                 }
-                detail += $"；挂起 {ok} 个闲置进程（可恢复）";
+                detail += UiStrings.F("Lease_SuspendDetail", ok);
             }
         }
 
         var after = ProcessService.GetSystemMemory();
-        detail = $"{detail}；可用 {before.AvailablePhysicalBytes / 1073741824.0:F1} → " +
-                 $"{after.AvailablePhysicalBytes / 1073741824.0:F1} GB";
+        detail = UiStrings.F("Lease_AvailableDetail", detail,
+            before.AvailablePhysicalBytes / 1073741824.0,
+            after.AvailablePhysicalBytes / 1073741824.0);
         return (new LeaseReliefResult(
             before.AvailablePhysicalBytes / 1073741824.0,
             after.AvailablePhysicalBytes / 1073741824.0,

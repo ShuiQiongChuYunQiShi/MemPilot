@@ -17,8 +17,8 @@ public partial class MainViewModel
         FeedbackEntries.Clear();
         foreach (var f in Feedback.All()) FeedbackEntries.Add(f);
         Status = kind is { } k
-            ? $"已标记 {p.Name} 用途为「{WorkloadText.Of(k)}」（下次刷新生效，可在反馈页撤销）。"
-            : $"已清除 {p.Name} 的用途标记，回到规则判定。";
+            ? UiStrings.F("Process_WorkloadMarked", p.Name, WorkloadText.Of(k))
+            : UiStrings.F("Process_WorkloadCleared", p.Name);
         _ = RefreshAsync();
     }
 
@@ -139,7 +139,7 @@ public partial class MainViewModel
         _lastProcs = procs;
         _lastUnused = unused;
         var cfg = ConfigStore.Config;
-        CandidateRuleText = $"候选规则：无窗口 + 低 CPU/IO + 没在发声 + 不在前台，且持续空闲 ≥ {cfg.UnusedIdleMinutes} 分钟、连续 {cfg.RequiredIdleObservations} 轮观察。工具刚启动时这里为空是正常的——观察正在累积，默认约 {cfg.UnusedIdleMinutes} 分钟后才会出现第一个候选。";
+        CandidateRuleText = UiStrings.F("Cleanup_CandidateRule", cfg.UnusedIdleMinutes, cfg.RequiredIdleObservations);
         // data sanity: if a whole refresh came back without private working sets,
         // the K32 path is broken again — say so loudly instead of failing silently
         if (!_dataDiagDone && procs.Count > 50)

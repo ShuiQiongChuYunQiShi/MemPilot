@@ -96,7 +96,7 @@ public partial class MainWindow : Window
         // announce automatic mode switches in the tray (background thread -> marshal)
         _vm.Engine.ModeChanged += (s, e) =>
             Dispatcher.InvokeAsync(() => _tray?.ShowBalloon(UiStrings.Get("Tray_ModeSwitched"),
-                $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。"));
+                UiStrings.F("Tray_ModeSwitchedBody", e.Mode, e.Reason)));
 
         App.ShowRequested += () => Dispatcher.InvokeAsync(ShowWindow);
         Closing += MainWindow_Closing;
@@ -355,7 +355,7 @@ public partial class MainWindow : Window
             }
             if (_vm.ConfigStore.Config.ShowMemoryInTray && _vm.SysMem.TotalPhysicalBytes > 0)
             {
-                _tray.SetTooltip($"MemPilot - 已用 {_vm.SysMem.MemoryLoadPercent:F0}%，可用 {_vm.AvailableMemoryText}，挂起 {_vm.SuspendedProcesses.Count}");
+                _tray.SetTooltip(UiStrings.F("Tray_Tooltip", _vm.SysMem.MemoryLoadPercent, _vm.AvailableMemoryText, _vm.SuspendedProcesses.Count));
                 UpdateTrayIcon((int)Math.Round(_vm.SysMem.MemoryLoadPercent));
             }
             else

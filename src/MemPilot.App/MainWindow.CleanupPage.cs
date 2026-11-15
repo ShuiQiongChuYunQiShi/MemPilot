@@ -15,7 +15,7 @@ public partial class MainWindow : Window
             await _vm.PerformCleanupAsync(c, CleanupActionLevel.L1Trim);
         await _vm.RefreshAsync();
         long delta = _vm.SysMem.AvailablePhysicalBytes - before;
-        string msg = $"已回收 {targets.Count} 项工作集，可用内存 {(delta >= 0 ? "+" : "")}{delta / 1073741824.0:F1} GB";
+        string msg = UiStrings.F("Cleanup_TrimResult", targets.Count, delta >= 0 ? "+" : "", delta / 1073741824.0);
         // v0.11.0：完成通知改走 SetActionStatus（60 秒保留），不再发托盘气球
         _vm.Status = msg;
     }
@@ -42,22 +42,23 @@ public partial class MainWindow : Window
     private async Task RunCleanup(UnusedCandidate c, CleanupActionLevel level)
     {
         var childNote = c.Process.ChildPids.Count > 0
-            ? $"\n注意：该进程有 {c.Process.ChildPids.Count} 个子进程，结束可能连带影响它们。"
+            ? UiStrings.F("Cleanup_ChildNote", c.Process.ChildPids.Count)
             : "";
         if (level == CleanupActionLevel.L4ForceKill)
         {
-            var msg = $"强制结束 {c.Process.Name} (PID {c.Process.Pid})？\n预计释放: {c.EstimatedReclaimableBytes / 1048576.0:F0} MB{childNote}\n该操作不可撤销。";
+            var msg = UiStrings.F("Cleanup_ForceKillConfirm", c.Process.Name, c.Process.Pid,
+                c.EstimatedReclaimableBytes / 1048576.0, childNote);
             if (MessageBox.Show(msg, UiStrings.Get("Btn_ConfirmL4"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            if (MessageBox.Show(UiStrings.Get("Cleanup_SecondConfirm"), "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show(UiStrings.Get("Cleanup_SecondConfirm"), UiStrings.Get("Common_Confirm"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
         else if (level == CleanupActionLevel.L2Suspend)
         {
-            if (MessageBox.Show($"挂起 {c.Process.Name}？挂起只冻结 CPU，不释放内存，可在“已挂起”页恢复。",
-                "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show(UiStrings.F("Cleanup_SuspendConfirm", c.Process.Name),
+                UiStrings.Get("Common_Confirm"), MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         }
         else if (level == CleanupActionLevel.L3GracefulClose)
         {
-            if (MessageBox.Show($"向 {c.Process.Name} (PID {c.Process.Pid}) 的窗口发送关闭消息？程序将有机会保存数据后自行退出。{childNote}",
+            if (MessageBox.Show(UiStrings.F("Cleanup_CloseConfirm", c.Process.Name, c.Process.Pid, childNote),
                 UiStrings.Get("Btn_ConfirmL3"), MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         }
         await _vm.PerformCleanupAsync(c, level);
@@ -120,7 +121,7 @@ public partial class MainWindow : Window
             ReportedCategory = ProcessCategory.Bloatware,
             MarkCleanable = true
         });
-        SelectionHint.Text = $"已记录：{p.Name} 标记为可清理（下次刷新生效，可在反馈页撤销）";
+        SelectionHint.Text = UiStrings.F("Cleanup_MarkedCleanable", p.Name);
         await _vm.RefreshAsync();
     }
 
@@ -135,7 +136,7 @@ public partial class MainWindow : Window
             ReportedCategory = ProcessCategory.ThirdPartyApp,
             MarkKeep = true
         });
-        SelectionHint.Text = $"已记录：{p.Name} 标记为保留（白名单，后续不再提示）";
+        SelectionHint.Text = UiStrings.F("Cleanup_MarkedKeep", p.Name);
         await _vm.RefreshAsync();
     }
 
@@ -143,12 +144,12 @@ public partial class MainWindow : Window
     {
         var p = GetSelectedReview();
         if (p == null) { SelectionHint.Text = UiStrings.Get("Cleanup_SelectReviewRow"); return; }
-        SelectionHint.Text = $"正在联网核实 {p.Name} …";
+        SelectionHint.Text = UiStrings.F("Cleanup_LookupRunning", p.Name);
         try
         {
             var r = await _vm.OnlineLookup.LookupAsync(p);
             _vm.Classification.ApplyOnlineResult(p, r);
-            SelectionHint.Text = $"核实结果（{p.Name}）：{r.Status} — {r.Summary}";
+            SelectionHint.Text = UiStrings.F("Cleanup_LookupResult", p.Name, r.Status, r.Summary);
             await _vm.RefreshAsync();
         }
         catch (Exception ex) { SelectionHint.Text = UiStrings.Get("Cleanup_LookupFailed") + ex.Message; }
@@ -162,9 +163,9 @@ public partial class MainWindow : Window
         if (plan.Count == 0) { SelectionHint.Text = UiStrings.Get("Cleanup_NoJunk"); return; }
         int kills = plan.Count(i => i.Action == CleanupActionLevel.L4ForceKill);
         int trims = plan.Count - kills;
-        var names = string.Join("、", plan.Take(10).Select(i => $"{i.Process.Name}(PID {i.Process.Pid})"));
-        var more = plan.Count > 10 ? $" 等 {plan.Count} 个" : "";
-        var msg = $"垃圾驻守清扫计划：\n  直接结束 {kills} 个、回收工作集 {trims} 个\n\n{names}{more}\n\n继续？";
+        var names = string.Join(UiStrings.Get("Common_ListSeparator"), plan.Take(10).Select(i => $"{i.Process.Name}(PID {i.Process.Pid})"));
+        var more = plan.Count > 10 ? UiStrings.F("Common_AndMore", plan.Count) : "";
+        var msg = UiStrings.F("Cleanup_JunkPlanConfirm", kills, trims, names, more);
         if (MessageBox.Show(msg, UiStrings.Get("Btn_ConfirmSweep"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         SelectionHint.Text = UiStrings.Get("Cleanup_Sweeping");
         var summary = await _vm.ExecuteJunkSweepAsync(plan);
@@ -191,7 +192,7 @@ public partial class MainWindow : Window
     {
         var cands = _vm.UnusedCandidates.ToList();
         if (cands.Count == 0) { SelectionHint.Text = UiStrings.Get("Cleanup_NoCandidates"); return; }
-        SelectionHint.Text = $"正在回收 {cands.Count} 个候选的工作集…";
+        SelectionHint.Text = UiStrings.F("Cleanup_TrimmingCandidates", cands.Count);
         var (_, _, summary) = await _vm.BatchCleanupAsync(cands, CleanupActionLevel.L1Trim);
         SelectionHint.Text = summary;
         await _vm.RefreshAsync();
@@ -208,11 +209,12 @@ public partial class MainWindow : Window
         {
             var destructive = cands.Where(c => c.SuggestedLevel >= CleanupActionLevel.L3GracefulClose)
                                    .Select(c => $"{c.Process.Name}(PID {c.Process.Pid})").ToList();
-            var names = string.Join("、", destructive.Take(8)) + (destructive.Count > 8 ? $" 等 {destructive.Count} 个" : "");
-            var msg = $"将批量处置 {cands.Count} 个候选：优雅关闭 {l3} 个、强制结束 {l4} 个、挂起 {l2} 个。\n涉及：{names}\n\n继续？";
+            var names = string.Join(UiStrings.Get("Common_ListSeparator"), destructive.Take(8))
+                        + (destructive.Count > 8 ? UiStrings.F("Common_AndMore", destructive.Count) : "");
+            var msg = UiStrings.F("Cleanup_BatchConfirm", cands.Count, l3, l4, l2, names);
             if (MessageBox.Show(msg, UiStrings.Get("Btn_ConfirmBatch"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
-        SelectionHint.Text = $"正在批量处置 {cands.Count} 个候选…";
+        SelectionHint.Text = UiStrings.F("Cleanup_BatchRunning", cands.Count);
         var (_, _, summary) = await _vm.BatchCleanupAsync(cands);
         SelectionHint.Text = summary;
         await _vm.RefreshAsync();

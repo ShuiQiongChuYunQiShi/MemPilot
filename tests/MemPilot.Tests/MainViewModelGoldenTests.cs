@@ -127,7 +127,7 @@ public class MainViewModelGoldenTests : IDisposable
 
         _config.Config.LeaseApiEnabled = true;
         _vm.RestartLeaseApi();
-        Assert.True(_vm.LeaseApiStatus.Contains("监听中") || _vm.LeaseApiStatus.Contains("未启动"),
+        Assert.True(_vm.LeaseApiStatus.Contains("Lease_StatusListening") || _vm.LeaseApiStatus.Contains("Lease_StatusNotStartedBody"),
             "状态必须是「监听中」或「未启动 + 原因」之一，实际：" + _vm.LeaseApiStatus);
         _config.Config.LeaseApiEnabled = false;
         _vm.RestartLeaseApi();   // 清理：关掉监听，避免残留端口占用影响其他测试

@@ -100,7 +100,7 @@ public partial class MainViewModel
             ReviewQueue.Add(p);
         ReviewQueueHeader = ReviewQueue.Count == 0
             ? UiStrings.Get("Process_ReviewQueueEmpty")
-            : $"未识别复核队列（{ReviewQueue.Count} 个 · 高占用未识别进程，人工核实后可收录为规则）";
+            : UiStrings.F("Process_ReviewQueueCount", ReviewQueue.Count);
     }
 
     /// <summary>Thread rows are built on demand (thread tab) — one syscall per thread makes
