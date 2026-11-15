@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 /// <summary>提交告急 L3 非模态确认卡（v0.11.0 P1-3）的按钮处理。</summary>
 public partial class MainWindow
@@ -43,12 +43,12 @@ public partial class MainWindow
             var names = string.Join("、", windowless.Select(p => $"{p.Name}(PID {p.Pid})"));
             if (System.Windows.MessageBox.Show(
                     $"以下进程没有可见窗口，无法优雅关闭，只能强制结束：\n\n{names}\n\n该操作不可撤销。继续？",
-                    "确认强制结束", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                    UiStrings.Get("Btn_ConfirmForceKill"), MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
                 // 第二次确认（沿用 L4 双确认不变式）
                 if (System.Windows.MessageBox.Show(
                         $"第二次确认：确定强制结束这 {windowless.Count} 个进程？",
-                        "最终确认", MessageBoxButton.YesNo, MessageBoxImage.Stop) == MessageBoxResult.Yes)
+                        UiStrings.Get("Btn_FinalConfirm"), MessageBoxButton.YesNo, MessageBoxImage.Stop) == MessageBoxResult.Yes)
                 {
                     foreach (var p in windowless)
                     {

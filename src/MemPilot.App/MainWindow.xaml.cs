@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 public partial class MainWindow : Window
 {
@@ -57,9 +57,9 @@ public partial class MainWindow : Window
         _tray = new TrayIconService();
         _tray.AddBlocked += n => Dispatcher.InvokeAsync(() =>
         {
-            _tray?.ShowBalloon("托盘图标被安全软件拦截",
-                "安全软件（如 360）拒绝了托盘图标注册。请把 MemPilot 加入其信任区；加入后几秒内图标会自动出现，无需重启程序。", warning: true);
-            _vm.Status = "托盘图标注册被安全软件拒绝——请将 MemPilot 加入信任区，加入后图标会自动出现。";
+            _tray?.ShowBalloon(UiStrings.Get("Tray_BlockedTitle"),
+                UiStrings.Get("Tray_BlockedBody"), warning: true);
+            _vm.Status = UiStrings.Get("Tray_BlockedStatus");
         });
         _tray.DoubleClick += () => Dispatcher.InvokeAsync(ShowWindow);
         _tray.RightClick += () => Dispatcher.InvokeAsync(ShowTrayMenu);
@@ -68,9 +68,9 @@ public partial class MainWindow : Window
         {
             Items =
             {
-                new System.Windows.Controls.MenuItem { Header = "显示" },
-                new System.Windows.Controls.MenuItem { Header = "刷新" },
-                new System.Windows.Controls.MenuItem { Header = "退出" }
+                new System.Windows.Controls.MenuItem { Header = UiStrings.Get("Tray_Show") },
+                new System.Windows.Controls.MenuItem { Header = UiStrings.Get("Common_Refresh") },
+                new System.Windows.Controls.MenuItem { Header = UiStrings.Get("Tray_Exit") }
             }
         };
         var miShow = (System.Windows.Controls.MenuItem)_trayMenu.Items[0];
@@ -95,7 +95,7 @@ public partial class MainWindow : Window
 
         // announce automatic mode switches in the tray (background thread -> marshal)
         _vm.Engine.ModeChanged += (s, e) =>
-            Dispatcher.InvokeAsync(() => _tray?.ShowBalloon("模式已切换",
+            Dispatcher.InvokeAsync(() => _tray?.ShowBalloon(UiStrings.Get("Tray_ModeSwitched"),
                 $"已自动切换到 {e.Mode}（{e.Reason}），详见决策日志。"));
 
         App.ShowRequested += () => Dispatcher.InvokeAsync(ShowWindow);
@@ -172,7 +172,7 @@ public partial class MainWindow : Window
                     var current = k.GetValue("IsPromoted");
                     if (current is int i && i == 1) { _promoteAttempts = int.MaxValue - 1; return; }
                     k.SetValue("IsPromoted", 1, Microsoft.Win32.RegistryValueKind.DWord);
-                    _vm.Status = "托盘图标已设为常驻显示。";
+                    _vm.Status = UiStrings.Get("Tray_Pinned");
                     return;
                 }
             }

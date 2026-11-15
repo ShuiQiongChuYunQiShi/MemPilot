@@ -4,6 +4,49 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.19.0] — bilingual UI (zh-CN / en) + pre-open-source cleanup
+
+### Added
+- **Full Chinese + English UI** via `ResourceDictionary` (`Strings.zh-CN.xaml` /
+  `Strings.en.xaml`) with **runtime switching, no restart**: Settings → UI
+  language (Follow system / 简体中文 / English). ~430 keys covering the 9
+  sidebar pages, home/process/cleanable/make-room/suspended/decisions/history/
+  settings, tray menu, mini bar, thread window, every confirmation dialog and
+  the status bar.
+- `UiStrings` (Core, UI-framework-free) with `Get` / `F` (formatted) / `TryGet`
+  and a missing-key fallback that records a diagnostic instead of crashing.
+- `LocalizationGuardTests`: both dictionaries must have identical key sets and
+  no empty values; XAML must contain no bare Chinese attribute values; every
+  `UiTerms` mapping resolves in both languages and falls back to the raw enum
+  for unknown values.
+- Category names converged: the two duplicated mappings
+  (`CategoryTextConverter` short labels + `MainViewModel` full names) now live
+  in `UiTerms.OfCategory` and are driven by the dictionaries.
+- Classifier evidence (`CategoryReason`, 26 stable ids) and column-setting
+  labels are localized; the process grid's "evidence" column no longer shows
+  raw ids such as `access_denied_no_path`.
+
+### Fixed
+- **Column visibility silently broke in English**: the header→id map was keyed
+  by Chinese display text. It is now keyed by resource key and resolved through
+  the current language (`IdForHeader`), with frozen columns identified by
+  `DisplayIndex` instead of the literal "名称".
+- **Crash on switching language**: `Run.Text` binds TwoWay by default, so
+  binding it to the read-only `MemoryLabel` threw during template load and left
+  the window blank. Now explicit `Mode=OneWay`.
+- `AGENTS.md` and `wharf.project.json` (internal tooling) are untracked and
+  git-ignored; CONTRIBUTING/HANDOFF no longer claim an i18n skeleton exists.
+
+### Changed
+- Engine log text (`decisions.json` / `audit.json` free-form reasons) stays
+  Chinese and is documented as a known limit; UI chrome is 100% bilingual.
+- Test count 463; one test class collection serializes localization tests
+  because `UiStrings.Resolver` is global static state.
+
+### Tests
+- 463 passing (LocalizationGuard 5, dictionary/XAML guards, category
+  convergence, plus the adapted docs/structure/process-page guards).
+
 ## [0.18.0] — 清缓存成为正式能力；身份复检与调度架构整改
 
 四视角锐评后的整改版本。第 1 条定调：**改为做清缓存**——不再以「不做清缓存」作定位，

@@ -1,7 +1,7 @@
-<Window x:Class="MemPilot.App.ThreadWindow"
+﻿<Window x:Class="MemPilot.App.ThreadWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="线程" Width="760" Height="480"
+        Title="{DynamicResource Thread_Title}" Width="760" Height="480"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -10,7 +10,7 @@
         </Grid.RowDefinitions>
         <DockPanel Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Content="刷新" Click="Refresh_Click" Style="{StaticResource ToolBtn}"/>
+                <Button Content="{DynamicResource Common_Refresh}" Click="Refresh_Click" Style="{StaticResource ToolBtn}"/>
             </StackPanel>
             <TextBlock x:Name="HeaderText" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextPrimary}"/>
@@ -18,17 +18,17 @@
         <DataGrid Grid.Row="1" x:Name="ThreadGrid" AutoGenerateColumns="False" IsReadOnly="True">
             <DataGrid.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="挂起线程" Click="Suspend_Click"/>
-                    <MenuItem Header="恢复线程" Click="Resume_Click"/>
+                    <MenuItem Header="{DynamicResource Thread_Suspend}" Click="Suspend_Click"/>
+                    <MenuItem Header="{DynamicResource Thread_Resume}" Click="Resume_Click"/>
                 </ContextMenu>
             </DataGrid.ContextMenu>
             <DataGrid.Columns>
                 <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="80"/>
-                <DataGridTextColumn Header="状态" Binding="{Binding State}" Width="90"/>
-                <DataGridTextColumn Header="等待原因" Binding="{Binding WaitReason}" Width="130"/>
-                <DataGridTextColumn Header="优先级" Binding="{Binding Priority}" Width="70"/>
-                <DataGridTextColumn Header="CPU 时间" Binding="{Binding TotalCpuTime}" Width="110"/>
-                <DataGridTextColumn Header="启动时间" Binding="{Binding StartTime}" Width="150"/>
+                <DataGridTextColumn Header="{DynamicResource Col_State}" Binding="{Binding State}" Width="90"/>
+                <DataGridTextColumn Header="{DynamicResource Col_WaitReason}" Binding="{Binding WaitReason}" Width="130"/>
+                <DataGridTextColumn Header="{DynamicResource Col_Priority}" Binding="{Binding Priority}" Width="70"/>
+                <DataGridTextColumn Header="{DynamicResource Col_CpuTime}" Binding="{Binding TotalCpuTime}" Width="110"/>
+                <DataGridTextColumn Header="{DynamicResource Col_StartTime}" Binding="{Binding StartTime}" Width="150"/>
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

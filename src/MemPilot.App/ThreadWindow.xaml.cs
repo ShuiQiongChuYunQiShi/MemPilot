@@ -20,8 +20,8 @@ public partial class ThreadWindow : Window
         InitializeComponent();
         _process = process;
         _svc = svc;
-        HeaderText.Text = $"线程 — {process.Name} (PID {process.Pid})";
-        Title = $"线程 — {process.Name}";
+        HeaderText.Text = UiStrings.F("Thread_HeaderFormat", process.Name, process.Pid);
+        Title = UiStrings.F("Thread_WindowTitleFormat", process.Name);
         Loaded += async (_, _) => await LoadAsync();
     }
 
@@ -50,7 +50,9 @@ public partial class ThreadWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"{(suspend ? "挂起" : "恢复")}线程 {ti.Tid} 失败：{ex.Message}", "线程",
+            MessageBox.Show(
+                UiStrings.F(suspend ? "Thread_SuspendFailedFormat" : "Thread_ResumeFailedFormat", ti.Tid, ex.Message),
+                UiStrings.Get("Thread_Title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }

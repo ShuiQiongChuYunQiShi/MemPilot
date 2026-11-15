@@ -1,4 +1,4 @@
-using MemPilot.Models;
+﻿using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -54,7 +54,7 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(JunkAdviceTotalMb));
             JunkAdvicePending = true;
             // 每日一次托盘气球（通知策略第 5 类白名单）
-            RaiseAlert("垃圾进程建议", $"整天未使用：{advice.NamesText}（约 {JunkAdviceTotalMb} MB）。可在主页选择挂起或结束。");
+            RaiseAlert(UiStrings.Get("Junk_BalloonTitle"), $"整天未使用：{advice.NamesText}（约 {JunkAdviceTotalMb} MB）。可在主页选择挂起或结束。");
         }));
     }
 

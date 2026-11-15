@@ -1,4 +1,4 @@
-using MemPilot.Models;
+﻿using MemPilot.Models;
 using MemPilot.Services;
 using MemPilot.ViewModels;
 using System.Reflection;
@@ -11,6 +11,7 @@ namespace MemPilot.Tests;
 /// 按记忆库教训：纯重构必须先落 golden 再动刀——本文件锁住 VM 的**公开面**（属性/事件/方法签名）
 /// 与关键行为语义，拆分为 partial 后一字不改全等才算行为零变更。拆完先跑这里，再跑全量。
 /// </summary>
+[Collection("Localization")]
 public class MainViewModelGoldenTests : IDisposable
 {
     private readonly string _dir;
@@ -119,9 +120,10 @@ public class MainViewModelGoldenTests : IDisposable
     public void LeaseStatus_ReportsListeningOrDisabled()
     {
         // RestartLeaseApi 在两种配置下都不抛、状态文案如实（端口冲突场景由 LeaseTests 覆盖）
+        // v0.19.0：文案已资源化——无 UI 环境时 UiStrings 回退 key，状态机断言用 key。
         _config.Config.LeaseApiEnabled = false;
         _vm.RestartLeaseApi();
-        Assert.Contains("已关闭", _vm.LeaseApiStatus);
+        Assert.Contains("Lease_StatusOff", _vm.LeaseApiStatus);
 
         _config.Config.LeaseApiEnabled = true;
         _vm.RestartLeaseApi();

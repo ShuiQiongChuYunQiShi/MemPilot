@@ -24,8 +24,9 @@ public class UiStructureTests
     public void Nav_HasThreeGroupHeaders()
     {
         var xaml = Xaml();
-        foreach (var group in new[] { ">核心<", ">观测<", ">高级<" })
-            Assert.Contains($"Text=\"{group.Trim('<', '>')}\" Style=\"{{StaticResource NavGroup}}\"", xaml);
+        // v0.19.0：分组标题也走资源键（文案在字典里，切换语言即时生效）
+        foreach (var key in new[] { "Nav_GroupCore", "Nav_GroupObserve", "Nav_GroupAdvanced" })
+            Assert.Contains($"Text=\"{{DynamicResource {key}}}\" Style=\"{{StaticResource NavGroup}}\"", xaml);
     }
 
     [Fact]
@@ -50,10 +51,10 @@ public class UiStructureTests
         var xaml = Xaml();
         Assert.DoesNotContain("🧵", xaml);                       // 独立线程页下线
         Assert.DoesNotContain("ThreadSearchBox", xaml);
-        Assert.Contains("管理线程", xaml);                        // 降级为进程页右键入口
+        Assert.Contains("{DynamicResource Menu_Threads}", xaml);  // 降级为进程页右键入口
         Assert.True(File.Exists(Path.Combine(RepoRoot(), "src", "MemPilot.App", "ThreadWindow.xaml")));
         // 线程数列改名后，列设置与表格必须一致（ProcessPageSettingTests 也会校验）
-        Assert.Contains("Header=\"线程数\"", xaml);
+        Assert.Contains("Header=\"{DynamicResource Col_Threads}\"", xaml);
     }
 
     [Fact]
@@ -62,10 +63,10 @@ public class UiStructureTests
         var xaml = Xaml();
         Assert.Contains("Tag=\"feedback\"", xaml);
         Assert.Contains("FeedbackGrid", xaml);
-        Assert.Contains("撤销这条反馈", xaml);
+        Assert.Contains("{DynamicResource Menu_UndoFeedback}", xaml);
         Assert.DoesNotContain("FbName", xaml);                   // 手工表单删除
         Assert.DoesNotContain("SubmitFeedback_Click", xaml);
-        Assert.Contains("右键进程即可标记", xaml);                // 仍要指路
+        Assert.Contains("{DynamicResource Feedback_Hint}", xaml);  // 仍要指路
     }
 
     [Fact]

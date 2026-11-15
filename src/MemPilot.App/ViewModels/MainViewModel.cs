@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -71,7 +71,7 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     private bool _aiSessionActive;
     public bool AiSessionActive { get => _aiSessionActive; private set { _aiSessionActive = value; OnPropertyChanged(); } }
-    private string _aiSessionText = "暂无 AI 会话记录（显存 ≥8GB 持续 90 秒即判定为会话）。";
+    private string _aiSessionText = UiStrings.Get("Home_NoAiSession");
     public string AiSessionText { get => _aiSessionText; private set { _aiSessionText = value; OnPropertyChanged(); } }
 
     /// <summary>租约管理器 + 本地 API（v0.7.0）。</summary>
@@ -82,7 +82,7 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     private List<GpuAdapterInfo> _gpu = new();
     private GpuMemorySnapshot? _lastGpuMem;
-    public string GpuSummaryText => _gpu.Count == 0 ? "GPU 信息不可用" : string.Join("  |  ", _gpu.Select(g => g.Summary));
+    public string GpuSummaryText => _gpu.Count == 0 ? UiStrings.Get("Home_NoGpu") : string.Join("  |  ", _gpu.Select(g => g.Summary));
 
     /// <summary>自身开销一行（主页卡片，v0.18.0）。数据来自 SelfCostRecorder 的分钟聚合，
     /// 读的是内存预热值，不落每次刷新读盘。</summary>
@@ -125,7 +125,10 @@ public partial class MainViewModel : INotifyPropertyChanged
     public string CommitFreeText => FormatBytes(SysMem.TotalCommitLimitBytes - SysMem.TotalCommittedBytes);
     public double UsedPercent => SysMem.TotalPhysicalBytes <= 0 ? 0 : SysMem.MemoryLoadPercent;
     public string UsedPercentText => $"{UsedPercent:F0}%";
-    public string UsedDetailText => $"{FormatBytes(SysMem.TotalPhysicalBytes - SysMem.AvailablePhysicalBytes)} 已用 / {TotalMemoryText}";
+    public string UsedDetailText => UiStrings.F("Home_UsedOfTotal",
+        FormatBytes(SysMem.TotalPhysicalBytes - SysMem.AvailablePhysicalBytes), TotalMemoryText);
+    /// <summary>左下角「内存」标签（v0.19.0，随语言切换）。</summary>
+    public string MemoryLabel => UiStrings.Get("Home_MemoryLabel");
 
     private string _candidateRuleText = "";
     public string CandidateRuleText
@@ -234,15 +237,15 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     public string ModeDescription => CurrentMode switch
     {
-        AppMode.Resident => "安静驻守：只观察和记录，不主动动任何进程。",
-        AppMode.Development => "开发模式：保护 IDE/编译器/数据库，游戏和娱乐类进入清理名单。",
-        AppMode.Game => "娱乐模式（游戏/直播/影视）：保护游戏、反作弊与播放器，开发工具和 AI 任务进入清理名单。",
-        AppMode.AiGeneration => "AI 模式：保护 AI 工具，游戏/浏览器等进入清理名单，允许更积极的腾挪。",
-        AppMode.Balanced => "平衡模式：只做最温和的工作集回收，其余交给手动操作。",
+        AppMode.Resident => UiStrings.Get("Mode_ResidentDesc"),
+        AppMode.Development => UiStrings.Get("Mode_DevelopmentDesc"),
+        AppMode.Game => UiStrings.Get("Mode_GameDesc"),
+        AppMode.AiGeneration => UiStrings.Get("Mode_AiDesc"),
+        AppMode.Balanced => UiStrings.Get("Mode_BalancedDesc"),
         _ => ""
     };
 
-    private string _status = "就绪";
+    private string _status = UiStrings.Get("Common_Ready");
     /// <summary>
     /// 动作反馈（v0.11.0 P0-1）：写入即进入 60 秒保留窗口，刷新循环不会覆盖它。
     /// 绝大多数写入点（64 处）都是用户操作的结果，理应可见——只有刷新循环两处
@@ -297,7 +300,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         get => _isBusy;
         set => SetUi(() => { _isBusy = value; OnPropertyChanged(nameof(BusyText)); });
     }
-    public string BusyText => IsBusy ? "⟳ 刷新中" : "空闲";
+    public string BusyText => IsBusy ? UiStrings.Get("Common_Refreshing") : UiStrings.Get("Common_Idle");
 
     /// <summary>Raised after the UI collections were rebuilt; the view re-applies selection.</summary>
     public event EventHandler? CollectionsRebuilt;
@@ -342,7 +345,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         Engine.SelfCost = SelfCost;
         Engine.Alert += (title, message, warning) =>
         {
-            if (title.Contains("时段")) SetUi(() => HabitHintText = message);
+            if (title.Contains(UiStrings.Get("Habit_Period"))) SetUi(() => HabitHintText = message);
             RaiseAlert(title, message);            // 主页横幅（引擎线程 → SetUi 内部 marshal）
             AlertRaised?.Invoke(title, message, warning); // 托盘气泡（由 MainWindow 订阅）
         };
@@ -365,24 +368,24 @@ public partial class MainViewModel : INotifyPropertyChanged
                 case "开始":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
                         Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB（策略 {lease.Policy}，挂起 {lease.Suspended.Count} 个）；实测达成 {achieved:F1} GB（{lease.Details}）" });
-                    RaiseAlert("租约生效", $"已为 {lease.Requester} 腾出 {achieved:F1} GB 可用内存（目标 {peak:F1} GB），至 {lease.ExpiresUtc.ToLocalTime():HH:mm}。");
-                    AlertRaised?.Invoke("租约生效", $"{achieved:F1} / {peak:F1} GB", false);
+                    RaiseAlert(UiStrings.Get("Lease_Active"), $"已为 {lease.Requester} 腾出 {achieved:F1} GB 可用内存（目标 {peak:F1} GB），至 {lease.ExpiresUtc.ToLocalTime():HH:mm}。");
+                    AlertRaised?.Invoke(UiStrings.Get("Lease_Active"), $"{achieved:F1} / {peak:F1} GB", false);
                     break;
                 case "归还":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
                         Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟，策略 {lease.Policy}）" });
-                    RaiseAlert("租约归还", $"{lease.Requester} 已归还租约。");
+                    RaiseAlert(UiStrings.Get("Lease_ReturnedTitle"), $"{lease.Requester} 已归还租约。");
                     break;
                 case "过期":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
                         Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}，策略 {lease.Policy}）" });
-                    RaiseAlert("租约过期", "TTL 到期，已自动结束并恢复挂起进程。");
+                    RaiseAlert(UiStrings.Get("Lease_ExpiredTitle"), UiStrings.Get("Lease_ExpiredBody"));
                     break;
                 case "守护告警":
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "守护告警",
                         Reason = lease.Details });
-                    RaiseAlert("租约被侵蚀", "可用内存跌破了租约授予的下限——占用方可能在超用。");
-                    AlertRaised?.Invoke("租约被侵蚀", lease.Details, true);
+                    RaiseAlert(UiStrings.Get("Lease_ErodedTitle"), UiStrings.Get("Lease_ErodedBody"));
+                    AlertRaised?.Invoke(UiStrings.Get("Lease_ErodedTitle"), lease.Details, true);
                     break;
             }
         });
@@ -449,8 +452,8 @@ public partial class MainViewModel : INotifyPropertyChanged
                     Decision = "开始",
                     Reason = $"显存 {peakGb:F1} GB（共享 {sharedGb:F1} GB）；判定阈值 8GB、最近 5 个 30 秒样本中 ≥3 个"
                 });
-                RaiseAlert("AI 生成会话", $"检测到 AI 生成会话：显存 {peakGb:F1} GB（主导 {summary.DominantName}）。只记录，不处置。");
-                AlertRaised?.Invoke("AI 生成会话", $"显存 {peakGb:F1} GB（{summary.DominantName}）", false);
+                RaiseAlert(UiStrings.Get("Ai_SessionTitle"), $"检测到 AI 生成会话：显存 {peakGb:F1} GB（主导 {summary.DominantName}）。只记录，不处置。");
+                AlertRaised?.Invoke(UiStrings.Get("Ai_SessionTitle"), $"显存 {peakGb:F1} GB（{summary.DominantName}）", false);
             }
             else
             {
@@ -464,13 +467,13 @@ public partial class MainViewModel : INotifyPropertyChanged
                              (summary.PeakCommitFreePct is { } cf ? $"峰值提交余量 {cf:F1}%；" : "") +
                              $"主导进程出现过 {summary.PidCount} 个 PID"
                 });
-                RaiseAlert("AI 会话结束", $"时长 {summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB（{summary.DominantName}）。");
+                RaiseAlert(UiStrings.Get("Ai_SessionEnded"), $"时长 {summary.Duration.TotalMinutes:F0} 分钟，峰值 {peakGb:F1} GB（{summary.DominantName}）。");
             }
         });
         OnlineLookupService.LoadCache(ConfigStore.DataDirectory);
         ProgramCatalogInfo = ProgramCatalog.Count > 0
             ? $"程序清单：{ProgramCatalog.Count} 条（{ProgramCatalog.BuiltUtc.ToLocalTime():MM-dd HH:mm}）"
-            : "程序清单：尚未构建（后台构建中…）";
+            : UiStrings.Get("Settings_CatalogNotBuilt");
         if (ProgramCatalog.Count == 0) _ = Task.Run(BuildProgramCatalogInBackground);
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         SetMode(config.Config.CurrentMode, "startup");
@@ -500,7 +503,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                 var live = Cleanup.Suspended.LiveRecords().Any(r => r.Pid == s.Pid);
                 if (!live)
                 {
-                    s.RestoreNote = "进程已退出，无需恢复";
+                    s.RestoreNote = UiStrings.Get("Common_ProcessExited");
                     continue;
                 }
                 var r = Cleanup.Resume(s.Pid, s.Name);
@@ -559,7 +562,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         if (!await _refreshGate.WaitAsync(0, ct).ConfigureAwait(false)) return; // a refresh is already running
         try
         {
-            RefreshStatus("正在枚举进程...");
+            RefreshStatus(UiStrings.Get("Process_Enumerating"));
             IsBusy = true;
 
             long enumMs = 0, classifyMs = 0;
@@ -622,7 +625,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(GpuSummaryText));
                 OnPropertyChanged(nameof(GpuMemorySummaryText));
                 OnPropertyChanged(nameof(SelfCostText));
-                RefreshStatus($"已枚举 {_lastProcs.Count} 个进程，{unusedOut.Count} 个可清理候选（枚举 {enumMs}ms · 分类 {classifyMs}ms）。");
+                OnPropertyChanged(nameof(MemoryLabel));
+                RefreshStatus(UiStrings.F("Status_Enumerated",
+                    _lastProcs.Count, unusedOut.Count, enumMs, classifyMs));
             });
 
             Engine.AfterRefresh(_lastProcs, memOut);
@@ -631,7 +636,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Status = "刷新失败: " + ex.Message;
+            Status = UiStrings.Get("Common_RefreshFailed") + ex.Message;
         }
         finally
         {
@@ -649,7 +654,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     private string _alertBannerText = "";
     public string AlertBannerText { get => _alertBannerText; private set { _alertBannerText = value; OnPropertyChanged(); } }
     // ---- 场景识别诊断（v0.2.2 影子模式） ----
-    private string _sceneSummary = "等待第一次判定…";
+    private string _sceneSummary = UiStrings.Get("Habit_Waiting");
     public string SceneSummary { get => _sceneSummary; private set { _sceneSummary = value; OnPropertyChanged(); } }
     private string _sceneReason = "";
     public string SceneReason { get => _sceneReason; private set { _sceneReason = value; OnPropertyChanged(); } }
@@ -658,7 +663,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     public double SceneAi { get => _sceneAi; private set { _sceneAi = value; OnPropertyChanged(); } }
     public double SceneDev { get => _sceneDev; private set { _sceneDev = value; OnPropertyChanged(); } }
 
-    private string _habitHintText = "暂无提示——继续积累采样后，这里会显示你的时段画像。";
+    private string _habitHintText = UiStrings.Get("Habit_NoHint");
     public string HabitHintText { get => _habitHintText; private set { _habitHintText = value; OnPropertyChanged(); } }
 
     private bool _hasAlert;
@@ -695,24 +700,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         Feedback.UpdateStatus(e.Id, "applied");
     }
 
-    private static string CategoryText(ProcessCategory c) => c switch
-    {
-        ProcessCategory.Unknown => "未识别",
-        ProcessCategory.SystemCritical => "系统关键",
-        ProcessCategory.SystemService => "系统服务",
-        ProcessCategory.Driver => "驱动",
-        ProcessCategory.ThirdPartyApp => "第三方应用",
-        ProcessCategory.Game => "游戏",
-        ProcessCategory.GameLauncher => "游戏平台",
-        ProcessCategory.AntiCheat => "反作弊",
-        ProcessCategory.DevTool => "开发工具",
-        ProcessCategory.AiImageVideo => "AI 生图/视频",
-        ProcessCategory.ContainerVm => "容器/虚拟机",
-        ProcessCategory.BackgroundService => "后台服务",
-        ProcessCategory.Bloatware => "垃圾常驻",
-        ProcessCategory.SecuritySoftware => "安全软件",
-        _ => c.ToString()
-    };
+    private static string CategoryText(ProcessCategory c) => UiTerms.OfCategory(c);
 
     private void SetUi(Action assign, [CallerMemberName] string? name = null)
     {

@@ -58,7 +58,7 @@ public partial class CompactWindow : Window
         var targets = _vm.UnusedCandidates.ToList();
         if (targets.Count == 0)
         {
-            CompactStatus.Text = "没有候选（观察期累积中）";
+            CompactStatus.Text = UiStrings.Get("Mini_NoCandidates");
             return;
         }
         foreach (var c in targets)

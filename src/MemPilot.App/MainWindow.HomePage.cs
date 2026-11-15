@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 
 namespace MemPilot.App;
@@ -28,7 +28,7 @@ public partial class MainWindow : Window
     private void OpenDataFolder_Click(object sender, RoutedEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo(_config.DataDirectory) { UseShellExecute = true }); }
-        catch (Exception ex) { _vm.Status = "打开数据目录失败：" + ex.Message; }
+        catch (Exception ex) { _vm.Status = UiStrings.Get("Home_OpenDataFailed") + ex.Message; }
     }
 
     private void OpenReadme_Click(object sender, RoutedEventArgs e)
@@ -46,8 +46,8 @@ public partial class MainWindow : Window
                     return;
                 }
             }
-            _vm.Status = "没找到 README.md——可在仓库页面查看。";
+            _vm.Status = UiStrings.Get("Home_ReadmeMissing");
         }
-        catch (Exception ex) { _vm.Status = "打开说明失败：" + ex.Message; }
+        catch (Exception ex) { _vm.Status = UiStrings.Get("Home_OpenReadmeFailed") + ex.Message; }
     }
 }

@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 public partial class MainWindow : Window
 {
@@ -109,39 +109,54 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// DataGrid 列 Header（显示文本）→ 稳定 id。v0.10.0：config 只存 id，
-    /// 界面显示文本可以随语言变，两者解耦。PID/名称固定可见，不在表里。
+    /// DataGrid 列 Header 资源键 → 稳定 id。v0.10.0：config 只存 id；
+    /// v0.19.0：键从「中文显示文本」改为「资源键」——英文界面下显示文本是 "VRAM"，
+    /// 旧映射会全部失配，列显隐静默失效。现在用 UiStrings.Get(key) 与当前表头比对。
+    /// PID/名称固定可见，不在表里；CPU% 等未本地化的列走 LiteralHeaderToId。
     /// </summary>
-    private static readonly Dictionary<string, string> HeaderToId = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> HeaderKeyToId = new(StringComparer.Ordinal)
     {
-        ["所属程序"] = PersistedIds.Column.Program,
-        ["显存"] = PersistedIds.Column.GpuMemory,
-        ["内存增长"] = PersistedIds.Column.MemoryGrowth,
-        ["线程数"] = PersistedIds.Column.Threads,
-        ["子进程"] = PersistedIds.Column.ChildCount,
-        ["窗口标题"] = PersistedIds.Column.WindowTitle,
-        ["厂商"] = PersistedIds.Column.Vendor,
-        ["音频"] = PersistedIds.Column.Audio,
-        ["保护"] = PersistedIds.Column.IsProtected,
-        ["模式保留"] = PersistedIds.Column.ModeKeep,
-        ["签名"] = PersistedIds.Column.Signature,
-        ["分类依据"] = PersistedIds.Column.CategoryReason,
-        ["工作集"] = PersistedIds.Column.WorkingSet,
-        ["私有WS"] = PersistedIds.Column.PrivateWorkingSet,
-        ["提交"] = PersistedIds.Column.Commit,
-        ["CPU%"] = PersistedIds.Column.Cpu,
-        ["分类"] = PersistedIds.Column.Category,
-        ["用途"] = PersistedIds.Column.Workload,
+        ["Col_Program"] = PersistedIds.Column.Program,
+        ["Col_Vram"] = PersistedIds.Column.GpuMemory,
+        ["Col_MemoryGrowth"] = PersistedIds.Column.MemoryGrowth,
+        ["Col_Threads"] = PersistedIds.Column.Threads,
+        ["Col_Children"] = PersistedIds.Column.ChildCount,
+        ["Col_WindowTitle"] = PersistedIds.Column.WindowTitle,
+        ["Col_Vendor"] = PersistedIds.Column.Vendor,
+        ["Col_Audio"] = PersistedIds.Column.Audio,
+        ["Concept_Protected"] = PersistedIds.Column.IsProtected,
+        ["Col_ModeKeep"] = PersistedIds.Column.ModeKeep,
+        ["Col_Signature"] = PersistedIds.Column.Signature,
+        ["Col_CategoryReason"] = PersistedIds.Column.CategoryReason,
+        ["Col_WorkingSet"] = PersistedIds.Column.WorkingSet,
+        ["Col_PrivateWs"] = PersistedIds.Column.PrivateWorkingSet,
+        ["Home_Commit"] = PersistedIds.Column.Commit,
+        ["Col_Category"] = PersistedIds.Column.Category,
+        ["Col_Workload"] = PersistedIds.Column.Workload,
     };
+
+    /// <summary>未本地化的表头（英文缩写），直接字面量匹配。</summary>
+    private static readonly Dictionary<string, string> LiteralHeaderToId = new(StringComparer.Ordinal)
+    {
+        ["CPU%"] = PersistedIds.Column.Cpu,
+    };
+
+    private static string? IdForHeader(object? header)
+    {
+        var text = header?.ToString();
+        if (string.IsNullOrEmpty(text)) return null;
+        if (LiteralHeaderToId.TryGetValue(text, out var direct)) return direct;
+        foreach (var (key, id) in HeaderKeyToId)
+            if (string.Equals(UiStrings.Get(key), text, StringComparison.Ordinal)) return id;
+        return null;
+    }
 
     private DataGridColumn? FindColumnById(string id)
     {
         if (ProcessGrid == null || string.IsNullOrEmpty(id)) return null;
         foreach (var col in ProcessGrid.Columns)
         {
-            if (col.Header is not string h) continue;
-            if (HeaderToId.TryGetValue(h, out var mapped) && string.Equals(mapped, id, StringComparison.Ordinal))
-                return col;
+            if (string.Equals(IdForHeader(col.Header), id, StringComparison.Ordinal)) return col;
         }
         return null;
     }
@@ -153,10 +168,11 @@ public partial class MainWindow : Window
         var hidden = _config.Config.ProcessHiddenColumns ?? new List<string>();
         foreach (var col in ProcessGrid.Columns)
         {
-            if (col.Header is not string h) continue;
-            if (h is "PID" or "名称") { col.Visibility = Visibility.Visible; continue; }
+            // 前两列由 FrozenColumnCount 固定（PID/名称），任何语言下都不参与显隐
+            if (col.DisplayIndex < 2) { col.Visibility = Visibility.Visible; continue; }
+            var id = IdForHeader(col.Header);
             // 表头没登记到 id 的列（例如后续新加）一律可见——宁可露出也不要凭空藏掉。
-            if (!HeaderToId.TryGetValue(h, out var id)) { col.Visibility = Visibility.Visible; continue; }
+            if (id == null) { col.Visibility = Visibility.Visible; continue; }
             col.Visibility = hidden.Any(x => string.Equals(x, id, StringComparison.Ordinal))
                 ? Visibility.Collapsed
                 : Visibility.Visible;
@@ -186,7 +202,7 @@ public partial class MainWindow : Window
     private void CtxResumeProcess_Click(object sender, RoutedEventArgs e)
     {
         var p = GetSelectedProcess();
-        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        if (p == null) { _vm.Status = UiStrings.Get("Process_SelectRow"); return; }
         if (!_vm.Cleanup.Suspended.IsSuspended(p.Pid)) { _vm.Status = $"{p.Name} 不是本工具挂起的进程。"; return; }
         _vm.ResumeSuspended(new SuspendRecord { Pid = p.Pid, Name = p.Name });
     }
@@ -196,7 +212,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 1); // VERY_LOW
-        _vm.Status = ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : $"内存优先级设置失败（权限不足或进程已退出）。";
+        _vm.Status = ok ? $"{p.Name} 内存优先级已降为 VERY_LOW（页面优先被回收，进程不死）。" : UiStrings.Get("Process_PriorityFail");
     }
 
     private void CtxMemPriorityNormal_Click(object sender, RoutedEventArgs e)
@@ -204,7 +220,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetMemoryPriority(p.Pid, 5); // NORMAL
-        _vm.Status = ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : "内存优先级设置失败。";
+        _vm.Status = ok ? $"{p.Name} 内存优先级已恢复 NORMAL。" : UiStrings.Get("Process_PriorityFailShort");
     }
 
     private void CtxEcoOn_Click(object sender, RoutedEventArgs e)
@@ -212,7 +228,7 @@ public partial class MainWindow : Window
         var p = GetSelectedProcess();
         if (p == null) return;
         bool ok = _vm.ProcessService.SetEcoMode(p.Pid, true);
-        _vm.Status = ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : "EcoQoS 设置失败（需要 Win10 1709+ 且权限足够）。";
+        _vm.Status = ok ? $"{p.Name} 已开启 EcoQoS（调度器将给予更低的能效优先级）。" : UiStrings.Get("Process_EcoFail");
     }
 
     private void CtxEcoOff_Click(object sender, RoutedEventArgs e)
@@ -250,7 +266,7 @@ public partial class MainWindow : Window
     private void ManageThreads_Click(object sender, RoutedEventArgs e)
     {
         var p = GetSelectedProcess();
-        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        if (p == null) { _vm.Status = UiStrings.Get("Process_SelectRow"); return; }
         var win = new ThreadWindow(p, _vm.ProcessService) { Owner = this };
         win.Show();
     }
@@ -259,7 +275,7 @@ public partial class MainWindow : Window
     private void CtxWorkload_Click(object sender, RoutedEventArgs e)
     {
         var p = GetSelectedProcess();
-        if (p == null) { _vm.Status = "请先在进程列表选择一行。"; return; }
+        if (p == null) { _vm.Status = UiStrings.Get("Process_SelectRow"); return; }
         var tag = (sender as MenuItem)?.Tag as string ?? "";
         WorkloadKind? kind = Enum.TryParse<WorkloadKind>(tag, out var k) ? k : null;
         _vm.MarkWorkload(p, kind);
@@ -287,13 +303,13 @@ public partial class MainWindow : Window
             ExecutablePath = p.ExecutablePath,
             Publisher = p.SignatureSubject,
             ReportedCategory = keep ? p.Category : clean ? ProcessCategory.BackgroundService : p.Category,
-            UserNote = keep ? "右键标记：保留" : clean ? "右键标记：可清理" : "右键标记：系统进程",
+            UserNote = keep ? UiStrings.Get("Process_MarkKeep") : clean ? UiStrings.Get("Process_MarkCleanable") : UiStrings.Get("Process_MarkSystem"),
             MarkKeep = keep,
             MarkCleanable = clean,
             MarkSystem = system,
             Scope = "process"
         };
         _vm.AddFeedback(entry);
-        _vm.Status = $"已记录：{p.Name} → {(keep ? "保留" : clean ? "可清理" : "系统进程")}（下次刷新生效）。";
+        _vm.Status = $"已记录：{p.Name} → {(keep ? "保留" : clean ? "可清理" : UiStrings.Get("Term_SystemProcess"))}（下次刷新生效）。";
     }
 }

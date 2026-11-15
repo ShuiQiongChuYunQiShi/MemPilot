@@ -17,3 +17,6 @@ HANDOFF.md
 add_ctx.py
 *.pfx
 tools/*.pfx
+# 开源卫生（v0.19.0）：内部 AI 协作说明与码头清单不随仓库公开
+AGENTS.md
+wharf.project.json

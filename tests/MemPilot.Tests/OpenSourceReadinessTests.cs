@@ -62,7 +62,8 @@ public class OpenSourceReadinessTests
         Assert.True(idx > 0);
         var tail = src[idx..Math.Min(src.Length, idx + 1400)];
         Assert.Contains("IsAdmin()", tail);
-        Assert.Contains("未提权，跳过备用列表清理", tail);
+        // v0.19.0：文案已资源化，断言稳定 key（中文文本在字典里，切语言不影响这条语义）
+        Assert.Contains("Lease_SkipPurgeNoAdmin", tail);
     }
 
     // ---------------- 2. 反馈不能穿透安全不变式 ----------------

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -51,7 +51,7 @@ public partial class MainViewModel
         // v0.14：双发去重——实测连续两次调用第二次仅 +19~419 MB（第一次已把可回收的都收了）
         if ((DateTime.UtcNow - _lastBatchTrimUtc).TotalMinutes < 10)
         {
-            var dup = "10 分钟内已执行过批量回收——工作集回收的收益集中在第一轮，稍后再试意义不大。";
+            var dup = UiStrings.Get("Cleanup_BatchCooldown");
             Status = dup;
             return dup;
         }
@@ -60,7 +60,7 @@ public partial class MainViewModel
         var procs = TrimSelection.BuildSafeTrimSet(all, Engine.LastForegroundPid, audio);
         if (procs.Count == 0)
         {
-            var none = "没有可安全压缩的进程（工作/游戏/前台/忙碌进程全部排除）。";
+            var none = UiStrings.Get("Cleanup_NoSafe");
             Status = none;
             return none;
         }
@@ -106,7 +106,7 @@ public partial class MainViewModel
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             SysMem = ProcessService.GetSystemMemory());
         var summary = plan.Count == 0
-            ? "没有发现可清扫的垃圾驻守进程"
+            ? UiStrings.Get("Cleanup_NoJunk")
             : $"垃圾驻守清扫：结束 {kills} 个，回收工作集 {trims} 个，失败 {failed} 个";
         Status = summary;
         return summary;

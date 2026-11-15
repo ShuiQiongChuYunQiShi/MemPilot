@@ -34,9 +34,17 @@ public class ProcessPageSettingTests
         var end = xaml.IndexOf("</DataGrid>", start, StringComparison.Ordinal);
         Assert.True(end > start, "找不到 ProcessGrid 结束标签");
         var block = xaml.Substring(start, end - start);
+        // v0.19.0：表头现在是资源键（{DynamicResource Col_X}）或未本地化的字面量（PID / CPU%），
+        // 统一归一成"逻辑键"，与 HeaderKeyToId 的键域一致。
         return Regex.Matches(block, "Header=\"([^\"]+)\"")
-                    .Select(m => m.Groups[1].Value)
+                    .Select(m => NormalizeHeader(m.Groups[1].Value))
                     .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static string NormalizeHeader(string value)
+    {
+        var m = Regex.Match(value, "^\\{DynamicResource ([^}]+)\\}$");
+        return m.Success ? m.Groups[1].Value : value;
     }
 
     [Fact]
@@ -106,13 +114,13 @@ public class ProcessPageSettingTests
         var end = xaml.IndexOf("</ContextMenu>", start, StringComparison.Ordinal);
         var block = xaml.Substring(start, end - start);
 
-        foreach (Match m in Regex.Matches(block, "Header=\"([^\"]+)\" Tag=\"([^\"]+)\""))
+        foreach (Match m in Regex.Matches(block, "Header=\"\\{DynamicResource ([^}]+)\\}\" Tag=\"([^\"]+)\""))
         {
             var header = m.Groups[1].Value;
             var tag = m.Groups[2].Value;
             Assert.True(headers.Contains(header), $"列设置菜单项 {header} 在进程表里不存在");
             Assert.True(map.TryGetValue(header, out var mapped) && mapped == tag,
-                $"{header} 的显示文本→id 映射与菜单 Tag 不一致（代码里登记的是另一套）");
+                $"{header} 的资源键→id 映射与菜单 Tag 不一致（代码里登记的是另一套）");
         }
     }
 
@@ -159,12 +167,12 @@ public class ProcessPageSettingTests
             string.Join(", ", tags.Except(allIds)) + " / " + string.Join(", ", allIds.Except(tags)));
     }
 
-    /// <summary>从 MainWindow.ProcessPage.cs 里解析 HeaderToId 映射（正则即可，源文件格式稳定）。</summary>
+    /// <summary>从 MainWindow.ProcessPage.cs 里解析 HeaderKeyToId 映射（正则即可，源文件格式稳定）。</summary>
     private static Dictionary<string, string> HeaderToIdFromSource()
     {
         var src = ProcessPageCs();
-        var start = src.IndexOf("HeaderToId = new", StringComparison.Ordinal);
-        Assert.True(start > 0, "找不到 HeaderToId 映射表");
+        var start = src.IndexOf("HeaderKeyToId = new", StringComparison.Ordinal);
+        Assert.True(start > 0, "找不到 HeaderKeyToId 映射表");
         var end = src.IndexOf("};", start, StringComparison.Ordinal);
         var block = src.Substring(start, end - start);
 

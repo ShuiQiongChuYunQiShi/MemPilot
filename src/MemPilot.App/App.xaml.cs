@@ -54,6 +54,9 @@ public partial class App : Application
             RunConsoleMode(args2);
             return;
         }
+        // v0.19.0：语言字典必须在首个窗口创建前加载（StartupUri 在 OnStartup 返回后才实例化）
+        try { Localization.WpfStrings.Apply(new ConfigStore(ResolveDataDir()).Config.Language); }
+        catch (Exception i18n) { MemPilot.Helpers.Diag.Record("i18n:apply", i18n); }
         base.OnStartup(e);
     }
 
@@ -80,7 +83,7 @@ public partial class App : Application
                     {
                         try { File.Delete(Path.Combine(dir, f)); } catch { }
                     }
-                    MessageBox.Show("已重置为出厂配置（config/feedback/audit 已删除）。", "MemPilot", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(UiStrings.Get("App_ResetDone"), "MemPilot", MessageBoxButton.OK, MessageBoxImage.Information);
                     Application.Current.Shutdown();
                     return;
             }
@@ -89,7 +92,7 @@ public partial class App : Application
         {
             if (!cleaner.IsAdmin())
             {
-                MessageBox.Show("控制台清理模式需要管理员权限。", "MemPilot", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(UiStrings.Get("App_ConsoleNeedsAdmin"), "MemPilot", MessageBoxButton.OK, MessageBoxImage.Error);
                 Application.Current.Shutdown();
                 return;
             }

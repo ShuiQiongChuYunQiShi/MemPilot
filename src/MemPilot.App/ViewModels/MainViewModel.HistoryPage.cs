@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -22,7 +22,7 @@ public partial class MainViewModel
     private string _historySummary = "";
     public string HistorySummary { get => _historySummary; private set { _historySummary = value; OnPropertyChanged(); } }
 
-    private string _gpuHistorySummary = "（还没有显存采样——右侧状态确认采集是否可用）";
+    private string _gpuHistorySummary = UiStrings.Get("History_NoVramYet");
     public string GpuHistorySummary { get => _gpuHistorySummary; private set { _gpuHistorySummary = value; OnPropertyChanged(); } }
 
     public sealed class ModeUsageRow
@@ -65,7 +65,7 @@ public partial class MainViewModel
         // 原来是 10 秒节流——实测会静默跳过，用户看到的是"点了没反应"，已去掉。
         if ((DateTime.UtcNow - _lastHistoryLoadUtc).TotalMilliseconds < 800) return;
         _lastHistoryLoadUtc = DateTime.UtcNow;
-        if (string.IsNullOrEmpty(_historySummary)) HistorySummary = "正在统计历史数据…";
+        if (string.IsNullOrEmpty(_historySummary)) HistorySummary = UiStrings.Get("History_Loading");
         Task.Run(() =>
         {
             var day = Usage.ReadWindow(TimeSpan.FromHours(24));
@@ -84,7 +84,7 @@ public partial class MainViewModel
             {
                 var ex = t.Exception?.GetBaseException();
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                    HistorySummary = "历史统计失败：" + (ex?.Message ?? "未知错误"));
+                    HistorySummary = UiStrings.Get("History_Failed") + (ex?.Message ?? UiStrings.Get("Common_UnknownError")));
                 return;
             }
             if (t.Result.day == null) return;
@@ -173,7 +173,7 @@ public partial class MainViewModel
                 AiSessionItems.Add(new AiSessionRow
                 {
                     StartText = session.StartUtc.ToLocalTime().ToString("MM-dd HH:mm"),
-                    DurationText = $"{minutes.TotalMinutes:F0} 分钟" + (session.EndUtc.HasValue ? "" : "（进行中）"),
+                    DurationText = $"{minutes.TotalMinutes:F0} 分钟" + (session.EndUtc.HasValue ? "" : UiStrings.Get("Common_InProgress")),
                     PeakText = $"{session.PeakUsedBytes / 1073741824.0:F1} GB",
                     CommitText = session.PeakCommitFreePct is { } cf ? $"{cf:F1}%" : "—",
                     DominantText = session.DominantName,
@@ -181,7 +181,7 @@ public partial class MainViewModel
                 });
             }
             GpuHistorySummary = gpuHist.SampleCount == 0
-                ? "（还没有显存采样——工具运行 30 秒后出现第一条；若一直为空说明 GPU 计数器不可用）"
+                ? UiStrings.Get("History_NoVramDetail")
                 : $"24 小时 {gpuHist.SampleCount} 条采样"
                   + (gpuHist.PeakUsed.HasValue ? $" · 峰值 {ByteFormat.Human(gpuHist.PeakUsed.Value)}" : "")
                   + (gpuHist.LastUsed.HasValue && gpuHist.Total > 0
@@ -193,7 +193,7 @@ public partial class MainViewModel
             for (int i = 1; i < day.Count; i++)
                 maxGapMin = Math.Max(maxGapMin, (int)(day[i].T - day[i - 1].T).TotalMinutes);
             HistorySummary = (day.Count == 0
-                ? "（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）"
+                ? UiStrings.Get("History_NoSamples")
                 : $"24 小时 {day.Count} 个采样 · 最早 {day[0].T.ToLocalTime():HH:mm} · 进程数 {day[0].Procs} → {day[^1].Procs} · 最近可用 {ByteFormat.Human(day[^1].Avail)}")
                 + (maxGapMin >= 30 ? $" · 最长 {maxGapMin} 分钟未运行（睡眠/退出）" : "")
                 + (habit.Hours.Count > 0 ? " ｜ " + habit.Describe() : "");

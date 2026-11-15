@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -87,7 +87,7 @@ public partial class MainViewModel
 
     /// <summary>未识别复核队列（P3.3）：高占用×高频的 Unknown 进程，供人工核实/投票。</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProcessInfo> ReviewQueue { get; } = new();
-    private string _reviewQueueHeader = "未识别复核队列";
+    private string _reviewQueueHeader = UiStrings.Get("Process_ReviewQueue");
     public string ReviewQueueHeader { get => _reviewQueueHeader; private set { _reviewQueueHeader = value; OnPropertyChanged(); } }
 
     private void RebuildReviewQueue()
@@ -99,7 +99,7 @@ public partial class MainViewModel
                                     .Take(15))
             ReviewQueue.Add(p);
         ReviewQueueHeader = ReviewQueue.Count == 0
-            ? "未识别复核队列（空）"
+            ? UiStrings.Get("Process_ReviewQueueEmpty")
             : $"未识别复核队列（{ReviewQueue.Count} 个 · 高占用未识别进程，人工核实后可收录为规则）";
     }
 

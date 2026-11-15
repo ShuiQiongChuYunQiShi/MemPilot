@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 public partial class MainWindow : Window
 {
@@ -34,13 +34,13 @@ public partial class MainWindow : Window
     private async void PlanMakeRoom_Click(object sender, RoutedEventArgs e)
     {
         if (TargetAvailGB == null) return;
-        if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = "目标可用内存请填正数（GB）。"; return; }
+        if (!double.TryParse(TargetAvailGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = UiStrings.Get("MakeRoom_TargetPositive"); return; }
         await BuildAndShowPlanAsync(targetGB);
     }
 
     private async void HomePlan_Click(object sender, RoutedEventArgs e)
     {
-        if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = "请先在主页填写需要的内存（GB）。"; return; }
+        if (!double.TryParse(HomeTargetGB.Text, out var targetGB) || targetGB <= 0) { _vm.Status = UiStrings.Get("MakeRoom_FillTarget"); return; }
         // home CTA keeps the same safety: build the plan, review it on the 腾内存 page before executing
         SwitchToTab("makeroom"); // realize the tab's controls first
         if (TargetAvailGB != null) TargetAvailGB.Text = targetGB.ToString("0.#");
@@ -58,7 +58,7 @@ public partial class MainWindow : Window
             AllowKill = AllowKill?.IsChecked == true,
             IncludeTrim = IncludeTrim?.IsChecked != false
         };
-        _vm.Status = "正在生成腾内存计划...";
+        _vm.Status = UiStrings.Get("MakeRoom_Generating");
         var plan = await _vm.BuildMakeRoomPlanAsync(req);
         _currentPlan = plan;
         // 页签懒加载：控件未实体化时不要 NRE（v0.9.0 修：路由键错曾导致这里空引用崩溃）
@@ -68,11 +68,11 @@ public partial class MainWindow : Window
             return;
         }
         PlanGrid.ItemsSource = plan.Items;
-        MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : "  ⚠ 计划不足以覆盖目标，请勾选允许 L4 或降低目标。");
+        MakeRoomSummary.Text = plan.SummaryText + (plan.CoversPhysicalGap || plan.PhysicalGapBytes == 0 ? "" : UiStrings.Get("MakeRoom_Insufficient"));
         ExecutePlanBtn.IsEnabled = plan.Items.Count > 0;
         _vm.Status = plan.Items.Count > 0
-            ? "腾内存计划已生成，请核对下面的名单后点「执行计划」。"
-            : "内存已经够用，不需要腾内存。";
+            ? UiStrings.Get("MakeRoom_PlanReady")
+            : UiStrings.Get("MakeRoom_AlreadyEnough");
     }
 
     private async void ExecuteMakeRoom_Click(object sender, RoutedEventArgs e)
@@ -83,12 +83,12 @@ public partial class MainWindow : Window
             + (i.ChildCount > 0 ? $"（含 {i.ChildCount} 子进程）" : "")));
         var res = MessageBox.Show($"将执行 {_currentPlan.Items.Count} 项操作：\n\n{lines}\n\n" +
             (_currentPlan.Items.Any(i => i.KillIfCloseFails) ? "部分 L3 项在关闭超时后会升级为强制结束。\n" : "") +
-            "继续？", "确认执行腾内存计划", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            UiStrings.Get("Common_Continue"), UiStrings.Get("Btn_ConfirmExecutePlan"), MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (res != MessageBoxResult.Yes) return;
 
         ExecutePlanBtn.IsEnabled = false;
         CancelPlanBtn.IsEnabled = true;
-        _vm.Status = "正在执行腾内存计划...";
+        _vm.Status = UiStrings.Get("MakeRoom_Executing");
         _planCts = new System.Threading.CancellationTokenSource();
         _vm.LongOp = true;
         int total = _currentPlan.Items.Count;
@@ -105,14 +105,14 @@ public partial class MainWindow : Window
             await execTask;
             var result = execTask.Result;
             MakeRoomResultText.Text = result.SummaryText;
-            _vm.Status = "腾内存计划执行完毕。" + result.SummaryText;
+            _vm.Status = UiStrings.Get("MakeRoom_Done") + result.SummaryText;
             // 腾内存完成属于通知白名单（用户主动发起的长操作，切走也该知道结果）
-            _tray?.ShowBalloon("腾内存完成", result.SummaryText);
+            _tray?.ShowBalloon(UiStrings.Get("MakeRoom_DoneTitle"), result.SummaryText);
         }
         catch (OperationCanceledException)
         {
-            _vm.Status = "腾内存计划已取消（已执行的项目不可回退，剩余项目未执行）。";
-            MakeRoomResultText.Text = "已取消。";
+            _vm.Status = UiStrings.Get("MakeRoom_Cancelled");
+            MakeRoomResultText.Text = UiStrings.Get("MakeRoom_CancelledShort");
         }
         finally
         {

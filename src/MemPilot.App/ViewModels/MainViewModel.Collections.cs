@@ -1,4 +1,4 @@
-using MemPilot.Models;
+﻿using MemPilot.Models;
 using System.Collections.ObjectModel;
 using MemPilot.Services;
 
@@ -154,7 +154,7 @@ public partial class MainViewModel
                     Decision = "警告",
                     Reason = "本次刷新所有进程的私有工作集均为 0 —— K32 数据通路损坏（历史性问题复现？），预计释放/腾挪规划将不可用"
                 });
-                Status = "⚠ 数据质量异常：私有工作集全为零，请查看决策日志。";
+                Status = UiStrings.Get("Data_QualityWarning");
             }
         }
         // 页签感知重建：只重建当前可见页签的集合；可见页最短 4s 节流（切页签由 OnTabActivated 强制）。

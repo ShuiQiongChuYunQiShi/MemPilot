@@ -1,4 +1,4 @@
-using MemPilot.Models;
+﻿using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -70,7 +70,7 @@ public partial class MainViewModel
     public void DismissCommitRelief()
     {
         CommitReliefPending = false;
-        SetActionStatus("已放弃本次提交兜底（不会关闭任何进程；压缩只能释放物理内存，降不了提交）。");
+        SetActionStatus(UiStrings.Get("Relief_GaveUp"));
         Decisions.Log(new DecisionEntry
         {
             Kind = "CommitRelief",

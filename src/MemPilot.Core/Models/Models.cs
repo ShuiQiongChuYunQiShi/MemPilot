@@ -517,6 +517,8 @@ public class AppConfig
     public int UsageRetentionDays { get; set; } = 30;
     /// <summary>决策/审计日志的归档保留月数（v0.18.0）：热窗口按条数淘汰，淘汰的条目进 archive/。</summary>
     public int ArchiveRetentionMonths { get; set; } = 12;
+    /// <summary>界面语言（v0.19.0）：auto 跟随系统，zh-CN / en 由用户指定。</summary>
+    public string Language { get; set; } = "auto";
     public double CompactLeft { get; set; } = -1;
     public double CompactTop { get; set; } = -1;
     public bool ResumeSuspendedOnModeChange { get; set; } = false;

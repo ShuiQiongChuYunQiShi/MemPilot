@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 public partial class MainWindow : Window
 {
@@ -56,7 +56,7 @@ public partial class MainWindow : Window
         if (_syncingModeRadios || AutoSwitchCheck == null) return;
         _config.Config.AutoModeSwitch = AutoSwitchCheck.IsChecked == true;
         _config.Save();
-        _vm.Status = _config.Config.AutoModeSwitch ? "已开启模式自动切换。" : "已关闭模式自动切换。";
+        _vm.Status = _config.Config.AutoModeSwitch ? UiStrings.Get("Tabs_AutoSwitchOn") : UiStrings.Get("Tabs_AutoSwitchOff");
     }
 
     // ---- home navigation ----
@@ -113,21 +113,21 @@ public partial class MainWindow : Window
     {
         if (SuspendedList.SelectedItem is SuspendRecord rec)
             _vm.ResumeSuspended(rec);
-        else _vm.Status = "请先选择一项挂起记录。";
+        else _vm.Status = UiStrings.Get("Tabs_SelectSuspend");
     }
 
     private void ResumeAll_Click(object sender, RoutedEventArgs e) => _vm.ResumeAllSuspended();
 
     private void RestartDisposal_Click(object sender, RoutedEventArgs e)
     {
-        if (DisposalsGrid == null || DisposalsGrid.SelectedItem is not DisposalRecord rec) { _vm.Status = "请先选择一条处置记录。"; return; }
+        if (DisposalsGrid == null || DisposalsGrid.SelectedItem is not DisposalRecord rec) { _vm.Status = UiStrings.Get("Tabs_SelectDisposal"); return; }
         if (MessageBox.Show($"重新启动 {rec.Name}？\n{rec.ExePath}", "确认", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         if (_vm.RestartDisposal(rec))
             _vm.Status = $"已重新启动 {rec.Name}";
         else
         {
-            _vm.Status = "启动失败：exe 路径不存在或已被移动。";
-            _tray?.ShowBalloon("重启失败", "exe 路径不存在或已被移动。", warning: true);
+            _vm.Status = UiStrings.Get("Tabs_LaunchFailed");
+            _tray?.ShowBalloon(UiStrings.Get("Tabs_RelaunchFailed"), UiStrings.Get("Tabs_ExeMissing"), warning: true);
         }
     }
 
@@ -158,7 +158,7 @@ public partial class MainWindow : Window
         if (ModeList.SelectedItem is not ListBoxItem { Tag: AppMode m } ||
             !_vm.ConfigStore.Config.ModeProfiles.TryGetValue(m, out var profile))
         {
-            _vm.Status = "请先在上方选择一个模式。";
+            _vm.Status = UiStrings.Get("Tabs_SelectMode");
             return;
         }
         profile.KeepPatterns = KeepPatternsEditor.Text
@@ -169,7 +169,7 @@ public partial class MainWindow : Window
             .Where(s => s.Length > 0).ToList();
         _vm.ConfigStore.Save();
         _vm.Engine.SampleForeground(); // no-op; rules apply on the next engine tick
-        MessageBox.Show($"已保存 {profile.Name} 的规则（下一个刷新周期生效）。", "完成");
+        MessageBox.Show($"已保存 {profile.Name} 的规则（下一个刷新周期生效）。", UiStrings.Get("Common_Done"));
     }
 
     /// <summary>撤销一条反馈（v0.3.7）：标记错了要能撤回，否则只能去改 feedback.json。</summary>
@@ -177,7 +177,7 @@ public partial class MainWindow : Window
     {
         if (FeedbackGrid?.SelectedItem is not FeedbackEntry fe)
         {
-            _vm.Status = "请先在列表里选中一条反馈再撤销。";
+            _vm.Status = UiStrings.Get("Tabs_SelectFeedback");
             return;
         }
         if (_vm.RemoveFeedback(fe))
@@ -185,6 +185,6 @@ public partial class MainWindow : Window
             _vm.Status = $"已撤销 {fe.ProcessName} 的反馈，下次刷新生效。";
             _ = _vm.RefreshAsync();
         }
-        else _vm.Status = "撤销失败：记录不存在（可能已被删除）。";
+        else _vm.Status = UiStrings.Get("Tabs_UndoFailed");
     }
 }

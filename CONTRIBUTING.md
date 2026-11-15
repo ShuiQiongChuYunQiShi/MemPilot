@@ -71,9 +71,15 @@ the code compiled, the unit tests were green, and the feature was broken.
 
 ## Translating
 
-The UI is currently Chinese-only and strings are being extracted incrementally.
+The UI is Chinese-only today; **English localization is being implemented in
+v0.19.0** with a `ResourceDictionary`-based string layer (runtime language
+switch, no `.resx` build step).
 
-- Resource skeleton: `src/MemPilot.Core/Localization/`
+- Strings live in `src/MemPilot.App/Resources/Strings.<culture>.xaml`
+- The lookup + fallback service is `src/MemPilot.Core/Localization/UiStrings.cs`
+- Engine log text (`decisions.json` / `audit.json`) is generated in Chinese and
+  is **not** localized yet — translating it requires turning free-form reasons
+  into templates, which is a separate refactor.
 - To propose a language, open a **Translation request** issue; do not open a PR
   with 900 hand-translated strings as a first contribution.
 

@@ -1,4 +1,4 @@
-using MemPilot.Models;
+﻿using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -22,7 +22,7 @@ public partial class MainViewModel
             LeaseApi.Stop();
             if (!ConfigStore.Config.LeaseApiEnabled)
             {
-                LeaseApiStatus = "租约 API 已关闭";
+                LeaseApiStatus = UiStrings.Get("Lease_StatusOff");
                 return;
             }
             if (LeaseApi.Start())
@@ -33,12 +33,12 @@ public partial class MainViewModel
         catch (Exception ex)
         {
             // 兜底：这个方法会被 async void Loaded 与设置保存调用，任何异常都不能外泄。
-            LeaseApiStatus = "租约 API 未启动：" + ex.Message;
+            LeaseApiStatus = UiStrings.Get("Lease_StatusNotStarted") + ex.Message;
             try { Diag.Record("lease:start", ex); } catch { }
         }
     }
 
-    private string _leaseApiStatus = "租约 API 未启用";
+    private string _leaseApiStatus = UiStrings.Get("Lease_StatusDisabled");
     /// <summary>租约 API 的运行状态（设置页显示；失败时是红字原因，不是静默）。</summary>
     public string LeaseApiStatus
     {
@@ -59,13 +59,13 @@ public partial class MainViewModel
         string purgeNote;
         if (!_memCleanerForLease.IsAdmin())
         {
-            purgeNote = "未提权，跳过备用列表清理";
+            purgeNote = UiStrings.Get("Lease_SkipPurgeNoAdmin");
         }
         else
         {
             var purge = _memCleanerForLease.CleanAreas(new List<MemoryArea> { MemoryArea.StandbyListLowPriority });
             bool ok = purge.TryGetValue(MemoryArea.StandbyListLowPriority, out var pr) && pr.success;
-            purgeNote = ok ? "已清备用列表" : $"备用列表清理失败（{pr.message ?? "未知"}）";
+            purgeNote = ok ? UiStrings.Get("Lease_Purged") : $"备用列表清理失败（{pr.message ?? "未知"}）";
         }
 
         // 二级：安全子集压缩

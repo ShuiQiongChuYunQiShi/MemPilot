@@ -23,7 +23,12 @@ public class XamlResourceTests
     public void EveryReferencedResourceKey_IsDefined()
     {
         var (app, win) = Load();
-        var defined = Regex.Matches(app + win, "x:Key=\"([^\"]+)\"")
+        // v0.19.0：文案键来自合并的 Strings.*.xaml 字典，必须一并计入"已定义"集合
+        var dictDir = Path.Combine(RepoRoot(), "src", "MemPilot.App", "Resources");
+        var dicts = Directory.Exists(dictDir)
+            ? string.Concat(Directory.GetFiles(dictDir, "Strings.*.xaml").Select(File.ReadAllText))
+            : "";
+        var defined = Regex.Matches(app + win + dicts, "x:Key=\"([^\"]+)\"")
                            .Select(m => m.Groups[1].Value).ToHashSet();
         var used = Regex.Matches(win + app, "\\{(?:Static|Dynamic)Resource\\s+([^}]+)\\}")
                         .Select(m => m.Groups[1].Value.Trim())

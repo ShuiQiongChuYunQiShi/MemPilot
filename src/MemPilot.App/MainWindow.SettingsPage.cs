@@ -1,4 +1,4 @@
-namespace MemPilot.App;
+﻿namespace MemPilot.App;
 
 public partial class MainWindow : Window
 {
@@ -12,7 +12,7 @@ public partial class MainWindow : Window
             _config.Config.StartWithWindows = want;
             _config.Save();
         }
-        _vm.Status = want ? "已开启开机自启。" : "已关闭开机自启。";
+        _vm.Status = want ? UiStrings.Get("Settings_AutoStartOn") : UiStrings.Get("Settings_AutoStartOff");
     }
 
     private void StartMinimized_Changed(object sender, RoutedEventArgs e)
@@ -28,10 +28,35 @@ public partial class MainWindow : Window
         _config.Config.ResumeSuspendedOnModeChange = SetResumeOnModeChange.IsChecked == true;
         _config.Save();
     }
+    private bool _languageInit;
+
+    /// <summary>v0.19.0：语言切换。DynamicResource 自动刷新 XAML；code-behind 文案走
+    /// WpfStrings.Changed 事件重建（状态栏在下一次刷新时更新）。</summary>
+    private void Language_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_languageInit || _config == null || SetLanguage?.SelectedItem is not ComboBoxItem item) return;
+        var tag = item.Tag?.ToString() ?? "auto";
+        if (tag == _config.Config.Language) return;
+        _config.Config.Language = tag;
+        _config.Save();
+        try
+        {
+            Localization.WpfStrings.Apply(tag);
+            _vm.Status = "";   // 让下一次刷新重建状态栏文案
+            _ = _vm.RefreshAsync();
+        }
+        catch (Exception ex) { MemPilot.Helpers.Diag.Record("i18n:switch", ex); }
+    }
+
     private void InitSettingsTab()
     {
         if (_settingsTabInit || SetCpu == null) return;
         _settingsTabInit = true;
+        _languageInit = true;
+        var lang = _config.Config.Language ?? "auto";
+        SetLanguage.SelectedIndex = lang.StartsWith("en", StringComparison.OrdinalIgnoreCase) ? 2
+            : lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        _languageInit = false;
         SetCpu.Text = _config.Config.UnusedCpuThresholdPercent.ToString();
         SetIdle.Text = _config.Config.UnusedIdleMinutes.ToString();
         SetRefresh.Text = _config.Config.RefreshIntervalSeconds.ToString();
@@ -73,7 +98,7 @@ public partial class MainWindow : Window
     {
         _vm.RegenerateLeaseToken();
         SetLeaseToken.Text = _vm.LeaseToken;
-        _vm.Status = "租约令牌已重新生成——记得同步给调用方。";
+        _vm.Status = UiStrings.Get("Settings_TokenRegenerated");
     }
 
     // ---- 显存采样设置（v0.3.4）----
@@ -105,7 +130,7 @@ public partial class MainWindow : Window
             await _vm.RebuildProgramCatalogAsync();
             await _vm.RefreshAsync();
         }
-        catch (Exception ex) { _vm.Status = "重建程序清单失败: " + ex.Message; }
+        catch (Exception ex) { _vm.Status = UiStrings.Get("Settings_CatalogFailed") + ex.Message; }
     }
 
     private void SaveSettings_Click(object sender, RoutedEventArgs e)
@@ -154,11 +179,11 @@ public partial class MainWindow : Window
         if (_config.Config.GlobalHotkeyEnabled)
         {
             if (_hotkey != null && _hotkey.TryRegister(_config.Config.GlobalHotkey))
-                hotkeyNote = " 全局热键已生效。";
+                hotkeyNote = UiStrings.Get("Settings_HotkeyOk");
             else
-                hotkeyNote = " 全局热键注册失败（格式如 CTRL+SHIFT+M，或被其他程序占用）。";
+                hotkeyNote = UiStrings.Get("Settings_HotkeyFail");
         }
-        _vm.Status = "设置已保存。" + hotkeyNote;
+        _vm.Status = UiStrings.Get("Settings_Saved") + hotkeyNote;
         // v0.11.0：删除"设置已保存"气球——routine 动作发托盘通知是噪音；热键注册失败等异常已在状态栏/日志可见
     }
 
@@ -176,37 +201,37 @@ public partial class MainWindow : Window
         if (ChkSystemFileCache.IsChecked == true) areas.Add(MemoryArea.SystemFileCache);
         if (ChkCombinedMemory?.IsChecked == true) areas.Add(MemoryArea.CombinedMemory);
         if (ChkWorkingSet.IsChecked == true) areas.Add(MemoryArea.WorkingSet);
-        if (areas.Count == 0) { MessageBox.Show("请至少选择一个区域。", "提示"); return; }
+        if (areas.Count == 0) { MessageBox.Show(UiStrings.Get("Settings_SelectArea"), UiStrings.Get("Common_Notice")); return; }
 
         // v0.9.0：WorkingSet 是全机/候选集压缩，给安全子集 + 全屏拒绝
         if (areas.Contains(MemoryArea.WorkingSet))
         {
             if (_vm.Engine.ForegroundFullscreen)
             {
-                MessageBox.Show("当前有前台全屏程序（游戏/视频），已拒绝回收工作集——会造成明显卡顿。", "已拒绝", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(UiStrings.Get("Settings_FullscreenRefused"), UiStrings.Get("Common_Rejected"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             var audio = new HashSet<int>(_vm.Processes.Where(p => p.AudioActive).Select(p => p.Pid));
             var safe = TrimSelection.BuildSafeTrimSet(_vm.Processes.ToList(), _vm.Engine.LastForegroundPid, audio);
             if (safe.Count == 0)
             {
-                MessageBox.Show("没有可安全压缩的进程（工作/游戏/前台进程全部排除）。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(UiStrings.Get("Settings_NoSafeProcesses"), UiStrings.Get("Common_Notice"), MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             if (MessageBox.Show($"将只压缩 {safe.Count} 个低负载后台进程（排除 {_vm.Processes.Count - safe.Count} 个工作/游戏/前台/忙碌进程）。继续？",
-                    "确认回收工作集", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    UiStrings.Get("Btn_ConfirmTrim"), MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
             _memCleaner.SetWorkingSetAllowList(safe.Select(p => p.Pid).ToList());
         }
         if (areas.Contains(MemoryArea.StandbyList) &&
-            MessageBox.Show("完整清理备用列表会清掉文件缓存，游戏运行时会造成卡顿。确认继续？", "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            MessageBox.Show(UiStrings.Get("Settings_StandbyWarning"), "确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             return;
         if (!Elevation.IsAdmin())
         {
             var argList = areas.Select(a => "/" + a).ToList();
             var res2 = MessageBox.Show(
                 "系统级内存清理需要管理员权限。\n\n以管理员身份重启 MemPilot 并自动执行所选区域？",
-                "需要提权", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                UiStrings.Get("Settings_NeedElevation"), MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (res2 == MessageBoxResult.Yes &&
                 Elevation.RestartAsAdmin(string.Join(" ", argList)))
             {
@@ -230,9 +255,9 @@ public partial class MainWindow : Window
         try
         {
             _vm.Engine.ForceJunkAdviceNow(_vm.LastProcessSnapshot());
-            _vm.SetActionStatus("已触发垃圾进程检查——有整天未使用的垃圾时，主页会出现建议卡。");
+            _vm.SetActionStatus(UiStrings.Get("Settings_JunkCheckTriggered"));
         }
-        catch (Exception ex) { _vm.SetActionStatus("触发垃圾检查失败：" + ex.Message); }
+        catch (Exception ex) { _vm.SetActionStatus(UiStrings.Get("Settings_JunkCheckFailed") + ex.Message); }
     }
 
     private void SelectAllAreas_Click(object sender, RoutedEventArgs e)

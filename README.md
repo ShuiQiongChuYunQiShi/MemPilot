@@ -198,14 +198,16 @@ caused a past incident reappears (`tests/MemPilot.Tests/RegressionGuardTests.cs`
   + `MemPilot.App` (shell). No `.sln` — pass the `.csproj` path explicitly.
 - **One runtime dependency**: `System.Diagnostics.EventLog` 9.0.0 (optional
   Windows-event-log audit). Everything else is P/Invoke.
-- **373 tests**, CI gates `MemPilot.Core` line coverage at 50% and produces
+- **463 tests**, CI gates `MemPilot.Core` line coverage at 60% and produces
   TRX + cobertura artifacts on every push.
 - Reproducible builds: `packages.lock.json` committed, CI restores with
   `--locked-mode`.
 - Persistent settings use **stable ids** (`memory_growth`, `work`), never
   display text — so localization cannot silently reset your column layout.
-  UI text is currently Chinese; the string-extraction skeleton is in place
-  and contributions are welcome (see CONTRIBUTING).
+- **Chinese + English UI**, switchable at runtime in Settings → UI language
+  (`ResourceDictionary` based, no restart). Engine logs (`decisions.json` /
+  `audit.json`) are still generated in Chinese; translating free-form reasons
+  needs a separate refactor to templates.
 
 ## Build
 
@@ -226,7 +228,8 @@ writes config/history/decisions under `%APPDATA%\MemPilot` — nothing outside i
 - UWP windows belong to `ApplicationFrameHost`; L3 has no effect on windowless UWP
 - Hybrid laptops: adapter usage is matched per LUID; if the mapping is missing,
   MemPilot shows "usage unavailable" rather than guessing
-- Chinese UI at the moment; English README only
+- Engine logs (`decisions.json` / `audit.json`) are generated in Chinese; the
+  UI is bilingual, but free-form log reasons are not localized yet
 
 ## License
 
