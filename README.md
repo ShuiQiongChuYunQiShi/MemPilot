@@ -15,7 +15,7 @@ process** — so your ComfyUI job gets the memory it needs without your
 browser tabs, IDE, or game becoming collateral damage.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="760" alt="MemPilot main window" />
+  <img src="docs/screenshots/en/home.png" width="760" alt="MemPilot main window" />
 </p>
 
 > 🇨🇳 中文说明：见 [docs/README-zh.md](docs/README-zh.md)。
@@ -155,7 +155,7 @@ into three sessions). When a video generation eats 15 GB, you can see who, when,
 and for how long — afterwards.
 
 <p align="center">
-  <img src="docs/screenshots/processes.png" width="760" alt="process table with VRAM column" />
+  <img src="docs/screenshots/en/processes.png" width="760" alt="process table with VRAM column" />
 </p>
 
 ## Proof of concept — verify it yourself
