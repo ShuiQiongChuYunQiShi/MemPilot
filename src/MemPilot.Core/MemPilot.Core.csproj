@@ -10,7 +10,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Diagnostics.EventLog" Version="9.0.0" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="11.0.0" />
   </ItemGroup>
   <ItemGroup>
     <!-- v0.18.0：身份复检的纯逻辑（IsStillSameProcess）需要直接单测 -->
