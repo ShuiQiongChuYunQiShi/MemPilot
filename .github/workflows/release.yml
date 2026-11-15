@@ -1,4 +1,4 @@
-﻿name: release
+name: release
 
 # Publishing is EXPLICITLY gated: this workflow only runs via workflow_dispatch
 # (manual trigger or `gh workflow run release --ref <tag>` from
@@ -17,7 +17,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v4
         with:
