@@ -165,10 +165,11 @@ public class LongResidentAdvisorTests : IDisposable
     }
 
     [Fact]
-    public void IsSuspendUnsafe_MatchesVmMemory()
+    public void IsSuspendUnsafe_MatchesVmMemoryAndInputMethod()
     {
         Assert.True(LongResidentAdvisor.IsSuspendUnsafe("vmmem"));
         Assert.True(LongResidentAdvisor.IsSuspendUnsafe("vmmemWSL"));
+        Assert.True(LongResidentAdvisor.IsSuspendUnsafe("wetype_server"));   // 挂起会打断输入
         Assert.False(LongResidentAdvisor.IsSuspendUnsafe("ArmouryCrate"));
     }
 

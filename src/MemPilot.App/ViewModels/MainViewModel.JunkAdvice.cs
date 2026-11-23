@@ -79,7 +79,8 @@ public partial class MainViewModel
             });
             // 每日一次托盘气球（通知策略第 5 类白名单）
             RaiseAlert(UiStrings.Get(longResident ? "LongResident_BalloonTitle" : "Junk_BalloonTitle"),
-                UiStrings.F("Junk_BalloonBody", advice.NamesText, JunkAdviceTotalMb));
+                UiStrings.F(longResident ? "LongResident_BalloonBody" : "Junk_BalloonBody",
+                    advice.NamesText, JunkAdviceTotalMb));
         }));
     }
 

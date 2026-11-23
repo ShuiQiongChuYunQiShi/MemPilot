@@ -99,9 +99,12 @@ public static class LongResidentAdvisor
     }
 
     /// <summary>
-    /// 挂起会导致子系统冻结/失去响应的进程名（vmmem 是 WSL/Hyper-V 的虚拟机内存宿主，
-    /// NtSuspendProcess 会让整个 WSL 停摆）。这类需要的是"关掉 WSL"，不是挂起。
+    /// 挂起会导致子系统冻结/打断用户输入的进程名：
+    /// - vmmem 是 WSL/Hyper-V 的虚拟机内存宿主，NtSuspendProcess 会让整个 WSL 停摆；
+    /// - 输入法服务（本机实测 wetype_server 会被选中）挂起后打字立刻异常。
+    /// 这类需要的是"关掉它/换输入法"，不是挂起。
     /// </summary>
     public static bool IsSuspendUnsafe(string name)
-        => name.Contains("vmmem", StringComparison.OrdinalIgnoreCase);
+        => name.Contains("vmmem", StringComparison.OrdinalIgnoreCase)
+           || name.StartsWith("wetype_", StringComparison.OrdinalIgnoreCase);
 }

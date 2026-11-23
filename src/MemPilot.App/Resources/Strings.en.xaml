@@ -549,6 +549,7 @@
     <sys:String x:Key="History_NoSamples">(No samples yet — the first sample appears 5 minutes after launch)</sys:String>
     <sys:String x:Key="Junk_BalloonTitle">Junk process advice</sys:String>
     <sys:String x:Key="LongResident_BalloonTitle">Long-resident advice</sys:String>
+    <sys:String x:Key="LongResident_BalloonBody">Ran all day unused: {0} (about {1} MB). Suspend from the home page (auto-resumes at expiry).</sys:String>
     <sys:String x:Key="Lease_StatusOff">Lease API stopped</sys:String>
     <sys:String x:Key="Lease_StatusNotStarted">Lease API did not start: </sys:String>
     <sys:String x:Key="Lease_StatusDisabled">Lease API is disabled</sys:String>

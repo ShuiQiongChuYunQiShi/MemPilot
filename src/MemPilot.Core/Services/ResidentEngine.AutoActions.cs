@@ -158,12 +158,16 @@ public partial class ResidentEngine
         return true;
     }
 
-    /// <summary>今天是否已经交付过任一建议（v0.21.0）：每天最多一张建议卡。</summary>
+    /// <summary>
+    /// 今天是否已经交付过（仍在启用的）建议（v0.21.0）：每天最多一张建议卡。
+    /// 按开关过滤——用户关掉垃圾建议后，它今天的历史标记不该阻塞长驻建议。
+    /// </summary>
     private bool TodayAdviceDelivered()
     {
         var today = DateTime.Now.ToString("yyyyMMdd");
-        return string.Equals(JunkAdvice?.AdviceDayKey, today, StringComparison.Ordinal)
-               || string.Equals(JunkAdvice?.LongResidentDayKey, today, StringComparison.Ordinal);
+        var cfg = _config.Config;
+        return (cfg.JunkAdviceEnabled && string.Equals(JunkAdvice?.AdviceDayKey, today, StringComparison.Ordinal))
+               || (cfg.LongResidentAdviceEnabled && string.Equals(JunkAdvice?.LongResidentDayKey, today, StringComparison.Ordinal));
     }
 
     /// <summary>交付失败后的默认重试冷却（v0.20.0）。15 分钟：够用户回到电脑，又不至于整天不再提。</summary>
