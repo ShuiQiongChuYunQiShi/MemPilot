@@ -71,6 +71,7 @@ public partial class MainWindow : Window
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetJunkAdvice.IsChecked = _config.Config.JunkAdviceEnabled;
         SetLongResidentAdvice.IsChecked = _config.Config.LongResidentAdviceEnabled;
+        SetWslHint.IsChecked = _config.Config.WslShutdownHintEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
         SetCommitReliefL3.IsChecked = _config.Config.CommitReliefL3Enabled;
@@ -150,6 +151,7 @@ public partial class MainWindow : Window
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.JunkAdviceEnabled = SetJunkAdvice.IsChecked == true;
         _config.Config.LongResidentAdviceEnabled = SetLongResidentAdvice.IsChecked == true;
+        _config.Config.WslShutdownHintEnabled = SetWslHint.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
         _config.Config.CommitReliefL3Enabled = SetCommitReliefL3.IsChecked == true;

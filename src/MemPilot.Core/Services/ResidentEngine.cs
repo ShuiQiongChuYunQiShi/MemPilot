@@ -173,6 +173,8 @@ public partial class ResidentEngine
 
     /// <summary>垃圾进程建议（v0.15.0）：一天最多触发一次，VM 负责弹卡 + 气球。</summary>
     public event Action<JunkAdvice>? JunkAdvised;
+    /// <summary>WSL 常驻提示（v0.22.0）：vmmemWSL 占用够大且今天零活动，只提示不执行。</summary>
+    public event Action<WslHint>? WslHintAdvised;
     /// <summary>用户标记为「可清理」的进程名提供者（v0.15.1，由 VM 注入 FeedbackStore）。</summary>
     public Func<IReadOnlyCollection<string>>? MarkedCleanableProvider { get; set; }
     private DateTime _lastJunkAdviceDay = DateTime.MinValue.Date;
@@ -198,6 +200,7 @@ public partial class ResidentEngine
         RunStage("behaviors", () => _behaviors?.Observe(procs));
         RunStage("junk-advice", () => MaybeAdviseJunk(procs));
         RunStage("long-resident-advice", () => MaybeAdviseLongResident(procs));   // v0.21.0
+        RunStage("wsl-hint", () => MaybeAdviseWsl(procs));                          // v0.22.0
         RunStage("junk-resume", ResumeExpiredSuspends);   // P2 起改由 5s 轻探针驱动，这里保留兜底
         if (cfg.AutoJunkSweepEnabled) RunStage("junk-sweep", () => AutoJunkSweep(procs));
         RunStage("usage", () => _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds));

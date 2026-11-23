@@ -84,6 +84,47 @@ public partial class MainViewModel : INotifyPropertyChanged
         => DecisionEmptyText = recentCount > 0 && shownCount == 0
             ? UiStrings.F("Decisions_HiddenByFilter", recentCount)
             : UiStrings.Get("Empty_Decisions");
+
+    /// <summary>决策日志 Kind 下拉项（v0.22.0）。</summary>
+    public sealed record DecisionKindOption(string Kind, string Display);
+
+    public ObservableCollection<DecisionKindOption> DecisionKindOptions { get; } = new();
+
+    private string _selectedDecisionKind = DecisionLogFilter.AllKinds;
+    /// <summary>决策日志 Kind 筛选（v0.22.0）：空串 = 全部。与 ShowNoise 是两个独立过滤（AND）。</summary>
+    public string SelectedDecisionKind
+    {
+        get => _selectedDecisionKind;
+        set
+        {
+            var v = value ?? DecisionLogFilter.AllKinds;
+            if (_selectedDecisionKind == v) return;
+            _selectedDecisionKind = v;
+            OnPropertyChanged();
+            ReloadDecisions();
+        }
+    }
+
+    /// <summary>重建 Kind 下拉：包含当前日志里出现过的全部 Kind（按条数降序），首项"全部类型"。</summary>
+    private void RebuildDecisionKindOptions()
+    {
+        var current = _selectedDecisionKind;
+        DecisionKindOptions.Clear();
+        DecisionKindOptions.Add(new DecisionKindOption(DecisionLogFilter.AllKinds,
+            UiStrings.Get("Decisions_KindFilterAll")));
+        foreach (var kv in Decisions.CountByKind()
+                     .Where(kv => !string.IsNullOrEmpty(kv.Key))
+                     .OrderByDescending(kv => kv.Value)
+                     .ThenBy(kv => kv.Key, StringComparer.Ordinal))
+            DecisionKindOptions.Add(new DecisionKindOption(kv.Key, UiTerms.OfKind(kv.Key)));
+
+        // 旧选择已不在列表里（日志轮转/清空）→ 回到"全部"
+        if (!DecisionKindOptions.Any(o => o.Kind == current))
+        {
+            _selectedDecisionKind = DecisionLogFilter.AllKinds;
+            OnPropertyChanged(nameof(SelectedDecisionKind));
+        }
+    }
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
@@ -439,6 +480,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             .Where(f => f.MarkCleanable && f.Status == "applied")
             .Select(f => f.ProcessName).ToList();   // v0.15.1：用户标记直接喂给建议器
         AttachJunkAdvice();
+        AttachWslHint();
 
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
             System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -515,7 +557,8 @@ public partial class MainViewModel : INotifyPropertyChanged
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         SetMode(config.Config.CurrentMode, "startup");
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
-        foreach (var d in DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise)) DecisionEntries.Add(d);
+        foreach (var d in DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise, SelectedDecisionKind)) DecisionEntries.Add(d);
+        RebuildDecisionKindOptions();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
@@ -603,7 +646,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             RefreshStatus(UiStrings.Get("Process_Enumerating"));
             IsBusy = true;
 
-            long enumMs = 0, classifyMs = 0, gpuMs = 0;
+            long enumMs = 0, classifyMs = 0, gpuMs = 0, lookupMs = 0;
             var data = await Task.Run(() =>
             {
                 Engine.SampleForeground();
@@ -626,7 +669,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 }
                 classifyMs = swC.ElapsedMilliseconds;
 
+                var swL = System.Diagnostics.Stopwatch.StartNew();
                 LookupUnknowns(procs, ct);
+                lookupMs = swL.ElapsedMilliseconds;          // v0.22.0：非阻塞后应接近 0
                 MaybeSuggestPromotions();
 
                 var mem = ProcessService.GetSystemMemory();
@@ -671,7 +716,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     _lastProcs.Count, unusedOut.Count, enumMs, classifyMs));
             });
             // v0.20.0：分段耗时交给引擎落盘（self-*.jsonl），慢 tick 可定位到具体阶段
-            Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds);
+            Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds, lookupMs);
 
             Engine.AfterRefresh(_lastProcs, memOut);
             LeaseManager.CheckGuard(memOut, DateTime.UtcNow);   // v0.7.0：占用期守护

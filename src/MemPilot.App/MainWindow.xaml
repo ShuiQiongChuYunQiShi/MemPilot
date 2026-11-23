@@ -529,6 +529,20 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- v0.22.0：WSL 常驻提示（vmmemWSL 占用够大且今天零活动）。
+                                 只提示 + 复制 wsl shutdown 命令，绝不自动执行。 -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding WslHintPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Wsl_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding WslHintText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{DynamicResource Wsl_CopyCommand}" Click="CopyWslCommand_Click" Style="{StaticResource PrimaryBtn}"/>
+                                        <Button Content="{DynamicResource Common_Ignore}" Click="DismissWslHint_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
                             <Border Style="{StaticResource Card}" Visibility="{Binding HasAlert, Converter={StaticResource BoolToVis}}" BorderBrush="{DynamicResource WarnBg}" Background="{DynamicResource WarnBg}">
                                 <StackPanel>
                                     <TextBlock Text="{Binding AlertBannerTitle}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
@@ -945,10 +959,15 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{DynamicResource Decisions_Hint}" Foreground="{DynamicResource TextSecondary}"
                                    VerticalAlignment="Center" TextWrapping="Wrap"/>
-                        <!-- v0.20.0：默认折叠建议/增长观察（实测占决策日志 87.7%） -->
-                        <CheckBox Grid.Column="1" Content="{DynamicResource Decisions_ShowNoise}"
-                                  IsChecked="{Binding ShowNoise, Mode=TwoWay}"
-                                  VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <!-- v0.20.0：默认折叠建议/增长观察（实测占决策日志 87.7%）；v0.22.0：按 Kind 筛选 -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ComboBox Width="150" ItemsSource="{Binding DecisionKindOptions}"
+                                      SelectedValuePath="Kind" SelectedValue="{Binding SelectedDecisionKind, Mode=TwoWay}"
+                                      DisplayMemberPath="Display" Margin="12,0,0,0"/>
+                            <CheckBox Content="{DynamicResource Decisions_ShowNoise}"
+                                      IsChecked="{Binding ShowNoise, Mode=TwoWay}"
+                                      VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
                     </Grid>
                     <!-- v0.20.1：内层 Grid 必须显式占 Row 1——缺省 Row 0 会让 DataGrid 盖住上面的
                          提示行与「显示建议/增长观察」勾选框（提示文字从 v0.19 起就一直被遮挡） -->
@@ -1306,6 +1325,7 @@
                                     <TextBlock Text="{DynamicResource Settings_JunkCooldown}" Foreground="{DynamicResource TextSecondary}" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </StackPanel>
                                 <CheckBox x:Name="SetLongResidentAdvice" Content="{DynamicResource Settings_LongResidentAdvice}" Margin="16,3"/>
+                                <CheckBox x:Name="SetWslHint" Content="{DynamicResource Settings_WslHint}" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoCommitRelief" Content="{DynamicResource Settings_CommitRelief}" Margin="0,3"/>
                                 <CheckBox x:Name="SetCommitReliefL3" Content="{DynamicResource Settings_CommitReliefL3}" Margin="16,3"/>
                                 <CheckBox x:Name="SetShowAlerts" Content="{DynamicResource Settings_Alerts}" Margin="0,3"/>

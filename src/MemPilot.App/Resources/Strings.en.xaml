@@ -196,6 +196,11 @@
     <sys:String x:Key="Junk_Reclaim">, expected to free</sys:String>
     <sys:String x:Key="Junk_BodyEnd">. Suspending freezes CPU and auto-resumes at expiry; ending goes through the confirmation flow.</sys:String>
     <sys:String x:Key="LongResident_Title">These processes ran all day without being used. Suspend them for a while?</sys:String>
+    <sys:String x:Key="Wsl_Title">WSL is holding a lot of memory. Shut it down?</sys:String>
+    <sys:String x:Key="Wsl_Body">vmmemWSL has run for {1} h and holds about {0:F1} GB, with no WSL activity detected today. Shutting down WSL closes all distributions (they restart automatically next time) and does not affect Windows. This is only a hint — nothing is executed automatically.</sys:String>
+    <sys:String x:Key="Wsl_CopyCommand">Copy wsl --shutdown</sys:String>
+    <sys:String x:Key="Wsl_Copied">Copied wsl --shutdown — run it in a terminal</sys:String>
+    <sys:String x:Key="Wsl_DecisionReason">vmmemWSL holds about {0:F1} GB after {1} h with zero activity today — hinted to run wsl --shutdown (not executed)</sys:String>
     <sys:String x:Key="LongResident_BodyEnd">. They are not junk, so only suspending is suggested (auto-resume at expiry); to end one, use the Processes page.</sys:String>
     <sys:String x:Key="Btn_Suspend2h">Suspend 2 h</sys:String>
     <sys:String x:Key="Btn_Suspend8h">Suspend 8 h</sys:String>
@@ -285,6 +290,7 @@
     <sys:String x:Key="Btn_Relaunch">Relaunch selected</sys:String>
     <sys:String x:Key="Decisions_Hint">Every automatic decision: why a mode switched, who was executed or skipped, and exactly which guard skipped them</sys:String>
     <sys:String x:Key="Decisions_ShowNoise">Show advice/growth observations</sys:String>
+    <sys:String x:Key="Decisions_KindFilterAll">All kinds</sys:String>
     <sys:String x:Key="Decisions_HiddenByFilter">Showing 0 entries — {0} advice/growth records are hidden. Tick "Show advice/growth observations" above to see them.</sys:String>
     <sys:String x:Key="Process_NoMatch">No processes match. Check the search text, or clear the filters to see everything.</sys:String>
     <sys:String x:Key="Btn_ClearFilters">Clear filters</sys:String>
@@ -368,6 +374,7 @@
     <sys:String x:Key="Settings_OrphansOnly">Low-risk mode: only sweep orphaned residue whose host has exited; resident bloatware is left alone (L1 or L3, never L4)</sys:String>
     <sys:String x:Key="Settings_JunkAdvice">Junk process advice: suggest all-day unused bloatware on the home page (on by default; evaluated after 19:00)</sys:String>
     <sys:String x:Key="Settings_LongResidentAdvice">Long-resident advice: for processes running 8h+ with zero activity today and ≥512 MB, suggest suspending only (off by default)</sys:String>
+    <sys:String x:Key="Settings_WslHint">WSL resident hint: when vmmemWSL holds ≥2 GB with zero activity today, suggest shutting WSL down (on by default; hint only)</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">Check junk advice now</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">More ignores mean fewer prompts (7 → 30 → 90 days)</sys:String>
     <sys:String x:Key="Settings_CommitRelief">Commit relief: below 5% commit free, purge the low-priority standby list first; only after 2 more minutes of pressure trim the "safe subset" (work / game / foreground / busy processes are never touched)</sys:String>

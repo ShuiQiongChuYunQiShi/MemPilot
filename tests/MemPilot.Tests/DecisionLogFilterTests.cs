@@ -46,6 +46,33 @@ public class DecisionLogFilterTests
     }
 
     [Fact]
+    public void Filter_KindAndNoiseAreCombinedWithAnd()
+    {
+        var list = new List<DecisionEntry>
+        {
+            E("JunkAdvice", "建议"),
+            E("JunkAdvice", "挂起"),
+            E("GrowthWatch"),
+            E("AutoCleanup", "执行 L1 回收工作集"),
+        };
+
+        // Kind=JunkAdvice + 折叠噪声 → 只剩「挂起」（真实动作）
+        Assert.Single(DecisionLogFilter.Filter(list, showNoise: false, kind: "JunkAdvice"));
+        // 打开噪声 → 「建议」+「挂起」
+        Assert.Equal(2, DecisionLogFilter.Filter(list, showNoise: true, kind: "JunkAdvice").Count());
+        // 其它 Kind 过滤
+        Assert.Single(DecisionLogFilter.Filter(list, showNoise: true, kind: "GrowthWatch"));
+        Assert.Single(DecisionLogFilter.Filter(list, showNoise: false, kind: "AutoCleanup"));
+        // 空串 = 全部 Kind（仍折叠噪声）
+        Assert.Equal(2, DecisionLogFilter.Filter(list, showNoise: false, kind: DecisionLogFilter.AllKinds).Count());
+        Assert.Equal(4, DecisionLogFilter.Filter(list, showNoise: true, kind: null).Count());
+    }
+
+    [Fact]
+    public void Filter_KindMatchIsCaseInsensitive()
+        => Assert.Single(DecisionLogFilter.Filter(new[] { E("autocleanup", "执行") }, false, "AutoCleanup"));
+
+    [Fact]
     public void KindMatch_IsCaseInsensitive()
         => Assert.True(DecisionLogFilter.IsNoise(E("junkadvice", "建议")));
 

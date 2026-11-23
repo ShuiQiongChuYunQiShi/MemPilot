@@ -42,6 +42,8 @@ public class JunkAdviceStore
         public string AdviceDayKey { get; set; } = "";
         /// <summary>v0.21.0：长驻未用建议的当日交付标记（与垃圾建议分列，两者互斥交付）。</summary>
         public string LongResidentDayKey { get; set; } = "";
+        /// <summary>v0.22.0：WSL 常驻提示的当日交付标记（不参与垃圾/长驻的互斥）。</summary>
+        public string WslHintDayKey { get; set; } = "";
         public DateTime RetryAfterUtc { get; set; }
         public List<JunkAdviceEntry> Entries { get; set; } = new();
     }
@@ -51,6 +53,7 @@ public class JunkAdviceStore
     private List<JunkAdviceEntry> _entries = new();
     private string _adviceDayKey = "";
     private string _longResidentDayKey = "";
+    private string _wslHintDayKey = "";
     private DateTime _retryAfterUtc;
 
     public JunkAdviceStore(string dataDir)
@@ -78,6 +81,7 @@ public class JunkAdviceStore
                 _entries = dto.Entries;
                 _adviceDayKey = dto.AdviceDayKey;
                 _longResidentDayKey = dto.LongResidentDayKey;
+                _wslHintDayKey = dto.WslHintDayKey;
                 _retryAfterUtc = dto.RetryAfterUtc;
             }
         }
@@ -98,6 +102,7 @@ public class JunkAdviceStore
         {
             AdviceDayKey = _adviceDayKey,
             LongResidentDayKey = _longResidentDayKey,
+            WslHintDayKey = _wslHintDayKey,
             RetryAfterUtc = _retryAfterUtc,
             Entries = _entries
         }, JsonFileStore.Pretty);
@@ -137,6 +142,24 @@ public class JunkAdviceStore
     public void ClearLongResidentDay()
     {
         lock (_gate) { _longResidentDayKey = ""; SaveLocked(); }
+    }
+
+    /// <summary>WSL 常驻提示的当日标记（v0.22.0）。</summary>
+    public string WslHintDayKey
+    {
+        get { lock (_gate) return _wslHintDayKey; }
+    }
+
+    /// <summary>标记当天已提示 WSL 常驻（跨重启不重复）。</summary>
+    public void MarkWslHintDelivered(string dayKey)
+    {
+        lock (_gate) { _wslHintDayKey = dayKey; SaveLocked(); }
+    }
+
+    /// <summary>回滚 WSL 常驻提示的当日标记。</summary>
+    public void ClearWslHintDay()
+    {
+        lock (_gate) { _wslHintDayKey = ""; SaveLocked(); }
     }
 
     /// <summary>下次允许评估建议的 UTC 时刻（v0.20.0；default=不限制）。</summary>

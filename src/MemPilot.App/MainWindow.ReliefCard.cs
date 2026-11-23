@@ -6,6 +6,10 @@ public partial class MainWindow
     private void ConfirmCommitRelief_Click(object sender, RoutedEventArgs e) => _vm.ConfirmCommitRelief();
     private void DismissCommitRelief_Click(object sender, RoutedEventArgs e) => _vm.DismissCommitRelief();
 
+    // ---- WSL 常驻提示卡（v0.22.0，只提示/复制，不执行）----
+    private void CopyWslCommand_Click(object sender, RoutedEventArgs e) => _vm.CopyWslShutdownCommand();
+    private void DismissWslHint_Click(object sender, RoutedEventArgs e) => _vm.DismissWslHint();
+
     // ---- 垃圾进程建议卡（v0.15.0）----
 
     private void SuspendJunk2h_Click(object sender, RoutedEventArgs e) => _vm.SuspendJunk(TimeSpan.FromHours(2));

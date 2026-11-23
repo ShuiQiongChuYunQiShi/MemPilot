@@ -34,8 +34,8 @@ public class SelfCostRecorderTests : IDisposable
     public void Flush_WritesStageAverages_AndClearsWindow()
     {
         var rec = new SelfCostRecorder(_dir);
-        rec.RecordTick(1200, new RefreshTimings(800, 300, 80, 20), 0);
-        rec.RecordTick(1400, new RefreshTimings(1000, 300, 60, 40), 0);
+        rec.RecordTick(1200, new RefreshTimings(800, 300, 80, 20, 30), 0);
+        rec.RecordTick(1400, new RefreshTimings(1000, 300, 60, 40, 10), 0);
 
         var sample = rec.FlushForTests();
 
@@ -45,11 +45,13 @@ public class SelfCostRecorderTests : IDisposable
         Assert.Equal(300, sample.ClassifyMs);
         Assert.Equal(70, sample.GpuMs);
         Assert.Equal(30, sample.UiMs);
+        Assert.Equal(20, sample.LookupMs);   // v0.22.0：在线查询分段
 
         var next = rec.FlushForTests();   // 清窗后不应重复累计
         Assert.Equal(0, next!.N);
         Assert.Equal(0, next.EnumMs);
         Assert.Equal(0, next.UiMs);
+        Assert.Equal(0, next.LookupMs);
     }
 
     [Fact]

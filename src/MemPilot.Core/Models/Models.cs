@@ -451,6 +451,13 @@ public class AppConfig
     // 只建议挂起 2h/8h（不提供结束）。**默认关闭**——这类进程通常是厂商服务/WSL，
     // 用户明确要求过"偶用服务只杀不卸"，需要他自己确认要不要被提醒。
     public bool LongResidentAdviceEnabled { get; set; } = false;
+    // WSL 常驻提示（v0.22.0）：vmmemWSL 占用 ≥ MinMb 且今天零活动时，提示可 `wsl --shutdown`。
+    // 只提示 + 复制命令，绝不自动执行；默认开启——被动提示，不改变任何进程状态。
+    public bool WslShutdownHintEnabled { get; set; } = true;
+    /// <summary>vmmemWSL 占用低于该值不提示（MB）。实测本机峰值 10.4 GB。</summary>
+    public int WslShutdownHintMinMb { get; set; } = 2048;
+    /// <summary>WSL 启动不足该分钟数不提示（避免刚开的发行版被劝退）。</summary>
+    public int WslShutdownHintMinAgeMinutes { get; set; } = 60;
     // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
     // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，

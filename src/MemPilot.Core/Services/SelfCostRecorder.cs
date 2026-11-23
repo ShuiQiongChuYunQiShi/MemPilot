@@ -8,10 +8,10 @@ namespace MemPilot.Services;
 /// 一次全量刷新的分段耗时（v0.20.0，毫秒）。
 /// 用途：出现 8–12s 的慢 tick 时能直接看出卡在枚举、分类、显存采样还是 UI marshal。
 /// </summary>
-public sealed record RefreshTimings(long EnumMs, long ClassifyMs, long GpuMs, long UiMs)
+public sealed record RefreshTimings(long EnumMs, long ClassifyMs, long GpuMs, long UiMs, long LookupMs = 0)
 {
     /// <summary>无数据（首帧/手动调用未填）。</summary>
-    public static readonly RefreshTimings Zero = new(0, 0, 0, 0);
+    public static readonly RefreshTimings Zero = new(0, 0, 0, 0, 0);
 }
 
 /// <summary>一分钟的自身开销聚合（写入 history/self-yyyyMMdd.jsonl）。</summary>
@@ -38,6 +38,8 @@ public class SelfCostSample
     public long GpuMs { get; set; }
     /// <summary>UI 线程 marshal 等待的均值耗时（ms，v0.20.0）。</summary>
     public long UiMs { get; set; }
+    /// <summary>未识别进程在线查询阶段的均值耗时（ms，v0.22.0；v0.22 起非阻塞，应接近 0）。</summary>
+    public long LookupMs { get; set; }
 }
 
 /// <summary>
@@ -158,7 +160,8 @@ public class SelfCostRecorder
             EnumMs = AverageOf(_timings, t => t.EnumMs),
             ClassifyMs = AverageOf(_timings, t => t.ClassifyMs),
             GpuMs = AverageOf(_timings, t => t.GpuMs),
-            UiMs = AverageOf(_timings, t => t.UiMs)
+            UiMs = AverageOf(_timings, t => t.UiMs),
+            LookupMs = AverageOf(_timings, t => t.LookupMs)
         };
     }
 

@@ -236,6 +236,37 @@ public partial class ResidentEngine
         catch (Exception ex) { Helpers.Diag.Record("long-resident-advice", ex); return false; }
     }
 
+    // ---- WSL 常驻提示（v0.22.0，默认开启）----
+
+    /// <summary>
+    /// 每天一次：vmmemWSL 占用 ≥ 阈值且今天零活动 → 提示可以 `wsl --shutdown`。
+    /// 与垃圾/长驻建议**不互斥**：vmmem 的正确动作是退出 WSL（不是挂起/结束），
+    /// 这条提示不占"每天一张建议卡"的名额。
+    /// 硬约束：只发事件，不执行任何动作（VM 只提供复制命令）。
+    /// </summary>
+    private bool MaybeAdviseWsl(List<ProcessInfo> procs)
+    {
+        var cfg = _config.Config;
+        if (!cfg.WslShutdownHintEnabled) return false;
+        if (!UiActive) return false;   // 托盘不评估（与 v0.20 的教训一致）
+
+        var today = DateTime.Now.ToString("yyyyMMdd");
+        if (string.Equals(JunkAdvice?.WslHintDayKey, today, StringComparison.Ordinal)) return false;
+
+        try
+        {
+            var hint = WslHintAdvisor.Recommend(procs, cfg.WslShutdownHintMinMb * 1048576L,
+                cfg.WslShutdownHintMinAgeMinutes, DateTime.Now);
+            if (hint == null) return false;
+            // 学习降噪：用户忽略过就 7/30/90 天不再提（与垃圾建议共用账本）
+            if (JunkAdvice != null && !JunkAdvice.ShouldSuggest(hint.Process.Name, DateTime.UtcNow)) return false;
+            JunkAdvice?.MarkWslHintDelivered(today);
+            WslHintAdvised?.Invoke(hint);
+            return true;
+        }
+        catch (Exception ex) { Helpers.Diag.Record("wsl-hint", ex); return false; }
+    }
+
     /// <summary>定时挂起到期自动恢复（每 tick 检查；Start 时也补跑一次覆盖关闭期间到期）。</summary>
     internal void ResumeExpiredSuspends()
     {

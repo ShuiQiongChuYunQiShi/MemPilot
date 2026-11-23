@@ -40,7 +40,18 @@ public static class DecisionLogFilter
                && JunkAdviceNoiseDecisions.Contains(entry.Decision ?? "");
     }
 
-    /// <summary>按开关过滤（showNoise=false 时剔除噪声）。</summary>
-    public static IEnumerable<DecisionEntry> Filter(IEnumerable<DecisionEntry> entries, bool showNoise)
-        => showNoise ? entries : entries.Where(e => !IsNoise(e));
+    /// <summary>
+    /// 按开关与 Kind 过滤（v0.22.0 增加 kind）：
+    /// showNoise=false 时剔除噪声；kind 非空时只保留该 Kind（大小写不敏感）。两者是 AND 关系。
+    /// </summary>
+    public static IEnumerable<DecisionEntry> Filter(IEnumerable<DecisionEntry> entries, bool showNoise, string? kind = null)
+    {
+        var q = showNoise ? entries : entries.Where(e => !IsNoise(e));
+        if (!string.IsNullOrWhiteSpace(kind))
+            q = q.Where(e => string.Equals(e.Kind, kind, StringComparison.OrdinalIgnoreCase));
+        return q;
+    }
+
+    /// <summary>Kind 下拉第一项（全部）。</summary>
+    public const string AllKinds = "";
 }
