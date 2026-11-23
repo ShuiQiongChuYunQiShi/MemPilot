@@ -24,7 +24,7 @@ browser tabs, IDE, or game becoming collateral damage.
 
 | Channel | File | Size | Needs |
 |---|---|---|---|
-| **Portable (recommended)** | `MemPilot-<ver>-portable.zip` | **~440 KB** | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| **Portable (recommended)** | `MemPilot-<ver>-portable.zip` | **~500 KB zip / ~440 KB extracted** | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
 | Self-contained | `MemPilot-<ver>-win-x64.exe` | ~62 MB | nothing — runtime is bundled |
 
 Both are on the [Releases page](https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/latest).

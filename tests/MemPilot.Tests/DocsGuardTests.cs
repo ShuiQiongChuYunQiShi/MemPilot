@@ -18,10 +18,23 @@ public class DocsGuardTests
     public void Readme_SizeNumbers_MatchReality()
     {
         var readme = Read("README.md");
-        Assert.DoesNotContain("~3 MB", readme);        // portable 实测 ~440KB
+        Assert.DoesNotContain("~3 MB", readme);        // portable 实测 ~440KB 解压 / ~500KB zip
         Assert.DoesNotContain("65 MB", readme);         // 自包含实测 62.1MB
         Assert.Contains("~440 KB", readme);
+        Assert.Contains("~500 KB", readme);             // v0.22.0：zip 实测约 500KB
         Assert.Contains("~62 MB", readme);
+    }
+
+    [Fact]
+    public void CurrentZhDoc_TracksCurrentRelease_AndBilingualReality()
+    {
+        var current = Read("docs", "README-zh.md");
+        // v0.22.0：中文文档曾停在 v0.13.1，还写着"英文界面字符串抽取中"——与 v0.19 起的双语矛盾
+        Assert.Contains("v0.22", current);
+        Assert.DoesNotContain("v0.13.1", current);
+        Assert.DoesNotContain("英文界面字符串抽取中", current);
+        Assert.Contains("双语", current);
+        Assert.Contains("500 KB", current);
     }
 
     [Fact]

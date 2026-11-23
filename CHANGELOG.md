@@ -4,6 +4,62 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.22.0] — safety fixes, WSL hint, decision export, process-page polish
+
+### Fixed
+- **Cross-page selection leak (safety).** The process page's context menu reused the
+  cleanup page's L1–L4 handlers, and `GetSelectedUnused()` fell back from one grid to
+  the other. Right-clicking "force kill" on a process could target the *other* page's
+  stale selection. The two pages now have page-scoped selectors, and right-click
+  selects the row under the cursor first.
+- **`ContainerVm` was not excluded from any action path.** `vmmemWSL` could be
+  working-set-trimmed (evicting the whole WSL instance to disk) and was eligible for
+  make-room L4. `TrimSelection`, `UnusedDetector` and `CleanupEngine.BuildPlan` now
+  exclude it.
+- **Slow-tick root cause.** `self-*.jsonl` showed the 1086/1090 ms spikes all in the
+  enumeration stage, on an 11-minute cadence: `schtasks.exe` ran synchronously when
+  its 10-minute cache expired. `GetScheduledTasksCached()` is now
+  stale-while-revalidate (old list returned, refresh on the thread pool);
+  `LookupUnknowns` no longer blocks the refresh (`Task.WaitAll(3s)` removed), and
+  `RefreshTimings` gained a `LookupMs` segment to confirm it.
+- **Sorting was lost on every refresh** (the collection is replaced wholesale). The
+  last sort is now recorded and replayed; tree mode says why sorting is unavailable
+  instead of silently ignoring it.
+- Double-click and the tree glyph used the previous `SelectedItem` (double-clicking
+  empty space opened Explorer for an unrelated process); both now resolve the row
+  under the cursor and stop propagation.
+- The process grid's default visible columns (1067 px) overflowed a 1280-wide window
+  (1025 px available); the name column is now `*` with a 160 px minimum.
+- Empty states: filtering to zero rows said "enumerating processes", and the decision
+  log said "no entries yet" even when it was merely hiding noise. Both now explain
+  the real state and offer a fix (clear filters / show noise).
+- `Kind_LongResident` was missing from both dictionaries (the log showed the raw enum).
+- Home page "sweep junk" reported results only to the cleanup page's hint line.
+
+### Added
+- **WSL resident hint** (on by default): when `vmmemWSL` holds ≥2 GB with no WSL
+  activity today, the home page suggests `wsl --shutdown` with a copy button —
+  hint only, never executed. One per day, with the same 7/30/90-day learning
+  cooldown, and independent of the junk/long-resident advice slots.
+- **Decision log**: Kind filter dropdown; CSV/JSON export with RFC 4180 escaping;
+  reason templates with stable codes (15 high-frequency writers migrated; legacy
+  rows fall back to the original Chinese text and are flagged `legacy` in JSON).
+- **60-second commit check** on the home page: trims the safe subset and shows
+  physical vs commit before/after side by side, stating plainly that commit staying
+  flat is the expected outcome.
+- **Unified ComboBox styling** (min-height 30, chip radius, real dark-theme colors,
+  custom chevron) — the old style only overrode `Foreground`, leaving Aero2 chrome
+  that looked foreign in the toolbar and was unreadable in dark mode.
+- Search box placeholder + tooltip; Esc now clears the search when it has focus.
+- Column-width persistence, "restore default columns", and a duplicated "VRAM"
+  group header removed from the column menu.
+
+### Changed
+- `docs/README-zh.md` updated from v0.13.1 to v0.22.0 (bilingual UI, export, WSL
+  hint, commit check); portable size documented as ~500 KB zip / ~440 KB extracted;
+  `DocsGuardTests` now fails if the Chinese doc drifts back to an old release or the
+  "English UI pending" claim.
+
 ## [0.21.0] — long-resident advice (suspend only, off by default)
 
 ### Added
