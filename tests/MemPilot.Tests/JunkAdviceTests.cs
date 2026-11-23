@@ -385,6 +385,41 @@ public class JunkAdviceTests : IDisposable
     }
 
     [Fact]
+    public void DailyGate_RespectsRetryCooldown()
+    {
+        // v0.20.0（P0）：交付失败后进入了重试冷却 → 不评估（旧实现每 tick 空转，60 秒一轮）
+        var evening = new DateTime(2026, 11, 11, 19, 5, 0);
+        var nowUtc = evening.ToUniversalTime();
+
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, nowUtc.AddMinutes(15)));  // 冷却中
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, nowUtc.AddMinutes(-1)));   // 冷却已过
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default));                 // 从未设置
+    }
+
+    [Fact]
+    public void DailyGate_SkipsWhenWindowNotVisible()
+    {
+        // v0.20.0（P0）：托盘/窗口不可见时从源头不评估——11 天里 2,190 条「跳过」全来自这条路径
+        var evening = new DateTime(2026, 11, 11, 19, 5, 0);
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default, uiActive: false));
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default, uiActive: true));
+    }
+
+    [Fact]
+    public void Store_DeferDelivery_RollsBackDayKey_AndPersistsCooldown()
+    {
+        var store = new JunkAdviceStore(_dir);
+        store.MarkAdviceDelivered("20261111");
+        store.DeferDelivery(TimeSpan.FromMinutes(15));
+
+        var reloaded = new JunkAdviceStore(_dir);                              // 跨重启保留
+        Assert.Equal("", reloaded.AdviceDayKey);                               // 当日标记已回滚
+        Assert.True(reloaded.RetryAfterUtc > DateTime.UtcNow.AddMinutes(14),
+            "15 分钟冷却应已落盘（跨重启后仍生效）");
+        Assert.True(reloaded.RetryAfterUtc < DateTime.UtcNow.AddMinutes(16));
+    }
+
+    [Fact]
     public void Store_MigratesLegacyBareArrayFormat()
     {
         File.WriteAllText(Path.Combine(_dir, "junk-advice.json"),
@@ -494,7 +529,9 @@ public class JunkAdviceTests : IDisposable
         Assert.Equal(DateTime.Now.ToString("yyyyMMdd"), engine.JunkAdvice!.AdviceDayKey);  // 当日标记已落
         decisions.Flush();
         var log = decisions.Recent(10);
-        Assert.Contains(log, e => e.Kind == "JunkAdvice" && e.Decision == "建议");
+        // v0.20.0：「建议」日志改由 VM 在真正弹卡时写——引擎只发事件，不再抢写（旧实现在托盘
+        // 模式也写「建议」再由 VM 写「跳过」，11 天产生 4,387 条噪声）
+        Assert.DoesNotContain(log, e => e.Kind == "JunkAdvice");
     }
 
     [Fact]

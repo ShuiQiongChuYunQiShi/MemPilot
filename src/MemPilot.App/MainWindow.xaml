@@ -921,7 +921,18 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="{DynamicResource Decisions_Hint}" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{DynamicResource Decisions_Hint}" Foreground="{DynamicResource TextSecondary}"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <!-- v0.20.0：默认折叠建议/增长观察（实测占决策日志 87.7%） -->
+                        <CheckBox Grid.Column="1" Content="{DynamicResource Decisions_ShowNoise}"
+                                  IsChecked="{Binding ShowNoise, Mode=TwoWay}"
+                                  VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    </Grid>
                     <Grid><DataGrid Grid.Row="1" ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="{DynamicResource Col_Time}" Binding="{Binding TimeText}" Width="150"/>

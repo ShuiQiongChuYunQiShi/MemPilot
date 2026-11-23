@@ -32,10 +32,15 @@ public class JunkAdviceStore
         TimeSpan.FromDays(90),   // 忽略 3 次及以上
     };
 
-    /// <summary>落盘结构（v0.17.0）：条目 + 当日已交付标记（跨重启不重复建议）。</summary>
+    /// <summary>
+    /// 落盘结构（v0.17.0 条目 + 当日已交付标记；v0.20.0 增加 RetryAfterUtc 重试冷却）。
+    /// RetryAfterUtc 解决 v0.19.0 的"空转"：托盘模式每 tick 都重新评估并回滚标记，
+    /// 决策日志 87.7% 是「建议 + 跳过」——冷却把重试压到 15 分钟一次。
+    /// </summary>
     private sealed class StoreDto
     {
         public string AdviceDayKey { get; set; } = "";
+        public DateTime RetryAfterUtc { get; set; }
         public List<JunkAdviceEntry> Entries { get; set; } = new();
     }
 
@@ -43,6 +48,7 @@ public class JunkAdviceStore
     private readonly object _gate = new();
     private List<JunkAdviceEntry> _entries = new();
     private string _adviceDayKey = "";
+    private DateTime _retryAfterUtc;
 
     public JunkAdviceStore(string dataDir)
     {
@@ -68,6 +74,7 @@ public class JunkAdviceStore
                     : JsonSerializer.Deserialize<StoreDto>(raw) ?? new StoreDto();
                 _entries = dto.Entries;
                 _adviceDayKey = dto.AdviceDayKey;
+                _retryAfterUtc = dto.RetryAfterUtc;
             }
         }
         catch (Exception ex)
@@ -83,8 +90,12 @@ public class JunkAdviceStore
         // 上限 500：按 LastSuggestedUtc 淘汰最久未提示的
         if (_entries.Count > MaxEntries)
             _entries = _entries.OrderByDescending(e => e.LastSuggestedUtc).Take(MaxEntries).ToList();
-        JsonFileStore.Save(_path, new StoreDto { AdviceDayKey = _adviceDayKey, Entries = _entries },
-            JsonFileStore.Pretty);
+        JsonFileStore.Save(_path, new StoreDto
+        {
+            AdviceDayKey = _adviceDayKey,
+            RetryAfterUtc = _retryAfterUtc,
+            Entries = _entries
+        }, JsonFileStore.Pretty);
     }
 
     /// <summary>当天是否已交付过一次建议（跨重启）：key 形如 yyyyMMdd。null/空=未交付。</summary>
@@ -103,6 +114,26 @@ public class JunkAdviceStore
     public void ClearAdviceDay()
     {
         lock (_gate) { _adviceDayKey = ""; SaveLocked(); }
+    }
+
+    /// <summary>下次允许评估建议的 UTC 时刻（v0.20.0；default=不限制）。</summary>
+    public DateTime RetryAfterUtc
+    {
+        get { lock (_gate) return _retryAfterUtc; }
+    }
+
+    /// <summary>
+    /// 交付失败后的冷却（v0.20.0）：清当日标记 + 设重试下限，两者一并落盘（跨重启有效）。
+    /// 取代 v0.17.0 的"每 tick 重试"——托盘模式导致 4,387 条 JunkAdvice 噪声日志。
+    /// </summary>
+    public void DeferDelivery(TimeSpan cooldown)
+    {
+        lock (_gate)
+        {
+            _adviceDayKey = "";
+            _retryAfterUtc = DateTime.UtcNow + cooldown;
+            SaveLocked();
+        }
     }
 
     /// <summary>该进程名现在是否值得再提示一次（学习后的冷却判定）。</summary>

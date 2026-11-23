@@ -116,7 +116,7 @@ public partial class ResidentEngine
                 _sinceFullRefresh.Restart();
                 var sw = Stopwatch.StartNew();
                 try { await refreshAsync(CancellationToken.None).ConfigureAwait(false); }
-                finally { SelfCost?.RecordTick(sw.ElapsedMilliseconds, StageFailures); }
+                finally { SelfCost?.RecordTick(sw.ElapsedMilliseconds, LastTimings, StageFailures); }
             }
             catch { }
             finally { if (taken) { lock (_tickLock) { _ticking = false; } } }
@@ -133,6 +133,13 @@ public partial class ResidentEngine
 
     /// <summary>自身开销记录（v0.18.0，由 VM 注入）。</summary>
     public SelfCostRecorder? SelfCost { get; set; }
+
+    /// <summary>
+    /// 最近一次全量刷新的分段耗时（v0.20.0，由 VM 的 RefreshAsync 写入）。
+    /// 引用类型单次赋值天然原子；tick 有防重入，读到的就是本次刷新的值。
+    /// 首帧/手动刷新前为全 0。
+    /// </summary>
+    public RefreshTimings LastTimings { get; set; } = RefreshTimings.Zero;
 
     /// <summary>压力判定（与 WatchAvailableFloor 同阈值）：可用 &lt;3 GB 或提交余量 &lt;10%。</summary>
     public static bool IsPressure(SystemMemoryInfo mem)

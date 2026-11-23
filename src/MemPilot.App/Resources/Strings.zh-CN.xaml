@@ -280,6 +280,7 @@
     <sys:String x:Key="Btn_ResumeAll">恢复全部挂起</sys:String>
     <sys:String x:Key="Btn_Relaunch">重启选中程序</sys:String>
     <sys:String x:Key="Decisions_Hint">引擎的每个自动决定：为什么切换模式、执行/跳过了谁、跳过原因（自动行为可解释）</sys:String>
+    <sys:String x:Key="Decisions_ShowNoise">显示建议/增长观察</sys:String>
     <sys:String x:Key="Col_Kind">类别</sys:String>
     <sys:String x:Key="Col_Decision">决定</sys:String>
     <sys:String x:Key="Empty_Decisions">还没有记录。引擎的每个自动决定都会出现在这里——包括它「跳过」了谁、为什么跳过。</sys:String>

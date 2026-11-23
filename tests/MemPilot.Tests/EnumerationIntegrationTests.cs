@@ -140,6 +140,18 @@ public class EnumerationIntegrationTests
     {
         var procs = new ProcessService().EnumerateProcesses();
         Dump(procs);
+
+        // v0.20.0 修正：EnumerateProcesses 本身不做分类（Category 恒为 Unknown）。
+        // 旧测试直接断言 Category，一直是 vacuous pass；本机 11-23 跑起 ACE 反作弊
+        // （SGuardSvc64）后立刻暴露。这里补上真实的分类流水线再断言。
+        var dir = Path.Combine(TestTmp.Dir, "enum-classify-" + Guid.NewGuid().ToString("N"));
+        var engine = new ClassificationEngine(new FeedbackStore(dir));
+        var svc = new ServiceService();
+        var svcByPid = svc.MapByPid(svc.EnumerateServices());
+        var protectedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "system", "registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "svchost", "dwm", "explorer" };
+        foreach (var p in procs) engine.Classify(p, svcByPid, protectedNames);
+
         var ac = procs.Where(p => !string.IsNullOrEmpty(p.ExecutablePath) &&
             (p.ExecutablePath.Contains("anticheat", StringComparison.OrdinalIgnoreCase) ||
              p.ExecutablePath.Contains("anti-cheat", StringComparison.OrdinalIgnoreCase))).ToList();
@@ -147,7 +159,8 @@ public class EnumerationIntegrationTests
 
         foreach (var p in ac)
         {
-            Assert.Equal(ProcessCategory.AntiCheat, p.Category);
+            Assert.True(ProcessCategory.AntiCheat == p.Category,
+                $"{p.Name} under anti-cheat path classified {p.Category} (reason={p.CategoryReason}): {p.ExecutablePath}");
             Assert.True(p.IsProtected, $"{p.Name} under anti-cheat path but not protected: {p.ExecutablePath}");
         }
     }

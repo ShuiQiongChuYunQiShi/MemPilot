@@ -49,6 +49,24 @@ public partial class MainViewModel : INotifyPropertyChanged
         get => _homeDecisions;
         private set { _homeDecisions = value; OnPropertyChanged(); }
     }
+
+    private bool _showNoise;
+    /// <summary>
+    /// 决策日志是否显示「建议/增长观察」噪声（v0.20.0，默认折叠）。
+    /// 实测 11 天 5,000 条记录中 JunkAdvice 占 87.7%——用户要滚过几百条建议才能看到真实动作。
+    /// 注意挂起/自动恢复属于真实动作，不受此开关影响（判定见 DecisionLogFilter）。
+    /// </summary>
+    public bool ShowNoise
+    {
+        get => _showNoise;
+        set
+        {
+            if (_showNoise == value) return;
+            _showNoise = value;
+            OnPropertyChanged();
+            ReloadDecisions();
+        }
+    }
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
@@ -480,7 +498,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         SetMode(config.Config.CurrentMode, "startup");
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
-        foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        foreach (var d in DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise)) DecisionEntries.Add(d);
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
     }
@@ -568,7 +586,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             RefreshStatus(UiStrings.Get("Process_Enumerating"));
             IsBusy = true;
 
-            long enumMs = 0, classifyMs = 0;
+            long enumMs = 0, classifyMs = 0, gpuMs = 0;
             var data = await Task.Run(() =>
             {
                 Engine.SampleForeground();
@@ -595,7 +613,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 MaybeSuggestPromotions();
 
                 var mem = ProcessService.GetSystemMemory();
+                var swG = System.Diagnostics.Stopwatch.StartNew();
                 var gpuMem = GpuMemory.Sample();          // 显存：逐进程 + 适配器（PDH，独立于 UI 可见性）
+                gpuMs = swG.ElapsedMilliseconds;          // v0.20.0：慢 tick 常见元凶单独计量
                 ApplyGpuMemory(procs, gpuMem);            // 填 ProcessInfo.Gpu*（不可用则保持 false → UI 显示 "-"）
                 var unused = UnusedDetector.Detect(procs, mem, Engine.LastForegroundPid, audio, suspended);
                 var gpu = GpuService.GetAdapters(gpuMem); // 名称/容量 + DXGI 缺失时的 PDH 用量兜底
@@ -609,6 +629,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             var gpuMemOut = data.gpuMem;
 
             var uiActive = UiActive;
+            var swU = System.Diagnostics.Stopwatch.StartNew();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (uiActive)
@@ -632,6 +653,8 @@ public partial class MainViewModel : INotifyPropertyChanged
                 RefreshStatus(UiStrings.F("Status_Enumerated",
                     _lastProcs.Count, unusedOut.Count, enumMs, classifyMs));
             });
+            // v0.20.0：分段耗时交给引擎落盘（self-*.jsonl），慢 tick 可定位到具体阶段
+            Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds);
 
             Engine.AfterRefresh(_lastProcs, memOut);
             LeaseManager.CheckGuard(memOut, DateTime.UtcNow);   // v0.7.0：占用期守护

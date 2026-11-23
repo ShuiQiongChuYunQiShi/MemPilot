@@ -114,8 +114,9 @@ public partial class ResidentEngine
     private bool MaybeAdviseJunk(List<ProcessInfo> procs, bool force = false)
     {
         if (!_config.Config.JunkAdviceEnabled) return false;
-        // force=true（设置页「立即检查」）跳过时间窗与当日标记，安全过滤与学习冷却照常
-        if (!force && !ShouldEvaluateJunkAdvice(DateTime.Now, JunkAdviceEarliestHour, JunkAdvice?.AdviceDayKey))
+        // force=true（设置页「立即检查」）跳过时间窗、重试冷却与当日标记，安全过滤与学习冷却照常
+        if (!force && !ShouldEvaluateJunkAdvice(DateTime.Now, JunkAdviceEarliestHour,
+                JunkAdvice?.AdviceDayKey, JunkAdvice?.RetryAfterUtc ?? default, UiActive))
             return false;
         try
         {
@@ -127,13 +128,7 @@ public partial class ResidentEngine
                 MarkedCleanableProvider?.Invoke());
             if (advice == null) return false;   // 没有候选：不消费当日标记，晚些再评估
             JunkAdvice?.MarkAdviceDelivered(DateTime.Now.ToString("yyyyMMdd"));
-            _decisions.Log(new DecisionEntry
-            {
-                Kind = "JunkAdvice",
-                Target = advice.NamesText,
-                Decision = "建议",
-                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB"
-            });
+            // v0.20.0：这里不再写决策日志——只有 VM 真正弹卡才写（见 MainViewModel.JunkAdvice.cs）。
             JunkAdvised?.Invoke(advice);
             return true;
         }
@@ -145,26 +140,37 @@ public partial class ResidentEngine
 
     /// <summary>
     /// 是否到了评估垃圾建议的时候（v0.17.0，纯函数便于测试）：
-    /// ① 本地时间 ≥ earliestHour（默认 19 点——午夜评估等于把所有进程都算"今天未使用"）；
-    /// ② 当天尚未交付（deliveredDayKey 持久化在 junk-advice.json，跨重启有效）。
+    /// ① 窗口必须可见（v0.20.0）——托盘模式不评估、不发事件，从源头掐掉每 tick 空转；
+    /// ② 本地时间 ≥ earliestHour（默认 19 点——午夜评估等于把所有进程都算"今天未使用"）；
+    /// ③ 当天尚未交付（deliveredDayKey 持久化在 junk-advice.json，跨重启有效）；
+    /// ④ 重试冷却已过期（v0.20.0：交付失败后 15 分钟内不再评估，避免每 tick 空转）。
     /// </summary>
-    public static bool ShouldEvaluateJunkAdvice(DateTime nowLocal, int earliestHour, string? deliveredDayKey)
+    public static bool ShouldEvaluateJunkAdvice(DateTime nowLocal, int earliestHour, string? deliveredDayKey,
+        DateTime retryAfterUtc = default, bool uiActive = true)
     {
+        if (!uiActive) return false;
         if (nowLocal.Hour < earliestHour) return false;
+        if (retryAfterUtc != default && retryAfterUtc > nowLocal.ToUniversalTime()) return false;
         if (string.Equals(deliveredDayKey, nowLocal.ToString("yyyyMMdd"), StringComparison.Ordinal))
             return false;
         return true;
     }
 
+    /// <summary>交付失败后的默认重试冷却（v0.20.0）。15 分钟：够用户回到电脑，又不至于整天不再提。</summary>
+    public static readonly TimeSpan JunkAdviceRetryCooldown = TimeSpan.FromMinutes(15);
+
     /// <summary>
-    /// VM 报告"没能交付"（托盘模式/窗口隐藏）：回滚当日标记，下一次 tick 可重试。
+    /// VM 报告"没能交付"（窗口不可见）：回滚当日标记并设 15 分钟冷却（v0.20.0）。
     /// 不烧任何进程的 7 天冷却——冷却只在真正弹卡时由 VM 写入。
     /// </summary>
-    public void RejectJunkAdvice()
+    public void DeferJunkAdvice(TimeSpan cooldown)
     {
-        try { JunkAdvice?.ClearAdviceDay(); }
-        catch (Exception ex) { Helpers.Diag.Record("junk-advice-reject", ex); }
+        try { JunkAdvice?.DeferDelivery(cooldown); }
+        catch (Exception ex) { Helpers.Diag.Record("junk-advice-defer", ex); }
     }
+
+    /// <summary>旧入口（v0.17.0）：回滚当日标记，下一次 tick 立即可重试。v0.20.0 起委托给 DeferJunkAdvice。</summary>
+    public void RejectJunkAdvice() => DeferJunkAdvice(JunkAdviceRetryCooldown);
 
     /// <summary>设置页「立即检查」：忽略时间窗与当日标记，安全过滤与冷却照常。</summary>
     public void ForceJunkAdviceNow(List<ProcessInfo> procs)

@@ -4,6 +4,40 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.20.0] — log review: no more junk-advice idle churn, clean ledger, stage timings
+
+Driven by a review of 10-30 → 11-23 real usage logs (5,000 decisions, 754 audit
+entries, 12 days of samples).
+
+### Fixed
+- **Junk advice ran an empty evaluation every 60 s while the window was hidden.**
+  `JunkAdvice` was 87.7% of the decision log (4,387/5,000) and 2,190 of those were
+  "user not present, card not shown" pairs. The engine now skips the whole
+  evaluation when the shell reports no visible window (`UiActive`), and a failed
+  delivery sets a persisted 15-minute retry cooldown (`JunkAdviceStore.RetryAfterUtc`)
+  instead of retrying on every tick. The "advice" decision entry is now written
+  by the view-model at the moment the card is actually shown, so the log no
+  longer claims deliveries that never happened.
+- **`suspended.json` kept ghost records forever.** `SuspendRegistry.LoadAndValidate`
+  dropped records whose process had exited but never wrote the file back — two
+  11-18 entries sat there for five days. The registry now saves after pruning.
+- **Slow ticks (8–12 s) were unattributable.** `history/self-*.jsonl` only had the
+  total duration. `SelfCostSample` now carries per-stage means
+  (`EnumMs` / `ClassifyMs` / `GpuMs` / `UiMs`) so a slow tick points at
+  enumeration, signature verification, PDH sampling or UI marshalling.
+- **The decision log was 87% noise.** Advice and growth observations are now
+  folded by default behind a "Show advice/growth observations" checkbox.
+  Real actions that share the `JunkAdvice` kind (suspend / dismiss / automatic
+  resume) are always visible — see `DecisionLogFilter`.
+- `EnumerationIntegrationTests.RealEnumeration_AntiCheatPathsAreNeverGame` never
+  actually classified the enumerated processes, so it had been passing
+  vacuously; it now runs the real classification pipeline (caught by ACE
+  anti-cheat appearing on the dev machine).
+
+### Added
+- `DecisionLogFilter` (Core, pure functions + tests) and
+  `RefreshTimings` (per-refresh stage durations).
+
 ## [0.19.0] — bilingual UI (zh-CN / en) + pre-open-source cleanup
 
 ### Added

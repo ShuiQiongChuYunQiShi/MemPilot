@@ -53,6 +53,26 @@ public class SuspendRegistryTests : IDisposable
     }
 
     [Fact]
+    public void DeadRecord_IsPrunedFromFile_NotJustMemory()
+    {
+        // v0.20.0（P1）：旧实现只清内存不落盘 → suspended.json 永久残留幽灵记录
+        // （实测 11-18 的两条挂起记录在文件里躺了 5 天，UI 看不到、文件永远脏）
+        var reg = new SuspendRegistry(_dir);
+        reg.Add(999999, DateTime.Now, "ghost", "test");
+        var path = Path.Combine(_dir, "suspended.json");
+        Assert.Equal(1, JsonArrayLength(path));
+
+        _ = new SuspendRegistry(_dir);                    // 模拟重启：加载时丢弃死记录
+        Assert.Equal(0, JsonArrayLength(path));           // 且必须写回文件
+    }
+
+    private static int JsonArrayLength(string path)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        return doc.RootElement.GetArrayLength();
+    }
+
+    [Fact]
     public void StartTimeMismatch_IsRejected()
     {
         // register the real current process but with a wrong start time (simulating pid reuse)

@@ -1,4 +1,5 @@
-﻿using MemPilot.Models;
+﻿using MemPilot.Helpers;
+using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -26,24 +27,17 @@ public partial class MainViewModel
     /// <summary>预计释放的私有提交（MB，取整）。</summary>
     public long JunkAdviceTotalMb => (_junkAdvice?.TotalPrivateBytes ?? 0) / 1048576;
 
-    /// <summary>引擎事件 → 卡片（托盘模式只记日志不打扰）。</summary>
+    /// <summary>引擎事件 → 卡片（窗口不可见只记诊断、不写决策日志）。</summary>
     private void AttachJunkAdvice()
     {
         Engine.JunkAdvised += advice => System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!UiActive)
             {
-                // v0.17.0：这里**回滚当日标记**，窗口可见后的下一次 tick 还能再弹。
-                // 实测教训：v0.16 在这里写"次日再评估"就返回，但引擎已在发送前落了
-                // 7 天冷却（junk-advice.json 4 条）——用户永远看不到这张卡。
-                Engine.RejectJunkAdvice();
-                Decisions.Log(new DecisionEntry
-                {
-                    Kind = "JunkAdvice",
-                    Target = advice.NamesText,
-                    Decision = "跳过",
-                    Reason = "用户不在场（托盘模式），未弹卡——窗口可见后会自动重试（不消耗提示冷却）"
-                });
+                // v0.20.0（P0）：引擎已在源头按 UiActive 挡住评估，这里是竞态兜底（窗口刚隐藏）。
+                // 只设 15 分钟冷却 + 写诊断（决定日志不再记录这种"用户没看到"的事件，占 87.7% 噪声）。
+                Engine.DeferJunkAdvice(ResidentEngine.JunkAdviceRetryCooldown);
+                Diag.Record("junk-advice:deferred", $"window not visible; retry after {ResidentEngine.JunkAdviceRetryCooldown.TotalMinutes:F0}min");
                 return;
             }
             // 真正展示前才写"已建议"冷却（引擎不再提前写）
@@ -53,6 +47,14 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(JunkAdviceNames));
             OnPropertyChanged(nameof(JunkAdviceTotalMb));
             JunkAdvicePending = true;
+            // v0.20.0：日志改在这里写——必然真交付（旧实现引擎写、VM 回滚，日志与事实不符）
+            Decisions.Log(new DecisionEntry
+            {
+                Kind = "JunkAdvice",
+                Target = advice.NamesText,
+                Decision = "建议",
+                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB"
+            });
             // 每日一次托盘气球（通知策略第 5 类白名单）
             RaiseAlert(UiStrings.Get("Junk_BalloonTitle"), UiStrings.F("Junk_BalloonBody", advice.NamesText, JunkAdviceTotalMb));
         }));
