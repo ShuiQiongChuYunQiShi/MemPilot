@@ -17,6 +17,7 @@
         <helpers:IndentConverter x:Key="Indent"/>
         <helpers:CollapsedGlyphConverter x:Key="Glyph"/>
         <helpers:CategoryTextConverter x:Key="CatText"/>
+        <helpers:DecisionReasonConverter x:Key="DecisionReason"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- sidebar tab -->
@@ -590,7 +591,22 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <Button Content="{DynamicResource Action_TrimIdle}" Click="TrimAllWs_Click" Style="{StaticResource PrimaryBtn}"/>
                                         <Button Content="{DynamicResource Btn_SweepJunk}" Click="SweepJunk_Click" Style="{StaticResource GhostBtn}"/>
+                                        <!-- v0.22.0：60 秒 commit 演示——把「物理降了、提交没动」变成可感知 -->
+                                        <Button Content="{DynamicResource Btn_CommitDemo}" Click="RunCommitDemo_Click" Style="{StaticResource GhostBtn}" ToolTip="{DynamicResource Btn_CommitDemoTip}"/>
                                     </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- v0.22.0：60 秒对比结果（并排显示物理与提交的前后值） -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding DemoPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Demo_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding DemoPhysText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,6,0,0" FontSize="12"/>
+                                    <TextBlock Text="{Binding DemoCommitText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,2,0,0" FontSize="12"/>
+                                    <TextBlock Text="{DynamicResource Demo_Explain}" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0" FontSize="11"/>
+                                    <Button Content="{DynamicResource Common_Close}" Click="CloseCommitDemo_Click" Style="{StaticResource GhostBtn}"
+                                            HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -1001,6 +1017,8 @@
                             <CheckBox Content="{DynamicResource Decisions_ShowNoise}"
                                       IsChecked="{Binding ShowNoise, Mode=TwoWay}"
                                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            <Button Content="{DynamicResource Btn_ExportDecisions}" Click="ExportDecisions_Click"
+                                    Style="{StaticResource GhostBtn}" Margin="12,0,0,0"/>
                         </StackPanel>
                     </Grid>
                     <!-- v0.20.1：内层 Grid 必须显式占 Row 1——缺省 Row 0 会让 DataGrid 盖住上面的
@@ -1011,7 +1029,7 @@
                             <DataGridTextColumn Header="{DynamicResource Col_Kind}" Binding="{Binding Kind, Converter={StaticResource KindText}}" Width="110"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Target}" Binding="{Binding Target}" Width="220"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Decision}" Binding="{Binding Decision}" Width="130"/>
-                            <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding Reason}" Width="*"/>
+                            <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding Converter={StaticResource DecisionReason}}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                         <TextBlock Text="{Binding DecisionEmptyText}" HorizontalAlignment="Center" VerticalAlignment="Center"

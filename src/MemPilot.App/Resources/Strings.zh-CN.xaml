@@ -89,6 +89,24 @@
     <sys:String x:Key="Kind_JunkSweep">垃圾清扫</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">系统内存自动优化（已废弃）</sys:String>
 
+    <!-- ===== 决策原因模板（v0.22.0）：稳定 code → 本地化文案；
+         参数里的自由文本（跳过原因/结果消息）仍为写入时的原文 ===== -->
+    <sys:String x:Key="Decision_junk_advice_suggested">建议处理 {0}（预计释放 {1} MB）</sys:String>
+    <sys:String x:Key="Decision_long_resident_suggested">长驻未用建议：{0}（预计释放 {1} MB，只建议挂起）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_ok">已挂起 {0}，{1} 小时后自动恢复</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_fail">挂起 {0} 失败：{1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_dismissed">已忽略 {0}：{1} 天内不再提示（累计忽略 {2} 次）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_ok">{0} 定时挂起到期，已自动恢复（挂起于 {1}）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_retry">{0} 恢复失败：{1}；已安排 5 分钟后重试</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_cancel">{0} 恢复取消：{1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_no_candidate">立即检查：没有符合条件的目标</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_skipped">跳过 {0}：{1}</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_trim">{0}：回收工作集（模式 {1} 清理名单）</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_close">{0}：优雅关闭（模式 {1} 清理名单）——{2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_done">{0}：{1} 已处置——{2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_failed">{0}：{1} 失败——{2}</sys:String>
+    <sys:String x:Key="Decision_wsl_hint_suggested">vmmemWSL 占用约 {0} GB、已运行 {1} 小时——已提示可执行 wsl shutdown（未自动执行）</sys:String>
+
     <!-- ===== 分类依据（CategoryReason 稳定 id → 文案） ===== -->
     <sys:String x:Key="Reason_access_denied_no_path">权限不足，读不到路径</sys:String>
     <sys:String x:Key="Reason_ai_tool">AI 生成工具</sys:String>
@@ -291,6 +309,9 @@
     <sys:String x:Key="Decisions_Hint">引擎的每个自动决定：为什么切换模式、执行/跳过了谁、跳过原因（自动行为可解释）</sys:String>
     <sys:String x:Key="Decisions_ShowNoise">显示建议/增长观察</sys:String>
     <sys:String x:Key="Decisions_KindFilterAll">全部类型</sys:String>
+    <sys:String x:Key="Btn_ExportDecisions">导出</sys:String>
+    <sys:String x:Key="Decisions_Exported">已导出 {0} 条到 {1}</sys:String>
+    <sys:String x:Key="Decisions_ExportFailed">导出失败：</sys:String>
     <sys:String x:Key="Decisions_HiddenByFilter">当前显示 0 条，已隐藏 {0} 条建议/增长记录。勾选上方「显示建议/增长观察」即可看到。</sys:String>
     <sys:String x:Key="Process_NoMatch">没有匹配的进程。检查搜索词，或清除筛选查看全部。</sys:String>
     <sys:String x:Key="Process_SearchPlaceholder">搜索名称 / 路径 / 窗口标题</sys:String>
@@ -299,7 +320,12 @@
     <sys:String x:Key="Btn_RestoreDefaultColumns">恢复默认列</sys:String>
     <sys:String x:Key="Process_ColumnsReset">已恢复默认列与列宽</sys:String>
     <sys:String x:Key="Process_SortDisabledInTree">树状视图下不支持列排序——切回平铺即可排序</sys:String>
-    <sys:String x:Key="Process_PathMissing">读不到该进程的可执行文件路径（可能已退出或权限不足）</sys:String>
+    <sys:String x:Key="Btn_CommitDemo">60 秒对比</sys:String>
+    <sys:String x:Key="Btn_CommitDemoTip">回收闲置工作集，并排显示物理与提交的前后变化（只动安全子集）</sys:String>
+    <sys:String x:Key="Demo_Title">对比结果：物理变了，提交为什么没变？</sys:String>
+    <sys:String x:Key="Demo_PhysLine">可用物理：{0} GB → {1} GB（{2} GB）</sys:String>
+    <sys:String x:Key="Demo_CommitLine">提交余量：{0} GB → {1} GB（{2} GB）</sys:String>
+    <sys:String x:Key="Demo_Explain">提交没变是预期的：回收工作集只释放物理页。要让下一次大任务（如 12 GB 的 AI 生成）更稳，只能结束闲置进程，或让任务通过租约 API 提前申请。</sys:String>
     <sys:String x:Key="Col_Kind">类别</sys:String>
     <sys:String x:Key="Col_Decision">决定</sys:String>
     <sys:String x:Key="Empty_Decisions">还没有记录。引擎的每个自动决定都会出现在这里——包括它「跳过」了谁、为什么跳过。</sys:String>

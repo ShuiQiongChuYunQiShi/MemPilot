@@ -89,6 +89,24 @@
     <sys:String x:Key="Kind_JunkSweep">Junk sweep</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">Auto optimize (deprecated)</sys:String>
 
+    <!-- ===== Decision reason templates (v0.22.0): stable code → localized text;
+         free-text args (skip reason / result message) keep the original language ===== -->
+    <sys:String x:Key="Decision_junk_advice_suggested">Suggested handling {0} (expected to free {1} MB)</sys:String>
+    <sys:String x:Key="Decision_long_resident_suggested">Long-resident advice: {0} (expected to free {1} MB; suspend only)</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_ok">Suspended {0}; auto-resumes in {1} h</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_fail">Could not suspend {0}: {1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_dismissed">Dismissed {0}: no more hints for {1} days (dismissed {2} times)</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_ok">{0} timed suspend expired; resumed automatically (suspended at {1})</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_retry">{0} resume failed: {1}; retry scheduled in 5 minutes</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_cancel">{0} resume cancelled: {1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_no_candidate">Check now: no eligible target</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_skipped">Skipped {0}: {1}</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_trim">{0}: working set trimmed (mode {1} clean list)</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_close">{0}: graceful close (mode {1} clean list) — {2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_done">{0}: {1} handled — {2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_failed">{0}: {1} failed — {2}</sys:String>
+    <sys:String x:Key="Decision_wsl_hint_suggested">vmmemWSL holds about {0} GB after {1} h — hinted to run wsl shutdown (not executed)</sys:String>
+
     <!-- ===== Classification evidence (stable ids) ===== -->
     <sys:String x:Key="Reason_access_denied_no_path">Access denied — path unavailable</sys:String>
     <sys:String x:Key="Reason_ai_tool">AI generation tool</sys:String>
@@ -291,6 +309,9 @@
     <sys:String x:Key="Decisions_Hint">Every automatic decision: why a mode switched, who was executed or skipped, and exactly which guard skipped them</sys:String>
     <sys:String x:Key="Decisions_ShowNoise">Show advice/growth observations</sys:String>
     <sys:String x:Key="Decisions_KindFilterAll">All kinds</sys:String>
+    <sys:String x:Key="Btn_ExportDecisions">Export</sys:String>
+    <sys:String x:Key="Decisions_Exported">Exported {0} entries to {1}</sys:String>
+    <sys:String x:Key="Decisions_ExportFailed">Export failed: </sys:String>
     <sys:String x:Key="Decisions_HiddenByFilter">Showing 0 entries — {0} advice/growth records are hidden. Tick "Show advice/growth observations" above to see them.</sys:String>
     <sys:String x:Key="Process_NoMatch">No processes match. Check the search text, or clear the filters to see everything.</sys:String>
     <sys:String x:Key="Process_SearchPlaceholder">Search name / path / window title</sys:String>
@@ -299,7 +320,12 @@
     <sys:String x:Key="Btn_RestoreDefaultColumns">Restore default columns</sys:String>
     <sys:String x:Key="Process_ColumnsReset">Default columns and widths restored</sys:String>
     <sys:String x:Key="Process_SortDisabledInTree">Column sorting is unavailable in tree view — switch to flat view to sort</sys:String>
-    <sys:String x:Key="Process_PathMissing">Cannot read this process's executable path (exited or access denied)</sys:String>
+    <sys:String x:Key="Btn_CommitDemo">60-second check</sys:String>
+    <sys:String x:Key="Btn_CommitDemoTip">Trim idle working sets and show physical vs commit side by side (safe subset only)</sys:String>
+    <sys:String x:Key="Demo_Title">Result: physical moved, why didn't commit?</sys:String>
+    <sys:String x:Key="Demo_PhysLine">Available physical: {0} GB → {1} GB ({2} GB)</sys:String>
+    <sys:String x:Key="Demo_CommitLine">Commit headroom: {0} GB → {1} GB ({2} GB)</sys:String>
+    <sys:String x:Key="Demo_Explain">Commit staying flat is expected: trimming working sets only frees physical pages. To make the next big job (say a 12 GB AI generation) safer, close idle processes or have the job request memory through the lease API.</sys:String>
     <sys:String x:Key="Col_Kind">Kind</sys:String>
     <sys:String x:Key="Col_Decision">Decision</sys:String>
     <sys:String x:Key="Empty_Decisions">No entries yet. Every automatic decision appears here — including who was skipped and why.</sys:String>

@@ -10,6 +10,10 @@ public partial class MainWindow
     private void CopyWslCommand_Click(object sender, RoutedEventArgs e) => _vm.CopyWslShutdownCommand();
     private void DismissWslHint_Click(object sender, RoutedEventArgs e) => _vm.DismissWslHint();
 
+    // ---- 60 秒 commit 演示（v0.22.0）----
+    private async void RunCommitDemo_Click(object sender, RoutedEventArgs e) => await _vm.RunCommitDemoAsync();
+    private void CloseCommitDemo_Click(object sender, RoutedEventArgs e) => _vm.CloseCommitDemo();
+
     // ---- 垃圾进程建议卡（v0.15.0）----
 
     private void SuspendJunk2h_Click(object sender, RoutedEventArgs e) => _vm.SuspendJunk(TimeSpan.FromHours(2));

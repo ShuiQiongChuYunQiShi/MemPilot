@@ -37,7 +37,9 @@ public partial class MainViewModel
                 Kind = "WslHint",
                 Target = $"{hint.Process.Name} (PID {hint.Process.Pid})",
                 Decision = DecisionLogFilter.DecisionAdvice,
-                Reason = UiStrings.F("Wsl_DecisionReason", hint.TotalGb, hint.RunningHours)
+                Reason = UiStrings.F("Wsl_DecisionReason", hint.TotalGb, hint.RunningHours),
+                Code = "wsl_hint.suggested",
+                Args = new[] { hint.TotalGb.ToString("F1"), hint.RunningHours.ToString() }
             });
         }));
     }

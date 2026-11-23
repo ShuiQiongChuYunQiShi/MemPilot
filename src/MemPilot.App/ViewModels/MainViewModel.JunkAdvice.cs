@@ -75,7 +75,10 @@ public partial class MainViewModel
                 Kind = longResident ? "LongResident" : "JunkAdvice",
                 Target = advice.NamesText,
                 Decision = DecisionLogFilter.DecisionAdvice,
-                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB"
+                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB",
+                // v0.22.0：稳定 code + 参数（UI/导出按当前语言渲染）
+                Code = longResident ? "long_resident.suggested" : "junk_advice.suggested",
+                Args = new[] { advice.NamesText, (advice.TotalPrivateBytes / 1048576).ToString() }
             });
             // 每日一次托盘气球（通知策略第 5 类白名单）
             RaiseAlert(UiStrings.Get(longResident ? "LongResident_BalloonTitle" : "Junk_BalloonTitle"),
@@ -112,7 +115,11 @@ public partial class MainViewModel
                     Kind = advice.Kind == JunkAdviceKind.LongResident ? "LongResident" : "JunkAdvice",
                     Target = $"{p.Name} (PID {p.Pid})",
                     Decision = r.Success ? "挂起" : "挂起失败",
-                    Reason = $"{r.Message}（{hold.TotalHours:F0} 小时后自动恢复）"
+                    Reason = $"{r.Message}（{hold.TotalHours:F0} 小时后自动恢复）",
+                    Code = r.Success ? "junk_advice.suspend_ok" : "junk_advice.suspend_fail",
+                    Args = r.Success
+                        ? new[] { p.Name, hold.TotalHours.ToString("F0") }
+                        : new[] { p.Name, r.Message }
                 });
             }
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
@@ -170,7 +177,9 @@ public partial class MainViewModel
                 Kind = "JunkAdvice",
                 Target = p.Name,
                 Decision = "忽略",
-                Reason = $"已学会：{p.Name} 在 {cool.TotalDays:F0} 天内不再提示（累计忽略 {n} 次）"
+                Reason = $"已学会：{p.Name} 在 {cool.TotalDays:F0} 天内不再提示（累计忽略 {n} 次）",
+                Code = "junk_advice.dismissed",
+                Args = new[] { p.Name, cool.TotalDays.ToString("F0"), n.ToString() }
             });
         }
         SetActionStatus(UiStrings.F("Junk_Ignored", advice.Candidates.Count));

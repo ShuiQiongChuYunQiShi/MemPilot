@@ -52,7 +52,9 @@ public partial class ResidentEngine
                         Kind = "AutoCleanup",
                         Target = $"{p.Name} (PID {p.Pid})",
                         Decision = "跳过",
-                        Reason = skip
+                        Reason = skip,
+                        Code = "auto_cleanup.skipped",
+                        Args = new[] { p.Name, skip }
                     });
                 }
                 continue;
@@ -78,7 +80,9 @@ public partial class ResidentEngine
                         Kind = "AutoCleanup",
                         Target = $"{target.Name} (PID {target.Pid})",
                         Decision = "执行 L3 优雅关闭",
-                        Reason = $"模式[{profileName}]清理名单命中，有窗口；结果: {r.Message}"
+                        Reason = $"模式[{profileName}]清理名单命中，有窗口；结果: {r.Message}",
+                        Code = "auto_cleanup.close",
+                        Args = new[] { target.Name, profileName, r.Message }
                     });
                 });
             }
@@ -91,7 +95,9 @@ public partial class ResidentEngine
                     Kind = "AutoCleanup",
                     Target = $"{p.Name} (PID {p.Pid})",
                     Decision = "执行 L1 回收工作集",
-                    Reason = $"模式[{profile.Name}]清理名单命中"
+                    Reason = $"模式[{profile.Name}]清理名单命中",
+                    Code = "auto_cleanup.trim",
+                    Args = new[] { p.Name, profile.Name }
                 });
             }
         }
@@ -203,7 +209,9 @@ public partial class ResidentEngine
                 Target = "-",
                 Decision = DecisionLogFilter.DecisionNoCandidate,
                 Reason = "立即检查：没有符合条件的目标（今日有活动 / 当前有窗口 / 运行时长不足 / 学习中冷却）；"
-                         + "长驻未用建议需在设置里开启"
+                         + "长驻未用建议需在设置里开启",
+                Code = "junk_advice.no_candidate",
+                Args = Array.Empty<string>()
             });
         }
     }
@@ -291,7 +299,11 @@ public partial class ResidentEngine
                     Reason = r.Success
                         ? $"定时挂起到期，已自动恢复（挂起于 {rec.SuspendedAtUtc.ToLocalTime():HH:mm}）"
                         : (retry ? $"定时挂起到期但恢复失败：{r.Message}；已安排 5 分钟后重试"
-                                 : $"定时挂起到期但{r.Message}，已清除记录")
+                                 : $"定时挂起到期但{r.Message}，已清除记录"),
+                    Code = r.Success ? "junk_advice.resume_ok" : (retry ? "junk_advice.resume_retry" : "junk_advice.resume_cancel"),
+                    Args = r.Success
+                        ? new[] { rec.Name, rec.SuspendedAtUtc.ToLocalTime().ToString("HH:mm") }
+                        : new[] { rec.Name, r.Message }
                 });
             }
         }
@@ -321,7 +333,9 @@ public partial class ResidentEngine
                     Kind = "JunkSweep",
                     Target = $"{item.Process.Name} (PID {item.Process.Pid})",
                     Decision = r.Success ? "已处置" : "失败",
-                    Reason = $"[证据:{item.Evidence}] {item.Reason} → {item.Action}: {r.Message}"
+                    Reason = $"[证据:{item.Evidence}] {item.Reason} → {item.Action}: {r.Message}",
+                    Code = r.Success ? "junk_sweep.done" : "junk_sweep.failed",
+                    Args = new[] { item.Process.Name, item.Action.ToString(), r.Message }
                 });
             }
             if (_lastJunkSweepUtc.Count > 2048) _lastJunkSweepUtc.Clear();

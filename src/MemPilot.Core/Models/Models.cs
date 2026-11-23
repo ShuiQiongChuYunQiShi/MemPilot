@@ -233,6 +233,15 @@ public class DecisionEntry
     public string Decision { get; set; } = "";  // 执行 / 跳过 / 切换 / 提示
     public string Reason { get; set; } = "";
 
+    /// <summary>
+    /// 稳定原因 code（v0.22.0）：`Kind.action` 形式，例如 `junk_advice.suggested`。
+    /// 有 code 时 UI/导出按当前语言渲染（模板键 `Decision_&lt;code 下划线化&gt;`）；
+    /// 为空表示旧记录或未迁移的写入点，回退到 <see cref="Reason"/> 的中文原文。
+    /// </summary>
+    public string? Code { get; set; }
+    /// <summary>模板参数（只放已格式化的字符串，模板里用 {0}/{1}）。</summary>
+    public string[]? Args { get; set; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public string TimeText => TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
     [System.Text.Json.Serialization.JsonIgnore]
