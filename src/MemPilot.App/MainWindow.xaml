@@ -933,7 +933,9 @@
                                   IsChecked="{Binding ShowNoise, Mode=TwoWay}"
                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
                     </Grid>
-                    <Grid><DataGrid Grid.Row="1" ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <!-- v0.20.1：内层 Grid 必须显式占 Row 1——缺省 Row 0 会让 DataGrid 盖住上面的
+                         提示行与「显示建议/增长观察」勾选框（提示文字从 v0.19 起就一直被遮挡） -->
+                    <Grid Grid.Row="1"><DataGrid ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="{DynamicResource Col_Time}" Binding="{Binding TimeText}" Width="150"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Kind}" Binding="{Binding Kind, Converter={StaticResource KindText}}" Width="110"/>

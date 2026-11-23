@@ -4,6 +4,15 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.20.1] — decision log hint row was hidden behind the grid
+
+### Fixed
+- The decision log's hint row (and the new "Show advice/growth observations"
+  checkbox) was covered by the `DataGrid`: the inner wrapper grid had no
+  `Grid.Row`, so it landed in row 0 on top of the hint. The hint had been
+  invisible since it was introduced; the checkbox made it a real dead end —
+  noise could never be unfolded. The wrapper now occupies `Grid.Row="1"`.
+
 ## [0.20.0] — log review: no more junk-advice idle churn, clean ledger, stage timings
 
 Driven by a review of 10-30 → 11-23 real usage logs (5,000 decisions, 754 audit
