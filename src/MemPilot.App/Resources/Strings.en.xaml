@@ -84,6 +84,8 @@
     <sys:String x:Key="Kind_AutoCleanup">Auto cleanup</sys:String>
     <sys:String x:Key="Kind_AutoJunkSweep">Junk sweep</sys:String>
     <sys:String x:Key="Kind_JunkAdvice">Junk advice</sys:String>
+    <sys:String x:Key="Kind_LongResident">Long-resident</sys:String>
+    <sys:String x:Key="Kind_WslHint">WSL resident hint</sys:String>
     <sys:String x:Key="Kind_JunkSweep">Junk sweep</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">Auto optimize (deprecated)</sys:String>
 
@@ -283,6 +285,9 @@
     <sys:String x:Key="Btn_Relaunch">Relaunch selected</sys:String>
     <sys:String x:Key="Decisions_Hint">Every automatic decision: why a mode switched, who was executed or skipped, and exactly which guard skipped them</sys:String>
     <sys:String x:Key="Decisions_ShowNoise">Show advice/growth observations</sys:String>
+    <sys:String x:Key="Decisions_HiddenByFilter">Showing 0 entries — {0} advice/growth records are hidden. Tick "Show advice/growth observations" above to see them.</sys:String>
+    <sys:String x:Key="Process_NoMatch">No processes match. Check the search text, or clear the filters to see everything.</sys:String>
+    <sys:String x:Key="Btn_ClearFilters">Clear filters</sys:String>
     <sys:String x:Key="Col_Kind">Kind</sys:String>
     <sys:String x:Key="Col_Decision">Decision</sys:String>
     <sys:String x:Key="Empty_Decisions">No entries yet. Every automatic decision appears here — including who was skipped and why.</sys:String>

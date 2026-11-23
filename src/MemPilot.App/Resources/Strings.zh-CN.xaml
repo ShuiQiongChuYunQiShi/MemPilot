@@ -84,6 +84,8 @@
     <sys:String x:Key="Kind_AutoCleanup">自动清理</sys:String>
     <sys:String x:Key="Kind_AutoJunkSweep">常驻垃圾清扫</sys:String>
     <sys:String x:Key="Kind_JunkAdvice">垃圾建议</sys:String>
+    <sys:String x:Key="Kind_LongResident">长驻未用</sys:String>
+    <sys:String x:Key="Kind_WslHint">WSL 常驻提示</sys:String>
     <sys:String x:Key="Kind_JunkSweep">垃圾清扫</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">系统内存自动优化（已废弃）</sys:String>
 
@@ -283,6 +285,9 @@
     <sys:String x:Key="Btn_Relaunch">重启选中程序</sys:String>
     <sys:String x:Key="Decisions_Hint">引擎的每个自动决定：为什么切换模式、执行/跳过了谁、跳过原因（自动行为可解释）</sys:String>
     <sys:String x:Key="Decisions_ShowNoise">显示建议/增长观察</sys:String>
+    <sys:String x:Key="Decisions_HiddenByFilter">当前显示 0 条，已隐藏 {0} 条建议/增长记录。勾选上方「显示建议/增长观察」即可看到。</sys:String>
+    <sys:String x:Key="Process_NoMatch">没有匹配的进程。检查搜索词，或清除筛选查看全部。</sys:String>
+    <sys:String x:Key="Btn_ClearFilters">清除筛选</sys:String>
     <sys:String x:Key="Col_Kind">类别</sys:String>
     <sys:String x:Key="Col_Decision">决定</sys:String>
     <sys:String x:Key="Empty_Decisions">还没有记录。引擎的每个自动决定都会出现在这里——包括它「跳过」了谁、为什么跳过。</sys:String>

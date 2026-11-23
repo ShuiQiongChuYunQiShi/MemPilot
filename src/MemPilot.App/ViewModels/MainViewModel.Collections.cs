@@ -187,9 +187,13 @@ public partial class MainViewModel
                 foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
                 break;
             case TabPage.Decisions:
-                DecisionEntries = new ObservableCollection<DecisionEntry>(
-                    DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise));
+            {
+                var recent = Decisions.Recent(200);
+                var shown = DecisionLogFilter.Filter(recent, ShowNoise).ToList();
+                DecisionEntries = new ObservableCollection<DecisionEntry>(shown);
+                UpdateDecisionEmptyText(recent.Count, shown.Count);
                 break;
+            }
             default: // 主页等轻页面：候选计数与首页决策
                 RebuildUnused();
                 SuspendedProcesses.Clear();
@@ -215,8 +219,10 @@ public partial class MainViewModel
     {
         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            DecisionEntries = new ObservableCollection<DecisionEntry>(
-                DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise));
+            var recent = Decisions.Recent(200);
+            var shown = DecisionLogFilter.Filter(recent, ShowNoise).ToList();
+            DecisionEntries = new ObservableCollection<DecisionEntry>(shown);
+            UpdateDecisionEmptyText(recent.Count, shown.Count);
             HomeDecisions = new ObservableCollection<DecisionEntry>(
                 DecisionLogFilter.Filter(Decisions.Recent(5), ShowNoise));
         });

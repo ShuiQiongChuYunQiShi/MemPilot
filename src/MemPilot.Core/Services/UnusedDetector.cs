@@ -108,7 +108,9 @@ public class UnusedDetector
             if (p.IsProtected || p.IsSystemProcess || p.IsService || p.IsStartupItem || p.IsScheduledTask || p.ModeKeep) continue;
             if (p.Category == ProcessCategory.Unknown || p.Category == ProcessCategory.SystemCritical ||
                 p.Category == ProcessCategory.SecuritySoftware || p.Category == ProcessCategory.AntiCheat ||
-                p.Category == ProcessCategory.Driver) continue;
+                p.Category == ProcessCategory.Driver ||
+                // v0.22.0：容器/VM 宿主（vmmemWSL）不是"未使用进程"——压缩/结束都会破坏子系统
+                p.Category == ProcessCategory.ContainerVm) continue;
 
             double ageSec = p.StartTime == DateTime.MinValue ? double.MaxValue : (DateTime.Now - p.StartTime).TotalSeconds;
             if (ageSec < Config.MinProcessAgeSeconds) continue;

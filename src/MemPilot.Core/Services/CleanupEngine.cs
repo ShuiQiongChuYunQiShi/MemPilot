@@ -387,7 +387,9 @@ public class CleanupEngine
         {
             if (p.IsProtected || p.IsSystemProcess || p.IsService) continue;
             if (p.Category is ProcessCategory.Unknown or ProcessCategory.SystemCritical
-                or ProcessCategory.SecuritySoftware or ProcessCategory.AntiCheat or ProcessCategory.Driver) continue;
+                or ProcessCategory.SecuritySoftware or ProcessCategory.AntiCheat or ProcessCategory.Driver
+                // v0.22.0：vmmem 一族永不进 make-room 候选（L4 会直接杀掉 WSL/Hyper-V 的内存宿主）
+                or ProcessCategory.ContainerVm) continue;
             if (p.IsWhitelisted) continue;
             if (p.Pid == foregroundPid || p.AudioActive || audioPids.Contains(p.Pid) || p.IsSuspended) continue;
             if (p.StartTime != DateTime.MinValue && (DateTime.Now - p.StartTime).TotalSeconds < 60) continue;

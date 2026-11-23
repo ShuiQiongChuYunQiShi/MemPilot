@@ -60,6 +60,9 @@ public static class TrimSelection
             case ProcessCategory.Game:
             case ProcessCategory.GameLauncher:
             case ProcessCategory.AiImageVideo:
+            // v0.22.0：容器/VM 宿主（vmmemWSL 等）压缩工作集 = 把整个 WSL 换出到磁盘，
+            // 用户下一次在 WSL 里编译/跑模型会先卡几秒读回。这类内存不是"闲置"，不该动。
+            case ProcessCategory.ContainerVm:
             case ProcessCategory.Unknown:   // 看不懂的，不碰
                 return false;
         }

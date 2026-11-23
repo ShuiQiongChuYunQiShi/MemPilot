@@ -4,6 +4,27 @@ public partial class MainWindow : Window
 {
     // ---- selection preservation ----
 
+    /// <summary>
+    /// v0.22.0：右键先把光标下的行设为选中。
+    /// 旧实现右键不改变 SelectedItem，菜单动作会落到上一次选中的行；更糟的是
+    /// L1–L4 处理器曾回退到「可清理页」的残留选择，导致对错误进程执行挂起/强杀。
+    /// </summary>
+    private void ProcessGrid_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            var d = e.OriginalSource as System.Windows.DependencyObject;
+            while (d != null && d is not DataGridRow)
+                d = System.Windows.Media.VisualTreeHelper.GetParent(d);
+            if (d is DataGridRow row)
+            {
+                row.IsSelected = true;
+                row.Focus();
+            }
+        }
+        catch { /* 非可视元素（如 Run）：保持原选中，右键菜单仍可用 */ }
+    }
+
     private void RestoreSelection()
     {
         if (ProcessGrid == null || UnusedGrid == null) return;
@@ -239,6 +260,20 @@ public partial class MainWindow : Window
     }
 
     // ---- feedback shortcuts from the process grid ----
+
+    /// <summary>v0.22.0：空状态里的「清除筛选」——把 UI 与 VM 三个筛选一起复位。</summary>
+    private void ClearProcessFilters_Click(object sender, RoutedEventArgs e)
+    {
+        if (SearchBox != null) SearchBox.Text = "";
+        if (WorkloadFilterBox != null && WorkloadFilterBox.SelectedIndex != 0) WorkloadFilterBox.SelectedIndex = 0;
+        if (ChipAll != null && ChipAll.IsChecked != true)
+        {
+            foreach (var name in new[] { "ChipSystem", "ChipGame", "ChipAi", "ChipUnknown" })
+                if (FindName(name) is System.Windows.Controls.Primitives.ToggleButton other) other.IsChecked = false;
+            ChipAll.IsChecked = true;
+        }
+        _vm.ClearProcessFilters();
+    }
 
     /// <summary>v0.6.0：分类筛选芯片（互斥；全部=清空）。</summary>
     private void CategoryChip_Click(object sender, RoutedEventArgs e)

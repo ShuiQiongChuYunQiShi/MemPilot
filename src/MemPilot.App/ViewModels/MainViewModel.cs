@@ -67,6 +67,23 @@ public partial class MainViewModel : INotifyPropertyChanged
             ReloadDecisions();
         }
     }
+
+    private string _decisionEmptyText = UiStrings.Get("Empty_Decisions");
+    /// <summary>
+    /// 决策日志空状态文案（v0.22.0）：有记录但被折叠/筛选隐藏时，
+    /// 不能再说"还没有记录"——那会把"用户自己折叠了"误导成"什么都没发生"。
+    /// </summary>
+    public string DecisionEmptyText
+    {
+        get => _decisionEmptyText;
+        private set { _decisionEmptyText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>按"总记录数 vs 当前显示数"更新决策页空状态文案。</summary>
+    private void UpdateDecisionEmptyText(int recentCount, int shownCount)
+        => DecisionEmptyText = recentCount > 0 && shownCount == 0
+            ? UiStrings.F("Decisions_HiddenByFilter", recentCount)
+            : UiStrings.Get("Empty_Decisions");
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
