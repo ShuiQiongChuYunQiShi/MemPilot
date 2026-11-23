@@ -751,9 +751,9 @@
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
-                            <!-- v0.22.0：名称列吃剩余宽度（*）——旧实现固定 210，默认可见列合计
-                                 1067px 超过 1280 窗口可用宽度，一打开就出横向滚动条 -->
-                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="*" MinWidth="160" SortMemberPath="Name">
+                            <!-- v0.22.0：名称列 180（不再是 210）——默认可见列合计 947px，1280 窗口可用 ~1025px。
+                                 注意不能用 Width="*"：它和 FrozenColumnCount=2 同用会把第一列（PID）压到不可读。 -->
+                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="180" MinWidth="160" SortMemberPath="Name">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -1012,8 +1012,8 @@
                         <!-- v0.20.0：默认折叠建议/增长观察（实测占决策日志 87.7%）；v0.22.0：按 Kind 筛选 -->
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <ComboBox Width="150" ItemsSource="{Binding DecisionKindOptions}"
-                                      SelectedValuePath="Kind" SelectedValue="{Binding SelectedDecisionKind, Mode=TwoWay}"
-                                      DisplayMemberPath="Display" Margin="12,0,0,0"/>
+                                      SelectedItem="{Binding SelectedDecisionKindOption, Mode=TwoWay}"
+                                      Margin="12,0,0,0"/>
                             <CheckBox Content="{DynamicResource Decisions_ShowNoise}"
                                       IsChecked="{Binding ShowNoise, Mode=TwoWay}"
                                       VerticalAlignment="Center" Margin="12,0,0,0"/>

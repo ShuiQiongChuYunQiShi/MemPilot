@@ -85,8 +85,12 @@ public partial class MainViewModel : INotifyPropertyChanged
             ? UiStrings.F("Decisions_HiddenByFilter", recentCount)
             : UiStrings.Get("Empty_Decisions");
 
-    /// <summary>决策日志 Kind 下拉项（v0.22.0）。</summary>
-    public sealed record DecisionKindOption(string Kind, string Display);
+    /// <summary>决策日志 Kind 下拉项（v0.22.0）。ToString 返回显示名——自定义 ComboBox 模板
+    /// 的 SelectionBox 走 ContentPresenter，不依赖 DisplayMemberPath。</summary>
+    public sealed record DecisionKindOption(string Kind, string Display)
+    {
+        public override string ToString() => Display;
+    }
 
     public ObservableCollection<DecisionKindOption> DecisionKindOptions { get; } = new();
 
@@ -101,6 +105,26 @@ public partial class MainViewModel : INotifyPropertyChanged
             if (_selectedDecisionKind == v) return;
             _selectedDecisionKind = v;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedDecisionKindOption));
+            ReloadDecisions();
+        }
+    }
+
+    /// <summary>
+    /// 下拉框的选中项（v0.22.0）。用 SelectedItem 而不是 SelectedValue：
+    /// 后者在初始值 `""` 时不会与第一项（Kind=""）匹配，下拉框会显示空白。
+    /// </summary>
+    public DecisionKindOption? SelectedDecisionKindOption
+    {
+        get => DecisionKindOptions.FirstOrDefault(o => o.Kind == _selectedDecisionKind)
+               ?? DecisionKindOptions.FirstOrDefault();
+        set
+        {
+            var v = value?.Kind ?? DecisionLogFilter.AllKinds;
+            if (_selectedDecisionKind == v) return;
+            _selectedDecisionKind = v;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedDecisionKindOption));
             ReloadDecisions();
         }
     }
@@ -124,6 +148,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             _selectedDecisionKind = DecisionLogFilter.AllKinds;
             OnPropertyChanged(nameof(SelectedDecisionKind));
         }
+        OnPropertyChanged(nameof(SelectedDecisionKindOption));
     }
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
