@@ -483,7 +483,10 @@ public class AppConfig
     // 否则加语言会让设置静默重置）。默认收起 9 个低频/证据列——19 列合计约 1.7k px，
     // 1280 宽窗口下会把「签名/分类依据」挤到视口外，等于把判断依据藏起来（棱镜 ui/table-density）。
     // PID 与名称固定可见（DataGrid FrozenColumnCount=2），不在此列表中生效。
-    public List<string> ProcessHiddenColumns { get; set; } = new()
+    public List<string> ProcessHiddenColumns { get; set; } = DefaultHiddenColumns();
+
+    /// <summary>默认隐藏列（v0.22.0：列设置菜单的「恢复默认列」与首次启动共用一份定义）。</summary>
+    public static List<string> DefaultHiddenColumns() => new()
     {
         PersistedIds.Column.MemoryGrowth, PersistedIds.Column.ChildCount,
         PersistedIds.Column.Threads, PersistedIds.Column.WindowTitle,
@@ -491,6 +494,9 @@ public class AppConfig
         PersistedIds.Column.ModeKeep, PersistedIds.Column.Signature,
         PersistedIds.Column.CategoryReason
     };
+
+    /// <summary>列宽持久化（v0.22.0）：key = 列稳定 id，value = 像素宽。空 = 用 XAML 默认。</summary>
+    public Dictionary<string, double> ProcessColumnWidths { get; set; } = new();
     // 进程页用途筛选："" = 全部；否则为 **稳定 id**（work/entertainment/ai/system/other/unknown，
     // 见 `PersistedIds.Workload`）。v0.10.0 起不再存中文用途名。
     public string WorkloadFilter { get; set; } = "";

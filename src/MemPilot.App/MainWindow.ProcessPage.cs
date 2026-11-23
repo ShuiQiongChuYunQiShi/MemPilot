@@ -40,9 +40,24 @@ public partial class MainWindow : Window
 
     private void ProcessGrid_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if ((e.OriginalSource as DependencyObject) is not FrameworkElement) return;
-        var p = (sender as System.Windows.Controls.DataGrid)?.SelectedItem as ProcessInfo;
-        if (p == null || string.IsNullOrEmpty(p.ExecutablePath) || !System.IO.File.Exists(p.ExecutablePath)) return;
+        // v0.22.0：用鼠标下的行，而不是上次的 SelectedItem——
+        // 旧实现双击表头/空白/滚动条会对「上一次选中的进程」打开 Explorer。
+        ProcessInfo? p = null;
+        try
+        {
+            var d = e.OriginalSource as System.Windows.DependencyObject;
+            while (d != null && d is not DataGridRow)
+                d = System.Windows.Media.VisualTreeHelper.GetParent(d);
+            p = (d as DataGridRow)?.Item as ProcessInfo;
+        }
+        catch { }
+        if (p == null) return;
+
+        if (string.IsNullOrEmpty(p.ExecutablePath) || !System.IO.File.Exists(p.ExecutablePath))
+        {
+            _vm.Status = UiStrings.Get("Process_PathMissing");
+            return;
+        }
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -64,12 +79,46 @@ public partial class MainWindow : Window
     private void TreeToggle_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is ProcessInfo p) _vm.ToggleCollapse(p.Pid);
+        // v0.22.0：glyph 上的点击到此为止——否则双击会同时折叠两次 + 触发 Explorer 定位
+        e.Handled = true;
     }
+
+    // ---- sorting (v0.22.0：集合每次刷新都被整体替换，View 的排序会丢，这里记住并重放) ----
+
+    private DataGridColumn? _sortColumn;
+    private System.ComponentModel.ListSortDirection _sortDirection = System.ComponentModel.ListSortDirection.Descending;
 
     private void ProcessGrid_Sorting(object sender, DataGridSortingEventArgs e)
     {
-        // column sorting would scramble the tree order; tree mode keeps its own ordering
-        if (_vm.TreeMode) e.Handled = true;
+        // 列排序会打乱树顺序；树模式下给出提示，不再静默失效
+        if (_vm.TreeMode)
+        {
+            e.Handled = true;
+            _vm.Status = UiStrings.Get("Process_SortDisabledInTree");
+            return;
+        }
+
+        _sortColumn = e.Column;
+        _sortDirection = e.Column.SortDirection == System.ComponentModel.ListSortDirection.Ascending
+            ? System.ComponentModel.ListSortDirection.Descending
+            : System.ComponentModel.ListSortDirection.Ascending;
+        // 不 Handled：先让 DataGrid 正常排一次（它会把 SortDirection 画到表头上）
+    }
+
+    /// <summary>集合替换后重放上次排序（新 ItemsSource 的 View 没有任何 SortDescription）。</summary>
+    private void ReapplySort()
+    {
+        if (ProcessGrid?.ItemsSource == null || _sortColumn == null) return;
+        var path = _sortColumn.SortMemberPath;
+        if (string.IsNullOrEmpty(path)) return;
+        var view = System.Windows.Data.CollectionViewSource.GetDefaultView(ProcessGrid.ItemsSource);
+        if (view == null) return;
+        using (view.DeferRefresh())
+        {
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new System.ComponentModel.SortDescription(path, _sortDirection));
+        }
+        _sortColumn.SortDirection = _sortDirection;
     }
 
     private void ProcessGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -182,6 +231,72 @@ public partial class MainWindow : Window
         return null;
     }
 
+    // ---- column widths / defaults (v0.22.0) ----
+
+    /// <summary>XAML 默认列宽（「恢复默认列」用；首次 Loaded 时记录）。</summary>
+    private readonly Dictionary<string, DataGridLength> _defaultColumnWidths = new();
+
+    private void CaptureDefaultColumnWidths()
+    {
+        if (ProcessGrid == null) return;
+        foreach (var col in ProcessGrid.Columns)
+        {
+            var id = IdForHeader(col.Header);
+            if (id != null && !_defaultColumnWidths.ContainsKey(id))
+                _defaultColumnWidths[id] = col.Width;
+        }
+    }
+
+    /// <summary>恢复用户上次的列宽（名称列是 * 自适应，不参与）。</summary>
+    private void ApplyColumnWidths()
+    {
+        if (ProcessGrid == null) return;
+        var widths = _config.Config.ProcessColumnWidths;
+        if (widths == null || widths.Count == 0) return;
+        foreach (var col in ProcessGrid.Columns)
+        {
+            if (col.DisplayIndex < 2) continue;   // PID / 名称
+            var id = IdForHeader(col.Header);
+            if (id == null) continue;
+            if (widths.TryGetValue(id, out var px) && px is >= 40 and <= 800)
+                col.Width = new DataGridLength(px);
+        }
+    }
+
+    /// <summary>把当前列宽写入配置（真正退出时调用；隐藏到托盘不算）。</summary>
+    private void SaveColumnWidths()
+    {
+        if (ProcessGrid == null) return;
+        var widths = new Dictionary<string, double>();
+        foreach (var col in ProcessGrid.Columns)
+        {
+            if (col.DisplayIndex < 2) continue;
+            var id = IdForHeader(col.Header);
+            if (id == null) continue;
+            double w = col.ActualWidth;
+            if (w is >= 40 and <= 800) widths[id] = Math.Round(w);
+        }
+        if (widths.Count == 0) return;
+        _config.Config.ProcessColumnWidths = widths;
+        _vm.ConfigStore.Save();
+    }
+
+    /// <summary>列设置菜单的「恢复默认列」：显隐与列宽都回到出厂值。</summary>
+    private void RestoreDefaultColumns_Click(object sender, RoutedEventArgs e)
+    {
+        _config.Config.ProcessHiddenColumns = AppConfig.DefaultHiddenColumns();
+        _config.Config.ProcessColumnWidths = new Dictionary<string, double>();
+        _vm.ConfigStore.Save();
+
+        ApplyColumnVisibility();
+        foreach (var col in ProcessGrid.Columns)
+        {
+            var id = IdForHeader(col.Header);
+            if (id != null && _defaultColumnWidths.TryGetValue(id, out var w)) col.Width = w;
+        }
+        _vm.SetActionStatus(UiStrings.Get("Process_ColumnsReset"));
+    }
+
     /// <summary>按配置应用列显隐。PID/名称固定可见（FrozenColumnCount=2），不被配置隐藏。</summary>
     private void ApplyColumnVisibility()
     {
@@ -200,20 +315,19 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>把配置里的用途筛选同步到下拉框（初始化时调用，避免触发一次多余的 Save）。</summary>
+    /// <summary>把配置里的用途筛选同步到下拉框（初始化时调用）。</summary>
     private void ApplyWorkloadFilterToUi()
     {
         if (WorkloadFilterBox == null) return;
         var want = _config.Config.WorkloadFilter ?? "";
-        WorkloadFilterBox.SelectedIndex = 0;
-        foreach (var item in WorkloadFilterBox.Items.OfType<ComboBoxItem>())
-        {
-            if (string.Equals(item.Tag as string, want, StringComparison.Ordinal))
-            {
-                WorkloadFilterBox.SelectedItem = item;
-                break;
-            }
-        }
+        // v0.22.0：不再先 SelectedIndex=0——那会触发一次 SelectionChanged → VM 写配置并 Save，
+        // 把未知/损坏的 id 静默重置，且注释说的"避免多余 Save"实际上没做到。
+        var match = WorkloadFilterBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag as string, want, StringComparison.Ordinal));
+        if (match != null)
+            WorkloadFilterBox.SelectedItem = match;
+        else if (WorkloadFilterBox.SelectedIndex < 0)
+            WorkloadFilterBox.SelectedIndex = 0;   // 只在无选择时落到"全部"
     }
 
     // ---- new primitives: resume / memory priority / eco ----

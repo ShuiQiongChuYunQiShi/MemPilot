@@ -14,9 +14,11 @@ public partial class MainWindow
     {
         InputBindings.Add(new KeyBinding(new RelayCommand(() =>
         {
-            if (_planCts != null) _planCts.Cancel();   // Esc：先取消腾内存执行
-            else if (SearchBox != null && SearchBox.IsFocused && SearchBox.Text.Length > 0)
-                SearchBox.Clear();                      // 焦点在搜索框：清空
+            // v0.22.0：焦点在搜索框时优先清搜索（用户按 Esc 的意图由焦点决定）；
+            // 否则 Esc 取消腾内存执行。
+            if (SearchBox != null && SearchBox.IsFocused && SearchBox.Text.Length > 0)
+                SearchBox.Clear();
+            else if (_planCts != null) _planCts.Cancel();
         }), new KeyGesture(Key.Escape)));
 
         InputBindings.Add(new KeyBinding(new RelayCommand(() => _ = _vm.RefreshAsync()),

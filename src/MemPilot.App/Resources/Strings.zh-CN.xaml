@@ -244,7 +244,7 @@
     <sys:String x:Key="Process_TreeHint">点击折叠/展开子进程</sys:String>
     <sys:String x:Key="Col_PrivateWs">私有WS</sys:String>
     <sys:String x:Key="Col_IdleMin">空闲(min)</sys:String>
-    <sys:String x:Key="Empty_Processes">正在枚举进程（每 10 秒一次）……几秒内就会出现。列表为空且持续超过 1 分钟时，检查设置里的刷新间隔。</sys:String>
+    <sys:String x:Key="Empty_Processes">正在枚举进程（每 {0} 秒一次）……几秒内就会出现。列表为空且持续超过 1 分钟时，检查设置里的刷新间隔。</sys:String>
     <sys:String x:Key="Cleanup_Hint">这些程序长期空闲：无窗口、低 CPU/IO、没在发声、也不在前台。处置前会再次确认。</sys:String>
     <sys:String x:Key="Col_Publisher">发布者</sys:String>
     <sys:String x:Key="Menu_MarkJunk">标记为垃圾（可清理）</sys:String>
@@ -256,7 +256,7 @@
     <sys:String x:Key="Term_Idle">空闲</sys:String>
     <sys:String x:Key="Col_ResidentScore">驻留分</sys:String>
     <sys:String x:Key="Col_SuggestedLevel">建议级别</sys:String>
-    <sys:String x:Key="Empty_Cleanup">当前没有可清理候选——观察期（连续 6 轮空闲观察）未满是正常的，刚启动时尤其如此。</sys:String>
+    <sys:String x:Key="Empty_Cleanup">当前没有可清理候选——观察期（连续 {0} 轮空闲观察）未满是正常的，刚启动时尤其如此。</sys:String>
     <sys:String x:Key="Action_L1TrimShort">L1 回收工作集</sys:String>
     <sys:String x:Key="Action_L2Short">L2 挂起进程</sys:String>
     <sys:String x:Key="Action_L3Short">L3 优雅关闭</sys:String>
@@ -293,7 +293,13 @@
     <sys:String x:Key="Decisions_KindFilterAll">全部类型</sys:String>
     <sys:String x:Key="Decisions_HiddenByFilter">当前显示 0 条，已隐藏 {0} 条建议/增长记录。勾选上方「显示建议/增长观察」即可看到。</sys:String>
     <sys:String x:Key="Process_NoMatch">没有匹配的进程。检查搜索词，或清除筛选查看全部。</sys:String>
+    <sys:String x:Key="Process_SearchPlaceholder">搜索名称 / 路径 / 窗口标题</sys:String>
+    <sys:String x:Key="Process_SearchTooltip">Ctrl+F 聚焦搜索框；Esc 清空</sys:String>
     <sys:String x:Key="Btn_ClearFilters">清除筛选</sys:String>
+    <sys:String x:Key="Btn_RestoreDefaultColumns">恢复默认列</sys:String>
+    <sys:String x:Key="Process_ColumnsReset">已恢复默认列与列宽</sys:String>
+    <sys:String x:Key="Process_SortDisabledInTree">树状视图下不支持列排序——切回平铺即可排序</sys:String>
+    <sys:String x:Key="Process_PathMissing">读不到该进程的可执行文件路径（可能已退出或权限不足）</sys:String>
     <sys:String x:Key="Col_Kind">类别</sys:String>
     <sys:String x:Key="Col_Decision">决定</sys:String>
     <sys:String x:Key="Empty_Decisions">还没有记录。引擎的每个自动决定都会出现在这里——包括它「跳过」了谁、为什么跳过。</sys:String>

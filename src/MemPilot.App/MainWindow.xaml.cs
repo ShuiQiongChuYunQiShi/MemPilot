@@ -100,12 +100,20 @@ public partial class MainWindow : Window
 
         App.ShowRequested += () => Dispatcher.InvokeAsync(ShowWindow);
         Closing += MainWindow_Closing;
-        _vm.CollectionsRebuilt += (s, e) => RestoreSelection();
+        _vm.CollectionsRebuilt += (s, e) => { RestoreSelection(); ReapplySort(); };
+        // v0.22.0：搜索/筛选走 ApplyFilter 直接替换集合（不发 CollectionsRebuilt），排序也要跟着重放
+        _vm.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.FilteredProcesses))
+                Dispatcher.BeginInvoke(new Action(ReapplySort));
+        };
         Loaded += async (s, e) =>
         {
             SyncModeRadios(_vm.CurrentMode);
             if (AutoSwitchCheck != null) AutoSwitchCheck.IsChecked = _config.Config.AutoModeSwitch;
             ApplyColumnVisibility();      // 列设置（默认收起 9 个低频列）
+            CaptureDefaultColumnWidths(); // v0.22.0：先记下 XAML 默认列宽（「恢复默认列」要用）
+            ApplyColumnWidths();          // v0.22.0：再应用用户上次的列宽
             ApplyWorkloadFilterToUi();    // 用途筛选（上次选择）
             ApplyFirstRunNotice();        // v0.10.0：首次运行说明横幅
             UpdateUiActivity(); // start-minimized sessions begin in lightweight mode
@@ -214,6 +222,7 @@ public partial class MainWindow : Window
             return;
         }
         _vm.Shutdown();
+        SaveColumnWidths();   // v0.22.0：退出前保存列宽（关闭到托盘时不保存）
         _tray?.Dispose();
         _hotkey?.Dispose();
     }

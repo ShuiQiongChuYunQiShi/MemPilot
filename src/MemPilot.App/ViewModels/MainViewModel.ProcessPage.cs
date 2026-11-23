@@ -150,10 +150,13 @@ public partial class MainViewModel
         || !string.IsNullOrEmpty(_workloadFilter)
         || _categoryChip != null;
 
-    /// <summary>空状态文案：有筛选 → "没有匹配结果"；无筛选 → 原有的"正在枚举"。</summary>
+    /// <summary>空状态文案：有筛选 → "没有匹配结果"；无筛选 → 按当前刷新间隔格式化"正在枚举"。</summary>
     public string ProcessEmptyText => HasProcessFilter
         ? UiStrings.Get("Process_NoMatch")
-        : UiStrings.Get("Empty_Processes");
+        : UiStrings.F("Empty_Processes", ConfigStore.Config.RefreshIntervalSeconds);
+
+    /// <summary>可清理页空状态：按当前观察轮数格式化（v0.22.0，原本文案硬编码 6 轮）。</summary>
+    public string CleanupEmptyText => UiStrings.F("Empty_Cleanup", ConfigStore.Config.RequiredIdleObservations);
 
     /// <summary>一键清除搜索 / 用途 / 类别三个筛选（v0.22.0，空状态里的按钮与快捷键共用）。</summary>
     public void ClearProcessFilters()

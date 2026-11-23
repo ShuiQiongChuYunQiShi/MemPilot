@@ -166,7 +166,14 @@ public partial class MainWindow : Window
     private async void SweepJunk_Click(object sender, RoutedEventArgs e)
     {
         var plan = _vm.BuildJunkSweepPlan();
-        if (plan.Count == 0) { SelectionHint.Text = UiStrings.Get("Cleanup_NoJunk"); return; }
+        // v0.22.0：SelectionHint 在可清理页——从主页点这个按钮时用户看不到，
+        // 所以结果同时写到全局状态栏（与「回收闲置工作集」一致）。
+        if (plan.Count == 0)
+        {
+            SelectionHint.Text = UiStrings.Get("Cleanup_NoJunk");
+            _vm.SetActionStatus(UiStrings.Get("Cleanup_NoJunk"));
+            return;
+        }
         int kills = plan.Count(i => i.Action == CleanupActionLevel.L4ForceKill);
         int trims = plan.Count - kills;
         var names = string.Join(UiStrings.Get("Common_ListSeparator"), plan.Take(10).Select(i => $"{i.Process.Name}(PID {i.Process.Pid})"));
@@ -174,8 +181,10 @@ public partial class MainWindow : Window
         var msg = UiStrings.F("Cleanup_JunkPlanConfirm", kills, trims, names, more);
         if (MessageBox.Show(msg, UiStrings.Get("Btn_ConfirmSweep"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         SelectionHint.Text = UiStrings.Get("Cleanup_Sweeping");
+        _vm.SetActionStatus(UiStrings.Get("Cleanup_Sweeping"));
         var summary = await _vm.ExecuteJunkSweepAsync(plan);
         SelectionHint.Text = summary;
+        _vm.SetActionStatus(summary);
         await _vm.RefreshAsync();
     }
 

@@ -608,8 +608,38 @@
                     <DockPanel Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Right" Text="{DynamicResource Process_Hint}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
                         <WrapPanel>
-                            <TextBox x:Name="SearchBox" Width="200" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,5" VerticalContentAlignment="Center"/>
-                            <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="{DynamicResource Process_WorkloadFilter}" SelectionChanged="WorkloadFilter_Changed">
+                            <!-- v0.22.0：占位文案 + 统一圆角（旧实现是空白输入框，用户不知道能搜什么） -->
+                            <TextBox x:Name="SearchBox" Width="220" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged"
+                                     ToolTip="{DynamicResource Process_SearchTooltip}" VerticalContentAlignment="Center">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="TextBox">
+                                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource RadiusChip}">
+                                                        <Grid>
+                                                            <TextBlock x:Name="Placeholder" Text="{DynamicResource Process_SearchPlaceholder}"
+                                                                       Foreground="{DynamicResource TextSecondary}" Margin="9,0"
+                                                                       VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
+                                                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="Text" Value="">
+                                                            <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                                                        </Trigger>
+                                                        <Trigger Property="Text" Value="{x:Null}">
+                                                            <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </TextBox.Style>
+                            </TextBox>
+                            <ComboBox x:Name="WorkloadFilterBox" MinWidth="120" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="{DynamicResource Process_WorkloadFilter}" SelectionChanged="WorkloadFilter_Changed">
                                 <ComboBoxItem Content="{DynamicResource Filter_AllWorkloads}" Tag=""/>
                                 <ComboBoxItem Content="{DynamicResource Term_Work}" Tag="work"/>
                                 <ComboBoxItem Content="{DynamicResource Term_Entertainment}" Tag="entertainment"/>
@@ -636,11 +666,13 @@
                                         <MenuItem Header="{DynamicResource Col_Audio}" Tag="audio" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Concept_Protected}" Tag="protected" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_ModeKeep}" Tag="mode_keep" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="{DynamicResource Col_Vram}" IsEnabled="False" FontWeight="SemiBold"/>
+                                        <!-- v0.22.0：删掉重复的「显存」组头（与下面的可勾选项同名，一个灰一个可点） -->
                                         <MenuItem Header="{DynamicResource Col_Vram}" Tag="gpu_memory" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_Evidence}" IsEnabled="False" FontWeight="SemiBold"/>
                                         <MenuItem Header="{DynamicResource Col_Signature}" Tag="signature" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_CategoryReason}" Tag="category_reason" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <Separator/>
+                                        <MenuItem Header="{DynamicResource Btn_RestoreDefaultColumns}" Click="RestoreDefaultColumns_Click"/>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>
@@ -703,7 +735,9 @@
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
-                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="210" SortMemberPath="Name">
+                            <!-- v0.22.0：名称列吃剩余宽度（*）——旧实现固定 210，默认可见列合计
+                                 1067px 超过 1280 窗口可用宽度，一打开就出横向滚动条 -->
+                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="*" MinWidth="160" SortMemberPath="Name">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -803,7 +837,7 @@
                             <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding ReasonsText}" Width="220"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                        <TextBlock Text="{DynamicResource Empty_Cleanup}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        <TextBlock Text="{Binding CleanupEmptyText}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" MaxWidth="440"
                                    TextAlignment="Center" FontSize="12"
                                    Visibility="{Binding UnusedCandidates, Converter={StaticResource CollEmpty}}"/></Grid>

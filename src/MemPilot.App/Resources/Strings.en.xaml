@@ -244,7 +244,7 @@
     <sys:String x:Key="Process_TreeHint">Click to expand / collapse children</sys:String>
     <sys:String x:Key="Col_PrivateWs">Private WS</sys:String>
     <sys:String x:Key="Col_IdleMin">Idle (min)</sys:String>
-    <sys:String x:Key="Empty_Processes">Enumerating processes (every 10 s)… this takes a few seconds. If the list stays empty for over a minute, check the refresh interval in Settings.</sys:String>
+    <sys:String x:Key="Empty_Processes">Enumerating processes (every {0} s)… this takes a few seconds. If the list stays empty for over a minute, check the refresh interval in Settings.</sys:String>
     <sys:String x:Key="Cleanup_Hint">These programs have been idle for a long time: no window, low CPU/IO, no audio, not in the foreground. You will be asked to confirm before anything happens.</sys:String>
     <sys:String x:Key="Col_Publisher">Publisher</sys:String>
     <sys:String x:Key="Menu_MarkJunk">Mark as bloatware (cleanable)</sys:String>
@@ -256,7 +256,7 @@
     <sys:String x:Key="Term_Idle">Idle</sys:String>
     <sys:String x:Key="Col_ResidentScore">Resident score</sys:String>
     <sys:String x:Key="Col_SuggestedLevel">Suggested level</sys:String>
-    <sys:String x:Key="Empty_Cleanup">No cleanable candidates right now — the observation window (6 consecutive idle checks) is likely not full yet, especially right after launch.</sys:String>
+    <sys:String x:Key="Empty_Cleanup">No cleanable candidates right now — the observation window ({0} consecutive idle checks) is likely not full yet, especially right after launch.</sys:String>
     <sys:String x:Key="Action_L1TrimShort">L1 trim working set</sys:String>
     <sys:String x:Key="Action_L2Short">L2 suspend process</sys:String>
     <sys:String x:Key="Action_L3Short">L3 graceful close</sys:String>
@@ -293,7 +293,13 @@
     <sys:String x:Key="Decisions_KindFilterAll">All kinds</sys:String>
     <sys:String x:Key="Decisions_HiddenByFilter">Showing 0 entries — {0} advice/growth records are hidden. Tick "Show advice/growth observations" above to see them.</sys:String>
     <sys:String x:Key="Process_NoMatch">No processes match. Check the search text, or clear the filters to see everything.</sys:String>
+    <sys:String x:Key="Process_SearchPlaceholder">Search name / path / window title</sys:String>
+    <sys:String x:Key="Process_SearchTooltip">Ctrl+F focuses the search box; Esc clears it</sys:String>
     <sys:String x:Key="Btn_ClearFilters">Clear filters</sys:String>
+    <sys:String x:Key="Btn_RestoreDefaultColumns">Restore default columns</sys:String>
+    <sys:String x:Key="Process_ColumnsReset">Default columns and widths restored</sys:String>
+    <sys:String x:Key="Process_SortDisabledInTree">Column sorting is unavailable in tree view — switch to flat view to sort</sys:String>
+    <sys:String x:Key="Process_PathMissing">Cannot read this process's executable path (exited or access denied)</sys:String>
     <sys:String x:Key="Col_Kind">Kind</sys:String>
     <sys:String x:Key="Col_Decision">Decision</sys:String>
     <sys:String x:Key="Empty_Decisions">No entries yet. Every automatic decision appears here — including who was skipped and why.</sys:String>
