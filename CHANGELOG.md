@@ -4,6 +4,29 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.21.0] — long-resident advice (suspend only, off by default)
+
+### Added
+- **Long-resident advice**: processes that have run for 8 h+, had zero window /
+  audio / CPU activity today, and still hold ≥512 MB. This covers the case the
+  11-23 log review surfaced — `vmmemWSL`, OEM services like `ArmouryCrate`,
+  `MSPC` — processes with **no junk evidence** (so `JunkAdvisor` never touched
+  them) that nevertheless hold memory for nothing. The home card offers
+  **suspend 2 h / 8 h only**; there is no "end process" button, because these
+  are not junk.
+- Settings → Automation → long-resident advice (**off by default**). "Check now"
+  falls back to this pool when the junk pool is empty.
+- Shares the junk ledger's 7/30/90-day learning cooldown, and the two advice
+  kinds are mutually exclusive — at most one advice card per day.
+
+### Safety
+- `vmmem*` is never suggested (suspending the VM memory host freezes
+  WSL/Hyper-V); services, protected/system categories and `Unknown` are excluded
+  by the shared `JunkSafetyFilter`, and so are bloatware and orphan-residue
+  processes (those belong to `JunkAdvisor` / `JunkSweeper`).
+- No behaviour ledger entry means no advice: a freshly started process is never
+  mistaken for a long-resident one.
+
 ## [0.20.1] — decision log hint row was hidden behind the grid
 
 ### Fixed

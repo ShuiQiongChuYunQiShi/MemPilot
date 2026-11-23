@@ -193,6 +193,8 @@
     <sys:String x:Key="Junk_Title">今天没用到这些垃圾进程，要处理吗？</sys:String>
     <sys:String x:Key="Junk_Reclaim">，预计释放</sys:String>
     <sys:String x:Key="Junk_BodyEnd">。挂起会冻结 CPU、到期自动恢复；结束会走确认流程。</sys:String>
+    <sys:String x:Key="LongResident_Title">这些进程跑了一整天却没用过，要临时挂起吗？</sys:String>
+    <sys:String x:Key="LongResident_BodyEnd">。它们不是垃圾，所以只建议挂起（到期自动恢复）；要结束请到「进程」页手动操作。</sys:String>
     <sys:String x:Key="Btn_Suspend2h">挂起 2 小时</sys:String>
     <sys:String x:Key="Btn_Suspend8h">挂起 8 小时</sys:String>
     <sys:String x:Key="Btn_EndProcess">结束进程</sys:String>
@@ -360,6 +362,7 @@
     <sys:String x:Key="Settings_AutoJunkSweep">自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；最多优雅关闭，永不强制结束）</sys:String>
     <sys:String x:Key="Settings_OrphansOnly">低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾（动作为 L1 或 L3，无 L4）</sys:String>
     <sys:String x:Key="Settings_JunkAdvice">垃圾进程建议：整天未使用的垃圾进程在主页提示（默认开；每天 19 点后评估）</sys:String>
+    <sys:String x:Key="Settings_LongResidentAdvice">长驻未用建议：跑满 8 小时、今天零活动且占用 ≥512MB 的进程只提示挂起（默认关）</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">立即检查垃圾建议</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">忽略次数越多，提示越少（7→30→90 天）</sys:String>
     <sys:String x:Key="Settings_CommitRelief">提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）</sys:String>
@@ -545,6 +548,7 @@
     <sys:String x:Key="History_NoVramDetail">（还没有显存采样——工具运行 30 秒后出现第一条；若一直为空说明 GPU 计数器不可用）</sys:String>
     <sys:String x:Key="History_NoSamples">（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）</sys:String>
     <sys:String x:Key="Junk_BalloonTitle">垃圾进程建议</sys:String>
+    <sys:String x:Key="LongResident_BalloonTitle">长驻未用建议</sys:String>
     <sys:String x:Key="Lease_StatusOff">租约 API 已关闭</sys:String>
     <sys:String x:Key="Lease_StatusNotStarted">租约 API 未启动：</sys:String>
     <sys:String x:Key="Lease_StatusDisabled">租约 API 未启用</sys:String>

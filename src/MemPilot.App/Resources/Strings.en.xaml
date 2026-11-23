@@ -193,6 +193,8 @@
     <sys:String x:Key="Junk_Title">These junk processes were not used today. Handle them?</sys:String>
     <sys:String x:Key="Junk_Reclaim">, expected to free</sys:String>
     <sys:String x:Key="Junk_BodyEnd">. Suspending freezes CPU and auto-resumes at expiry; ending goes through the confirmation flow.</sys:String>
+    <sys:String x:Key="LongResident_Title">These processes ran all day without being used. Suspend them for a while?</sys:String>
+    <sys:String x:Key="LongResident_BodyEnd">. They are not junk, so only suspending is suggested (auto-resume at expiry); to end one, use the Processes page.</sys:String>
     <sys:String x:Key="Btn_Suspend2h">Suspend 2 h</sys:String>
     <sys:String x:Key="Btn_Suspend8h">Suspend 8 h</sys:String>
     <sys:String x:Key="Btn_EndProcess">End process</sys:String>
@@ -360,6 +362,7 @@
     <sys:String x:Key="Settings_AutoJunkSweep">Auto-clean resident junk (windowless / silent bloatware and orphaned residue; graceful close at most, never force kill)</sys:String>
     <sys:String x:Key="Settings_OrphansOnly">Low-risk mode: only sweep orphaned residue whose host has exited; resident bloatware is left alone (L1 or L3, never L4)</sys:String>
     <sys:String x:Key="Settings_JunkAdvice">Junk process advice: suggest all-day unused bloatware on the home page (on by default; evaluated after 19:00)</sys:String>
+    <sys:String x:Key="Settings_LongResidentAdvice">Long-resident advice: for processes running 8h+ with zero activity today and ≥512 MB, suggest suspending only (off by default)</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">Check junk advice now</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">More ignores mean fewer prompts (7 → 30 → 90 days)</sys:String>
     <sys:String x:Key="Settings_CommitRelief">Commit relief: below 5% commit free, purge the low-priority standby list first; only after 2 more minutes of pressure trim the "safe subset" (work / game / foreground / busy processes are never touched)</sys:String>
@@ -545,6 +548,7 @@
     <sys:String x:Key="History_NoVramDetail">(No VRAM samples yet — the first one appears 30 seconds after launch; if it stays empty, the GPU counters are unavailable)</sys:String>
     <sys:String x:Key="History_NoSamples">(No samples yet — the first sample appears 5 minutes after launch)</sys:String>
     <sys:String x:Key="Junk_BalloonTitle">Junk process advice</sys:String>
+    <sys:String x:Key="LongResident_BalloonTitle">Long-resident advice</sys:String>
     <sys:String x:Key="Lease_StatusOff">Lease API stopped</sys:String>
     <sys:String x:Key="Lease_StatusNotStarted">Lease API did not start: </sys:String>
     <sys:String x:Key="Lease_StatusDisabled">Lease API is disabled</sys:String>

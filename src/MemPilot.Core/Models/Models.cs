@@ -447,6 +447,10 @@ public class AppConfig
     // 垃圾进程建议（v0.15.0）：整天未使用的垃圾进程在主页提示「挂起 2h/8h 或结束」。
     // 只建议不执行，动作必须用户点；默认开启（用户 2026-11-09 决策：启动即检测）。
     public bool JunkAdviceEnabled { get; set; } = true;
+    // 长驻未用建议（v0.21.0）：跑满 8h、今天零活动、私有提交 ≥512MB 的非垃圾进程，
+    // 只建议挂起 2h/8h（不提供结束）。**默认关闭**——这类进程通常是厂商服务/WSL，
+    // 用户明确要求过"偶用服务只杀不卸"，需要他自己确认要不要被提醒。
+    public bool LongResidentAdviceEnabled { get; set; } = false;
     // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
     // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，

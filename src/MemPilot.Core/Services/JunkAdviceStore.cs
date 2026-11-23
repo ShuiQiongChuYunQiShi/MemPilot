@@ -40,6 +40,8 @@ public class JunkAdviceStore
     private sealed class StoreDto
     {
         public string AdviceDayKey { get; set; } = "";
+        /// <summary>v0.21.0：长驻未用建议的当日交付标记（与垃圾建议分列，两者互斥交付）。</summary>
+        public string LongResidentDayKey { get; set; } = "";
         public DateTime RetryAfterUtc { get; set; }
         public List<JunkAdviceEntry> Entries { get; set; } = new();
     }
@@ -48,6 +50,7 @@ public class JunkAdviceStore
     private readonly object _gate = new();
     private List<JunkAdviceEntry> _entries = new();
     private string _adviceDayKey = "";
+    private string _longResidentDayKey = "";
     private DateTime _retryAfterUtc;
 
     public JunkAdviceStore(string dataDir)
@@ -74,6 +77,7 @@ public class JunkAdviceStore
                     : JsonSerializer.Deserialize<StoreDto>(raw) ?? new StoreDto();
                 _entries = dto.Entries;
                 _adviceDayKey = dto.AdviceDayKey;
+                _longResidentDayKey = dto.LongResidentDayKey;
                 _retryAfterUtc = dto.RetryAfterUtc;
             }
         }
@@ -93,6 +97,7 @@ public class JunkAdviceStore
         JsonFileStore.Save(_path, new StoreDto
         {
             AdviceDayKey = _adviceDayKey,
+            LongResidentDayKey = _longResidentDayKey,
             RetryAfterUtc = _retryAfterUtc,
             Entries = _entries
         }, JsonFileStore.Pretty);
@@ -114,6 +119,24 @@ public class JunkAdviceStore
     public void ClearAdviceDay()
     {
         lock (_gate) { _adviceDayKey = ""; SaveLocked(); }
+    }
+
+    /// <summary>长驻未用建议的当日交付标记（v0.21.0）：key 形如 yyyyMMdd。</summary>
+    public string LongResidentDayKey
+    {
+        get { lock (_gate) return _longResidentDayKey; }
+    }
+
+    /// <summary>标记当天已交付长驻未用建议（跨重启不重复）。</summary>
+    public void MarkLongResidentDelivered(string dayKey)
+    {
+        lock (_gate) { _longResidentDayKey = dayKey; SaveLocked(); }
+    }
+
+    /// <summary>回滚长驻未用建议的当日标记。</summary>
+    public void ClearLongResidentDay()
+    {
+        lock (_gate) { _longResidentDayKey = ""; SaveLocked(); }
     }
 
     /// <summary>下次允许评估建议的 UTC 时刻（v0.20.0；default=不限制）。</summary>

@@ -116,7 +116,7 @@ public partial class ResidentEngine
         if (!_config.Config.JunkAdviceEnabled) return false;
         // force=true（设置页「立即检查」）跳过时间窗、重试冷却与当日标记，安全过滤与学习冷却照常
         if (!force && !ShouldEvaluateJunkAdvice(DateTime.Now, JunkAdviceEarliestHour,
-                JunkAdvice?.AdviceDayKey, JunkAdvice?.RetryAfterUtc ?? default, UiActive))
+                JunkAdvice?.AdviceDayKey, JunkAdvice?.RetryAfterUtc ?? default, UiActive, TodayAdviceDelivered()))
             return false;
         try
         {
@@ -143,17 +143,27 @@ public partial class ResidentEngine
     /// ① 窗口必须可见（v0.20.0）——托盘模式不评估、不发事件，从源头掐掉每 tick 空转；
     /// ② 本地时间 ≥ earliestHour（默认 19 点——午夜评估等于把所有进程都算"今天未使用"）；
     /// ③ 当天尚未交付（deliveredDayKey 持久化在 junk-advice.json，跨重启有效）；
-    /// ④ 重试冷却已过期（v0.20.0：交付失败后 15 分钟内不再评估，避免每 tick 空转）。
+    /// ④ 重试冷却已过期（v0.20.0：交付失败后 15 分钟内不再评估，避免每 tick 空转）；
+    /// ⑤ 另一种建议今天没交付过（v0.21.0：垃圾建议与长驻未用建议共用一张卡片位）。
     /// </summary>
     public static bool ShouldEvaluateJunkAdvice(DateTime nowLocal, int earliestHour, string? deliveredDayKey,
-        DateTime retryAfterUtc = default, bool uiActive = true)
+        DateTime retryAfterUtc = default, bool uiActive = true, bool anotherAdviceDeliveredToday = false)
     {
         if (!uiActive) return false;
+        if (anotherAdviceDeliveredToday) return false;
         if (nowLocal.Hour < earliestHour) return false;
         if (retryAfterUtc != default && retryAfterUtc > nowLocal.ToUniversalTime()) return false;
         if (string.Equals(deliveredDayKey, nowLocal.ToString("yyyyMMdd"), StringComparison.Ordinal))
             return false;
         return true;
+    }
+
+    /// <summary>今天是否已经交付过任一建议（v0.21.0）：每天最多一张建议卡。</summary>
+    private bool TodayAdviceDelivered()
+    {
+        var today = DateTime.Now.ToString("yyyyMMdd");
+        return string.Equals(JunkAdvice?.AdviceDayKey, today, StringComparison.Ordinal)
+               || string.Equals(JunkAdvice?.LongResidentDayKey, today, StringComparison.Ordinal);
     }
 
     /// <summary>交付失败后的默认重试冷却（v0.20.0）。15 分钟：够用户回到电脑，又不至于整天不再提。</summary>
@@ -178,16 +188,48 @@ public partial class ResidentEngine
         try { JunkAdvice?.ClearAdviceDay(); } catch { }
         bool delivered = MaybeAdviseJunk(procs, force: true);
         if (!delivered)
+            // v0.21.0：垃圾无候选时再试一次长驻未用（用户开了开关就能立刻验证有没有候选）
+            delivered = MaybeAdviseLongResident(procs, force: true);
+        if (!delivered)
         {
             // v0.17.0：立即检查无果也要留痕——否则用户点了按钮"没反应"，无法判断是没候选还是坏了
             _decisions.Log(new DecisionEntry
             {
                 Kind = "JunkAdvice",
                 Target = "-",
-                Decision = "无候选",
-                Reason = "立即检查：没有符合条件的目标（今日有活动 / 当前有窗口 / 运行不足 2 小时 / 学习中冷却）"
+                Decision = DecisionLogFilter.DecisionNoCandidate,
+                Reason = "立即检查：没有符合条件的目标（今日有活动 / 当前有窗口 / 运行时长不足 / 学习中冷却）；"
+                         + "长驻未用建议需在设置里开启"
             });
         }
+    }
+
+    // ---- 长驻未用建议（v0.21.0，默认关闭）----
+
+    /// <summary>
+    /// 每天一次：找出"跑了一整天、一次都没用过、但占着大内存"的非垃圾进程，**只建议挂起**。
+    /// 数据依据（11-23 复盘）：vmmemWSL / ArmouryCrate / MSPC 这类进程没有垃圾证据，
+    /// JunkAdvisor 覆盖不到，但它们确实长期占用内存；挂起 2/8 小时是零成本的回收。
+    /// 与垃圾建议共用每日一次 + 19 点后 + 15 分钟冷却 + 学习账本，且两者互斥交付。
+    /// </summary>
+    private bool MaybeAdviseLongResident(List<ProcessInfo> procs, bool force = false)
+    {
+        if (!_config.Config.LongResidentAdviceEnabled) return false;
+        if (!force && !ShouldEvaluateJunkAdvice(DateTime.Now, JunkAdviceEarliestHour,
+                JunkAdvice?.LongResidentDayKey, JunkAdvice?.RetryAfterUtc ?? default, UiActive, TodayAdviceDelivered()))
+            return false;
+        try
+        {
+            var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+            var advice = LongResidentAdvisor.Recommend(
+                procs, _behaviors?.Entries ?? new Dictionary<string, ProcessBehavior>(),
+                _lastForegroundPid, audio, _config.Config.Whitelist, JunkAdvice, DateTime.UtcNow);
+            if (advice == null) return false;   // 没有候选：不消费当日标记
+            JunkAdvice?.MarkLongResidentDelivered(DateTime.Now.ToString("yyyyMMdd"));
+            JunkAdvised?.Invoke(advice);
+            return true;
+        }
+        catch (Exception ex) { Helpers.Diag.Record("long-resident-advice", ex); return false; }
     }
 
     /// <summary>定时挂起到期自动恢复（每 tick 检查；Start 时也补跑一次覆盖关闭期间到期）。</summary>

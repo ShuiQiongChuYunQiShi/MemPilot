@@ -502,17 +502,28 @@
                             <Border Style="{StaticResource Card}" Visibility="{Binding JunkAdvicePending, Converter={StaticResource BoolToVis}}"
                                     BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
                                 <StackPanel>
-                                    <TextBlock Text="{DynamicResource Junk_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding JunkAdviceTitle}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
                                     <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12">
                                         <Run Text="{Binding JunkAdviceNames, Mode=OneWay}"/>
                                         <Run Text="{DynamicResource Junk_Reclaim}"/>
                                         <Run Text="{Binding JunkAdviceTotalMb, Mode=OneWay, StringFormat={}{0} MB}"/>
-                                        <Run Text="{DynamicResource Junk_BodyEnd}"/>
+                                        <Run Text="{Binding JunkAdviceBodyEnd, Mode=OneWay}"/>
                                     </TextBlock>
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <Button Content="{DynamicResource Btn_Suspend2h}" Click="SuspendJunk2h_Click" Style="{StaticResource PrimaryBtn}"/>
                                         <Button Content="{DynamicResource Btn_Suspend8h}" Click="SuspendJunk8h_Click" Style="{StaticResource PrimaryBtn}" Margin="8,0,0,0"/>
-                                        <Button Content="{DynamicResource Btn_EndProcess}" Click="CleanupJunk_Click" Style="{StaticResource DangerBtn}" Margin="8,0,0,0"/>
+                                        <!-- v0.21.0：长驻未用建议只建议挂起，不提供结束（没有垃圾证据） -->
+                                        <Button Content="{DynamicResource Btn_EndProcess}" Click="CleanupJunk_Click" Margin="8,0,0,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource DangerBtn}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding JunkAdviceIsLongResident}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
                                         <Button Content="{DynamicResource Common_Ignore}" Click="DismissJunkAdvice_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -1288,6 +1299,7 @@
                                     <Button Content="{DynamicResource Btn_CheckJunkNow}" Click="ForceJunkAdvice_Click" Style="{StaticResource GhostBtn}" Padding="10,2"/>
                                     <TextBlock Text="{DynamicResource Settings_JunkCooldown}" Foreground="{DynamicResource TextSecondary}" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </StackPanel>
+                                <CheckBox x:Name="SetLongResidentAdvice" Content="{DynamicResource Settings_LongResidentAdvice}" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoCommitRelief" Content="{DynamicResource Settings_CommitRelief}" Margin="0,3"/>
                                 <CheckBox x:Name="SetCommitReliefL3" Content="{DynamicResource Settings_CommitReliefL3}" Margin="16,3"/>
                                 <CheckBox x:Name="SetShowAlerts" Content="{DynamicResource Settings_Alerts}" Margin="0,3"/>

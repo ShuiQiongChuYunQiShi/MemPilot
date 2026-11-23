@@ -197,6 +197,7 @@ public partial class ResidentEngine
         RunStage("habit-hint", CheckHabitHint);
         RunStage("behaviors", () => _behaviors?.Observe(procs));
         RunStage("junk-advice", () => MaybeAdviseJunk(procs));
+        RunStage("long-resident-advice", () => MaybeAdviseLongResident(procs));   // v0.21.0
         RunStage("junk-resume", ResumeExpiredSuspends);   // P2 起改由 5s 轻探针驱动，这里保留兜底
         if (cfg.AutoJunkSweepEnabled) RunStage("junk-sweep", () => AutoJunkSweep(procs));
         RunStage("usage", () => _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds));
