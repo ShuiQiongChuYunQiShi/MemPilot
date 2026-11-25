@@ -119,6 +119,16 @@ public class LeaseApiPlanTests : IDisposable
     }
 
     [Fact]
+    public async Task Plan_AcceptsDenyNames()
+    {
+        var (status, _) = await Call("POST", "/api/plan",
+            """{"targetAvailableGb":8,"denyNames":["Weixin","WeChatAppEx"]}""");
+        Assert.Equal(200, status);
+        Assert.NotNull(_lastReq);
+        Assert.Equal(new[] { "Weixin", "WeChatAppEx" }, _lastReq!.DenyNames);
+    }
+
+    [Fact]
     public async Task Status_WithPlanner_AdvertisesPlanCapability()
     {
         var (status, body) = await Call("GET", "/api/status");

@@ -45,6 +45,7 @@ MemPilot 的租约（Lease）让 AI 任务在加载模型前**申请**可用内�
 | `shortfallGb` | 与目标的缺口 |
 | `wouldSuspend` | hard 策略下**将会**挂起的进程（`pid` / `name` / `privateBytes`），最多 `maxSuspendCount` 个 |
 | `excluded` | 被安全边界挡住的进程统计：`total` + `byReason`（`caller`/`protected`/`category`/`workload`/`inUse`/`self`/`invalid`） |
+| `denied` | 被**调用方点名**排除的进程统计：`total` + 实际命中的 `names`。与 `excluded` 刻意分开：`excluded` 是"安全边界不让动"，`denied` 是"你让我别动"——混在一起会让调用方误以为这些进程有风险 |
 | `snapshotAgeSeconds` | 进程快照年龄；**-1 = 还没有快照**（刚启动）。plan 基于上一次 tick 的列表，不是实时枚举 |
 
 ```json
@@ -81,6 +82,7 @@ plan 不写 `Kind=Lease`，只写 `Kind=LeasePlan`（同一 requester/目标/策
 | `requester` | string | 调用方标识（写入决策日志，便于追查） |
 | `policy` | string | `soft`（默认）或 `hard` |
 | `requesterPid` | int | 可选，**建议总是传**。调用方 PID——该进程及其子树永不进入处置候选（v0.23.0）。worker 常是"无窗口 + 空闲"，正是 hard 策略的挂起画像；不传就可能把自己挂起。0 = 未指定（旧行为） |
+| `denyNames` | string[] | 可选。调用方点名不想被处置的进程名（**精确名、忽略大小写、自动去空格**）。典型用法：plan 告诉你"会挂起 Weixin"，你传 `["Weixin"]` 再 plan 一次，看换成了谁。它只**缩小**候选集，永远不会扩大 |
 
 响应（200）：
 

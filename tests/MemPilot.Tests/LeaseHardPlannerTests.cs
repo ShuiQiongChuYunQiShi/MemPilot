@@ -163,4 +163,19 @@ public class LeaseHardPlannerTests
         var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now);
         Assert.Equal(new[] { 200, 100 }, picked.Select(p => p.Pid).ToArray());
     }
+
+    [Fact]
+    public void DenyNames_ExcludeCandidates_CaseInsensitively()
+    {
+        // 调用方偏好（不是安全规则）：只缩小候选集，永不扩大
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "Weixin.exe"),
+            P(2, "other-idle.exe"),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now,
+            denyNames: new HashSet<string> { "weixin.EXE" });
+
+        Assert.Equal(new[] { 2 }, picked.Select(p => p.Pid).ToArray());
+    }
 }

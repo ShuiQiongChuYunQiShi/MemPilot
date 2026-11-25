@@ -39,19 +39,28 @@ public static class LeaseHardPlanner
     /// <summary>
     /// 从当前快照挑出可挂起的候选，按可释放提交内存降序排列。
     /// 返回的列表供调用方按目标额度截断后实际挂起。
-    /// <paramref name="excludedPids"/>：调用方自身及其子树（v0.23.0 硬不变式）——
-    /// 透传给 TrimSelection，保证"申请者永不被自己挂起"。
+    /// <paramref name="excludedPids"/>：调用方自身及其子树（v0.23.0 硬不变式）。
+    /// <paramref name="denyNames"/>：调用方点名的进程（精确名、忽略大小写）——这是**偏好**不是
+    /// 安全规则，所以作用在候选集上，不进 TrimSelection。
     /// </summary>
     public static List<ProcessInfo> PickSuspendCandidates(
         IEnumerable<ProcessInfo> procs, int foregroundPid, IReadOnlySet<int> audioPids, DateTime now,
-        IReadOnlySet<int>? excludedPids = null)
+        IReadOnlySet<int>? excludedPids = null, IReadOnlySet<string>? denyNames = null)
     {
         var result = new List<ProcessInfo>();
         if (procs == null) return result;
+        // 不假设调用方传进来的集合用了什么 comparer：自己转一次（大小写不敏感），
+        // 免得 "Weixin" vs "weixin" 这种差异静默失效。
+        var deny = denyNames == null
+            ? null
+            : new HashSet<string>(
+                denyNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var p in procs)
         {
             if (!TrimSelection.IsSafe(p, foregroundPid, audioPids, now, excludedPids)) continue;
+            if (deny != null && !string.IsNullOrEmpty(p.Name) && deny.Contains(p.Name)) continue;
             // 额外：必须"足够闲"——无窗口，或已空闲 ≥ MinIdleMinutes
             bool idle = !p.HasVisibleWindow || p.IdleMinutes >= MinIdleMinutes;
             if (!idle) continue;

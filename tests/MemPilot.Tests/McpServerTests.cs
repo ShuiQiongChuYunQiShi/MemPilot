@@ -130,6 +130,16 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Plan_ForwardsDenyNames()
+    {
+        var api = new FakeApi { Handler = (_, _, _) => new(200, """{"feasible":true}""") };
+        CallTool(api, "mem_plan", """{"targetAvailableGb":8,"denyNames":["Weixin","WeChatAppEx"]}""");
+
+        var body = api.Calls.Single().Body!;
+        Assert.Contains("\"denyNames\":[\"Weixin\",\"WeChatAppEx\"]", body);
+    }
+
+    [Fact]
     public void Plan_RequiresPositiveTarget()
     {
         var api = new FakeApi();

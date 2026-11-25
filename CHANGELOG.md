@@ -17,6 +17,11 @@ versioning is `0.y.z` while the project is pre-1.0.
   split across segments is no longer mangled either.
 
 ### Added
+- **`denyNames` (caller preference).** `POST /api/lease` and `POST /api/plan` accept a list
+  of process names the caller does not want touched (exact, case-insensitive, trimmed).
+  `plan` reports them under `denied` — deliberately separate from `excluded`, because
+  "the caller said no" is not "the safety rules said no". Without this, a plan that lists
+  `Weixin` left the caller only one option: don't run the job.
 - **`POST /api/lease/{id}/renew`.** Long jobs used to be punished by their own lease: on TTL
   expiry every suspended process is restored immediately — exactly when the job needs that
   memory most. Renewing extends `expiresUtc` from the renewal moment and returns

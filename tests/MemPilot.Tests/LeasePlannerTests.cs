@@ -159,4 +159,55 @@ public class LeasePlannerTests
         Assert.Empty(plan.WouldSuspend);
         Assert.False(plan.Feasible);
     }
+
+    // ---- v0.23.0 denyNames：调用方偏好，不是安全边界 ----
+
+    [Fact]
+    public void DenyNames_AreKeptOutOfThePlan_AndReportedSeparately()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "Weixin", privateBytes: 4 * Gb),
+            P(2, "other.exe", privateBytes: 4 * Gb),
+        };
+        var plan = LeasePlanner.Build(procs, 0, NoAudio, Now, 10, LeasePolicy.Hard,
+            currentAvailableGb: 0, snapshotAgeSeconds: 1,
+            denyNames: new HashSet<string> { "Weixin" });
+
+        var picked = Assert.Single(plan.WouldSuspend);
+        Assert.Equal(2, picked.Pid);
+        Assert.Equal(1, plan.Denied.Total);
+        Assert.Equal(new[] { "Weixin" }, plan.Denied.Names);
+        // denied 不能混进 excluded：那是"安全边界挡住了"，会被误读成"这些进程有风险"
+        Assert.Equal(0, plan.Excluded.Total);
+    }
+
+    [Fact]
+    public void DenyNames_MatchCaseInsensitively_AndTrimmed()
+    {
+        var procs = new List<ProcessInfo> { P(1, "Weixin", privateBytes: 4 * Gb) };
+        var plan = LeasePlanner.Build(procs, 0, NoAudio, Now, 10, LeasePolicy.Hard,
+            currentAvailableGb: 0, snapshotAgeSeconds: 1,
+            denyNames: new HashSet<string> { "  weixin  " });
+
+        Assert.Empty(plan.WouldSuspend);
+        Assert.Equal(1, plan.Denied.Total);
+    }
+
+    [Fact]
+    public void DenyingEveryCandidate_MakesThePlanNotFeasible()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "a.exe", privateBytes: 4 * Gb),
+            P(2, "b.exe", privateBytes: 4 * Gb),
+        };
+        var plan = LeasePlanner.Build(procs, 0, NoAudio, Now, 10, LeasePolicy.Hard,
+            currentAvailableGb: 0, snapshotAgeSeconds: 1,
+            denyNames: new HashSet<string> { "a.exe", "b.exe" });
+
+        Assert.Empty(plan.WouldSuspend);                 // 尊重调用方意愿
+        Assert.False(plan.Feasible);                     // 并且如实说"凑不够"
+        Assert.Equal(2, plan.Denied.Total);
+    }
 }

@@ -21,6 +21,17 @@ public sealed class LeasePlanExcluded
 }
 
 /// <summary>
+/// 被调用方点名的进程（denyNames）统计。
+/// 与 <see cref="LeasePlanExcluded"/> 刻意分开：这个是"你让我别动"，不是"安全边界挡住了"。
+/// 混在一起会让 agent 误判成"这些进程有风险"。
+/// </summary>
+public sealed class LeasePlanDenied
+{
+    public int Total { get; set; }
+    public List<string> Names { get; set; } = new();
+}
+
+/// <summary>
 /// 零动作预演结果（`POST /api/plan`）。
 ///
 /// 为什么需要：agent 在起一个 12GB 任务之前想知道"能不能拿到"，而现在唯一的办法是真申请——
@@ -46,6 +57,7 @@ public sealed class LeasePlan
     public double SnapshotAgeSeconds { get; set; }
     public List<LeasePlanSuspend> WouldSuspend { get; set; } = new();
     public LeasePlanExcluded Excluded { get; set; } = new();
+    public LeasePlanDenied Denied { get; set; } = new();
 }
 
 /// <summary>
@@ -62,7 +74,8 @@ public static class LeasePlanner
     public static LeasePlan Build(
         IEnumerable<ProcessInfo>? procs, int foregroundPid, IReadOnlySet<int>? audioPids,
         DateTime now, double targetAvailableGb, LeasePolicy policy, double currentAvailableGb,
-        double snapshotAgeSeconds, IReadOnlySet<int>? excludedPids = null)
+        double snapshotAgeSeconds, IReadOnlySet<int>? excludedPids = null,
+        IReadOnlySet<string>? denyNames = null)
     {
         var plan = new LeasePlan
         {
@@ -75,24 +88,42 @@ public static class LeasePlanner
 
         var list = procs as IList<ProcessInfo> ?? procs?.ToList() ?? new List<ProcessInfo>();
         var audio = audioPids ?? EmptyAudio;
+        var deny = denyNames == null
+            ? null
+            : new HashSet<string>(
+                denyNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
+                StringComparer.OrdinalIgnoreCase);
 
         // 被安全边界挡住多少：这是"excluded.byReason.unknown > 0"能成为可见证据的地方
         var byReason = new Dictionary<string, int>();
+        var deniedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int denied = 0;
         foreach (var p in list)
         {
             var reject = TrimSelection.ExplainUnsafe(p, foregroundPid, audio, now, excludedPids);
-            if (reject == TrimSelection.TrimReject.None) continue;
-            var key = ReasonKey(reject);
-            byReason[key] = byReason.TryGetValue(key, out var n) ? n + 1 : 1;
+            if (reject != TrimSelection.TrimReject.None)
+            {
+                var key = ReasonKey(reject);
+                byReason[key] = byReason.TryGetValue(key, out var n) ? n + 1 : 1;
+                continue;
+            }
+            // 只统计"本来是候选、被调用方点名排除"的——这样 denied.total 有解释力
+            if (deny != null && !string.IsNullOrEmpty(p.Name) && deny.Contains(p.Name))
+            {
+                denied++;
+                deniedNames.Add(p.Name);
+            }
         }
         plan.Excluded = new LeasePlanExcluded { Total = byReason.Values.Sum(), ByReason = byReason };
+        plan.Denied = new LeasePlanDenied { Total = denied, Names = deniedNames.OrderBy(x => x).ToList() };
 
         double projected = Math.Max(0, currentAvailableGb);
 
         if (policy == LeasePolicy.Hard && targetAvailableGb > currentAvailableGb)
         {
             long needBytes = (long)((targetAvailableGb - currentAvailableGb) * Gb);
-            var candidates = LeaseHardPlanner.PickSuspendCandidates(list, foregroundPid, audio, now, excludedPids);
+            var candidates = LeaseHardPlanner.PickSuspendCandidates(list, foregroundPid, audio, now,
+                excludedPids, deny);
             var picked = LeaseHardPlanner.TakeForShortfall(candidates, needBytes);
             foreach (var p in picked)
             {

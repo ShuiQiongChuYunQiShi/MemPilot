@@ -181,7 +181,8 @@ internal static class McpServer
                     "targetAvailableGb":{"type":"number","description":"How much available memory the job needs, in GB."},
                     "policy":{"type":"string","enum":["soft","hard"],"description":"soft = purge standby + trim idle working sets only. hard = also suspend up to 8 idle processes (restored on release). Default soft."},
                     "requester":{"type":"string","description":"Who is asking (written to the decision log), e.g. 'claude-code'."},
-                    "requesterPid":{"type":"integer","description":"PID of your own task process. That process and its whole subtree will never be suspended."}
+                    "requesterPid":{"type":"integer","description":"PID of your own task process. That process and its whole subtree will never be suspended."},
+                    "denyNames":{"type":"array","items":{"type":"string"},"description":"Process names you do NOT want touched (exact, case-insensitive), e.g. [\"Weixin\"]. Only narrows the candidate set; it never widens it. Use it after mem_plan shows something you want left alone."}
                   },
                   "required":["targetAvailableGb"],
                   "additionalProperties":false
@@ -209,6 +210,7 @@ internal static class McpServer
                     "policy":{"type":"string","enum":["soft","hard"],"description":"acquire: soft (default) or hard."},
                     "requester":{"type":"string","description":"acquire: who is asking (written to the decision log)."},
                     "requesterPid":{"type":"integer","description":"acquire: PID of your own task process; it and its subtree are never suspended."},
+                    "denyNames":{"type":"array","items":{"type":"string"},"description":"acquire: process names you do NOT want touched (exact, case-insensitive), e.g. [\"Weixin\"]. Only narrows the candidate set."},
                     "leaseId":{"type":"string","description":"release/renew: the id returned by acquire. Omit to use whatever lease is active."}
                   },
                   "required":["action"],
@@ -253,6 +255,7 @@ internal static class McpServer
             // 默认排除 MCP 自己（它通常就是 agent 的子进程）；模型可以传自己的任务 PID 扩大保护范围
             ["requesterPid"] = Pid(args) ?? Environment.ProcessId
         };
+        CopyDenyNames(args, body);
         var r = await client.CallAsync(HttpMethod.Post, "/api/plan", body.ToJsonString());
         return r.Ok ? ToolText(Pretty(r.Body)) : ToolError(client.Explain(r));
     }
@@ -273,6 +276,7 @@ internal static class McpServer
                 ["requester"] = Str(args, "requester") ?? "mcp",
                 ["requesterPid"] = Pid(args) ?? Environment.ProcessId
             };
+            CopyDenyNames(args, body);
             var r = await client.CallAsync(HttpMethod.Post, "/api/lease", body.ToJsonString());
             if (!r.Ok) return ToolError(client.Explain(r));
 
@@ -322,6 +326,13 @@ internal static class McpServer
     }
 
     // ---- 摘要（模型先读这句，再决定要不要看 JSON）----
+
+    /// <summary>denyNames 原样透传（服务端再归一化：精确名、忽略大小写、去空）。</summary>
+    private static void CopyDenyNames(JsonObject args, JsonObject body)
+    {
+        if (args["denyNames"] is JsonArray deny && deny.Count > 0)
+            body["denyNames"] = deny.DeepClone();
+    }
 
     private static string SummarizeLease(string body)
     {

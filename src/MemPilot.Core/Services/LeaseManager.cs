@@ -14,9 +14,22 @@ public sealed class LeaseRequest
     /// v0.23.0：调用方 PID（可选）。传入后该进程及其子树**永不进入处置候选**——
     /// agent 的 worker 通常是"无窗口 + 空闲"，恰好满足硬租约的挂起条件，
     /// 不排除就会把自己挂起然后一直等（见 ProcessTreeBuilder.BuildSubtreePids）。
+    /// <summary>
     /// 0 = 未指定，行为与旧版一致。
     /// </summary>
     public int RequesterPid { get; set; }
+
+    /// <summary>
+    /// 调用方明确不想被处置的进程名（v0.23.0，精确匹配、忽略大小写）。
+    ///
+    /// 为什么是"偏好"而不是"安全规则"：它作用在候选集上（LeaseHardPlanner / trim 集合），
+    /// 不进 TrimSelection —— 安全边界回答"谁绝对不能动"，这个字段回答"这次别动谁"。
+    /// 两者混在一起会让安全判定重新分叉（v0.9.2 的教训）。
+    ///
+    /// 典型用途：plan 告诉 agent "会挂起 Weixin"，agent 传 denyNames 把它排除，
+    /// 再重新 plan —— 而不是只能选择放弃这次任务。
+    /// </summary>
+    public List<string>? DenyNames { get; set; }
 }
 
 /// <summary>租约状态：active → released / expired。软租约只压缩"安全子集"，没有需要恢复的东西。</summary>

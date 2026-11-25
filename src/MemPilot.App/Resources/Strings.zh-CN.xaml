@@ -705,6 +705,7 @@
     <sys:String x:Key="Lease_PurgeFailed">备用列表清理失败（{0}）</sys:String>
     <sys:String x:Key="Lease_TrimDetail">{0}；压缩安全子集 {1} 个（排除 {2} 个）</sys:String>
     <sys:String x:Key="Lease_RequesterExcluded">；调用方自身及子树已排除（快照命中 {0} 个）</sys:String>
+    <sys:String x:Key="Lease_DeniedDetail">；调用方点名排除 {0} 个进程</sys:String>
     <sys:String x:Key="Lease_SuspendDetail">；挂起 {0} 个闲置进程（可恢复）</sys:String>
     <sys:String x:Key="Lease_AvailableDetail">{0}；可用 {1:F1} → {2:F1} GB</sys:String>
     <sys:String x:Key="Lease_ActiveBody">已为 {0} 腾出 {1:F1} GB 可用内存（目标 {2:F1} GB），至 {3}。</sys:String>

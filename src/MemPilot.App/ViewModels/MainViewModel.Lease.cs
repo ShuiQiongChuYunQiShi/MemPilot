@@ -49,6 +49,17 @@ public partial class MainViewModel
     private readonly Dictionary<string, DateTime> _planLogTimes = new();
 
     /// <summary>
+    /// 调用方点名的进程（v0.23.0）：精确名、忽略大小写、去空。
+    /// 这是**偏好**不是安全规则——它只缩小候选集，不进 TrimSelection。
+    /// </summary>
+    private static HashSet<string>? DenySet(LeaseRequest req)
+        => req.DenyNames is { Count: > 0 }
+            ? new HashSet<string>(
+                req.DenyNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
+                StringComparer.OrdinalIgnoreCase)
+            : null;
+
+    /// <summary>
     /// 零动作预演（v0.23.0，POST /api/plan）。只读 _lastProcs + 实时内存、只跑纯函数，
     /// **绝不调用 Cleanup/ProcessService 的处置原语**——plan 一旦能动作就不叫预演了。
     /// </summary>
@@ -66,7 +77,7 @@ public partial class MainViewModel
             : (DateTime.UtcNow - _lastProcsUtc).TotalSeconds;
 
         var plan = LeasePlanner.Build(procs, Engine.LastForegroundPid, audio, DateTime.Now,
-            req.TargetAvailableGb, policy, currentGb, age, excluded);
+            req.TargetAvailableGb, policy, currentGb, age, excluded, DenySet(req));
 
         LogLeasePlanOnce(req, plan);
         return plan;
@@ -128,13 +139,23 @@ public partial class MainViewModel
             ? ProcessTreeBuilder.BuildSubtreePids(_lastProcs, req.RequesterPid)
             : null;
         int excludedHits = excluded == null ? 0 : _lastProcs.Count(p => excluded.Contains(p.Pid));
+        var deny = DenySet(req);
 
         // 二级：安全子集压缩
         var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio, excluded);
+        int deniedCount = 0;
+        if (deny != null)
+        {
+            int safeBefore = safe.Count;
+            safe.RemoveAll(p => !string.IsNullOrEmpty(p.Name) && deny.Contains(p.Name));
+            deniedCount = safeBefore - safe.Count;
+        }
         var trim = Cleanup.TrimWorkingSets(safe);
         var detail = UiStrings.F("Lease_TrimDetail", purgeNote, trim.Trimmed, _lastProcs.Count - safe.Count);
         if (excluded != null)
             detail += UiStrings.F("Lease_RequesterExcluded", excludedHits);
+        if (deny != null)
+            detail += UiStrings.F("Lease_DeniedDetail", deniedCount);
 
         var suspended = new List<LeaseSuspendedProcess>();
         if (policy == LeasePolicy.Hard)
@@ -145,7 +166,7 @@ public partial class MainViewModel
             if (needGb > 0)
             {
                 long needBytes = (long)(needGb * 1073741824.0);
-                var candidates = LeaseHardPlanner.PickSuspendCandidates(_lastProcs, fg, audio, DateTime.Now, excluded);
+                var candidates = LeaseHardPlanner.PickSuspendCandidates(_lastProcs, fg, audio, DateTime.Now, excluded, deny);
                 var picked = LeaseHardPlanner.TakeForShortfall(candidates, needBytes);
                 int ok = 0;
                 foreach (var p in picked)
