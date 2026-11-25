@@ -1,4 +1,4 @@
-﻿name: release
+name: release
 
 # Publishing is EXPLICITLY gated: this workflow only runs via workflow_dispatch
 # (manual trigger or `gh workflow run release --ref <tag>` from
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
