@@ -37,6 +37,10 @@ public sealed class LeaseInfo
     public DateTime? EndUtc { get; set; }
     /// <summary>实际生效的策略：soft / hard。</summary>
     public string Policy { get; set; } = "soft";
+    /// <summary>续期次数（v0.23.0）。审计用：一个租约续了 20 次说明 TTL 设得太短。</summary>
+    public int RenewCount { get; set; }
+    /// <summary>剩余秒数（只读，序列化时给 agent 看"还能用多久"）。</summary>
+    public double RemainingSeconds => Math.Max(0, (ExpiresUtc - DateTime.UtcNow).TotalSeconds);
     /// <summary>硬租约挂起的进程（归还时逐个恢复）。</summary>
     public List<LeaseSuspendedProcess> Suspended { get; set; } = new();
     public double ShortfallGb => Math.Max(0, TargetAvailableGb - AchievedAvailableGb);
@@ -210,6 +214,41 @@ public sealed class LeaseManager
         return done;
     }
 
+    /// <summary>
+    /// 续期（v0.23.0）。长任务跑过 TTL 时，原行为是到期即恢复所有挂起进程——
+    /// **正好在任务吃满内存的时候**把内存还给别人。Renew 让调用方把占用延长到任务结束。
+    ///
+    /// 返回 (null, expired: true) 表示"已经过期"：此时管理员已经走完恢复流程，
+    /// 调用方只能重新申请（API 映射 410，与 404 的"id 不对"区分开）。
+    /// </summary>
+    public (LeaseInfo? lease, bool expired) Renew(string id, int ttlSeconds, DateTime nowUtc)
+    {
+        LeaseInfo? justExpired = null;
+        lock (_lock)
+        {
+            if (_current == null || !string.Equals(_current.Id, id, StringComparison.Ordinal))
+                return (null, false);
+            if (_current.State != "active") return (null, false);
+
+            if (nowUtc >= _current.ExpiresUtc)
+            {
+                _current.State = "expired";
+                _current.EndUtc = nowUtc;
+                justExpired = _current;
+            }
+            else
+            {
+                var ttl = Math.Clamp(ttlSeconds <= 0 ? DefaultTtlSeconds : ttlSeconds, 30, MaxTtlSeconds);
+                _current.ExpiresUtc = nowUtc.AddSeconds(ttl);
+                _current.RenewCount++;
+                return (_current, false);
+            }
+        }
+        // 锁外恢复：与 Current() 同一套收尾（先同步恢复挂起进程，再发事件）
+        FinishLease(justExpired!, "过期");
+        return (null, true);
+    }
+
     /// <summary>占用期守护：可用内存跌破授予值 - 1GB → 告警一次（不重复刷）。</summary>
     public LeaseInfo? CheckGuard(SystemMemoryInfo mem, DateTime nowUtc)
     {
@@ -233,7 +272,7 @@ public sealed class LeaseManager
         BeforeAvailableGb = s.BeforeAvailableGb, AfterAvailableGb = s.AfterAvailableGb,
         StartUtc = s.StartUtc, ExpiresUtc = s.ExpiresUtc, State = s.State,
         Requester = s.Requester, RequesterPid = s.RequesterPid, Details = s.Details, EndUtc = s.EndUtc,
-        Policy = s.Policy,
+        Policy = s.Policy, RenewCount = s.RenewCount,
         // 深拷贝：归还/过期事件里恢复流程会改写 Restored/RestoreNote，
         // 如果共享同一个 list，API 返回的副本就看不到这些结果（v0.8.0 实测踩到：日志说恢复 8，接口说 0）
         Suspended = s.Suspended.Select(x => new LeaseSuspendedProcess

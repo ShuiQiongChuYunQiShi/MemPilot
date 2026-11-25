@@ -19,7 +19,7 @@ MemPilot 的租约（Lease）让 AI 任务在加载模型前**申请**可用内�
   "availableGb": 16.03, "totalGb": 31.69,
   "commitFreePct": 62.6,
   "leaseActive": false,
-  "capabilities": ["lease", "lease.plan"],
+  "capabilities": ["lease", "lease.renew", "lease.plan"],
   "limits": { "minTargetGb": 0.5, "maxTtlSeconds": 86400, "maxSuspendCount": 8 },
   "lease": null
 }
@@ -104,6 +104,23 @@ plan 不写 `Kind=Lease`，只写 `Kind=LeasePlan`（同一 requester/目标/策
 
 归还。hard 策略挂起的进程**全部自动恢复**（响应里逐个带 `restored` 标记）；
 TTL 到期同样自动归还并恢复。
+
+### POST /api/lease/{id}/renew
+
+续期（v0.23.0）。请求体：`{"ttlSeconds": 900}`（30–86400，缺省 3600）。
+
+**为什么要有这个端点**：TTL 到期会**立即恢复所有挂起进程**——正好发生在长任务吃满内存、
+最需要那块内存的时候。任务跑得比预期久时，续期比"重新申请"安全：重新申请要等旧租约过期
+（这段时间内存已经被还回去了），而续期是连续的。
+
+响应（200）：更新后的租约，`expiresUtc` 从**续期时刻**重新计算，并带上
+`renewCount`（续期次数）与 `remainingSeconds`（剩余秒数）。
+
+错误：`410 {"error":"expired"}` —— 租约已经过期，挂起进程**已被恢复**，
+只能重新申请（这是与 404 的关键区别：`404` 是 id 不对，`410` 是它存在过但已经死了）。
+
+续期不会重新执行腾挪（`beforeAvailableGb`/`achievedAvailableGb` 保持不变），
+也**不会重置守护告警**——否则调用方可以用 renew 把"内存已被侵蚀"的真实告警刷掉。
 
 ## 策略
 

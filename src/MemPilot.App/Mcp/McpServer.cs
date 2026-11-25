@@ -192,22 +192,24 @@ internal static class McpServer
             {
                 ["name"] = "mem_lease",
                 ["description"] =
-                    "Acquire or release a memory lease. Acquire returns the amount ACTUALLY freed " +
-                    "(achievedAvailableGb) and how big the shortfall is (shortfallGb) — branch on " +
-                    "that number, do not assume success. Only one lease can be active at a time " +
-                    "(a conflict returns HTTP 409 with the current holder). Always release with the " +
-                    "returned id; if your process dies, the TTL reclaims it.",
+                    "Acquire, renew or release a memory lease. Acquire returns the amount ACTUALLY " +
+                    "freed (achievedAvailableGb) and how big the shortfall is (shortfallGb) — branch " +
+                    "on that number, do not assume success. Only one lease can be active at a time " +
+                    "(a conflict returns HTTP 409 with the current holder). If your job may outlive " +
+                    "the TTL, call renew instead of letting it expire: on expiry the suspended " +
+                    "processes are restored immediately, i.e. memory is taken back exactly when your " +
+                    "job needs it most. Always release with the returned id when done.",
                 ["inputSchema"] = Schema("""
                 {
                   "type":"object",
                   "properties":{
-                    "action":{"type":"string","enum":["acquire","release"],"description":"acquire a new lease or release an existing one."},
+                    "action":{"type":"string","enum":["acquire","release","renew"],"description":"acquire a new lease, renew an existing one, or release it."},
                     "targetAvailableGb":{"type":"number","description":"acquire: how much available memory the job needs, in GB."},
-                    "ttlSeconds":{"type":"integer","description":"acquire: max hold in seconds (30-86400, default 3600). Re-acquire after expiry."},
+                    "ttlSeconds":{"type":"integer","description":"acquire: max hold in seconds (30-86400, default 3600). renew: the new TTL from now (default 3600)."},
                     "policy":{"type":"string","enum":["soft","hard"],"description":"acquire: soft (default) or hard."},
                     "requester":{"type":"string","description":"acquire: who is asking (written to the decision log)."},
                     "requesterPid":{"type":"integer","description":"acquire: PID of your own task process; it and its subtree are never suspended."},
-                    "leaseId":{"type":"string","description":"release: the id returned by acquire. Omit to release whatever lease is active."}
+                    "leaseId":{"type":"string","description":"release/renew: the id returned by acquire. Omit to use whatever lease is active."}
                   },
                   "required":["action"],
                   "additionalProperties":false
@@ -297,7 +299,26 @@ internal static class McpServer
             return ToolText(SummarizeRelease(r.Body) + "\n\n" + Pretty(r.Body));
         }
 
-        return ToolError("action must be 'acquire' or 'release'");
+        if (action == "renew")
+        {
+            var id = Str(args, "leaseId");
+            if (string.IsNullOrEmpty(id))
+            {
+                var cur = await client.CallAsync(HttpMethod.Get, "/api/lease");
+                if (cur.Status == 404) return ToolText("No active lease to renew.");
+                if (!cur.Ok) return ToolError(client.Explain(cur));
+                id = TryReadId(cur.Body);
+                if (string.IsNullOrEmpty(id)) return ToolError("Could not read the active lease id: " + cur.Body);
+            }
+
+            var body = new JsonObject { ["ttlSeconds"] = (int?)Num(args, "ttlSeconds") ?? 3600 };
+            var r = await client.CallAsync(HttpMethod.Post,
+                $"/api/lease/{Uri.EscapeDataString(id)}/renew", body.ToJsonString());
+            if (!r.Ok) return ToolError(client.Explain(r));   // 410 由 Explain 说清"已过期、只能重申请"
+            return ToolText(SummarizeRenew(r.Body) + "\n\n" + Pretty(r.Body));
+        }
+
+        return ToolError("action must be 'acquire', 'release' or 'renew'");
     }
 
     // ---- 摘要（模型先读这句，再决定要不要看 JSON）----
@@ -320,6 +341,20 @@ internal static class McpServer
                        : "Call mem_lease with action=release and this id when the job finishes.");
         }
         catch { return "Lease acquired."; }
+    }
+
+    private static string SummarizeRenew(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var expires = root.TryGetProperty("expiresUtc", out var e) ? e.GetString() : "?";
+            int count = root.TryGetProperty("renewCount", out var rc) && rc.TryGetInt32(out var n) ? n : 0;
+            double remaining = root.TryGetProperty("remainingSeconds", out var rs) && rs.TryGetDouble(out var s) ? s : 0;
+            return $"Lease renewed (#{count}), valid for another {remaining / 60:F0} min (until {expires}).";
+        }
+        catch { return "Lease renewed."; }
     }
 
     private static string SummarizeRelease(string body)

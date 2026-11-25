@@ -83,9 +83,77 @@ public class LeaseManagerTests
         Assert.Null(hit2);
     }
 
+    // ---- v0.23.0 续期（renew）：长任务跑过 TTL 不该被自己申请的内存反噬 ----
+
     [Fact]
-    public void RestoreHook_RunsBeforeEvent_SoResponseSeesResults()
+    public void Renew_ExtendsExpiry_AndCountsRenewals()
     {
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(ttl: 60), Relief(7), Now)!;   // 到期 = Now+60s
+
+        var (renewed, expired) = m.Renew(lease.Id, 300, Now.AddSeconds(45));
+        Assert.False(expired);
+        Assert.NotNull(renewed);
+        Assert.Equal(Now.AddSeconds(345), renewed!.ExpiresUtc);  // 从续期时刻重新计 300s
+        Assert.Equal(1, renewed.RenewCount);
+
+        var (again, _) = m.Renew(lease.Id, 60, Now.AddSeconds(340));
+        Assert.NotNull(again);
+        Assert.Equal(2, again!.RenewCount);
+        Assert.Equal(Now.AddSeconds(400), again.ExpiresUtc);
+    }
+
+    [Fact]
+    public void Renew_WrongIdOrAlreadyReleased_ReturnsNullNotExpired()
+    {
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(), Relief(7), Now)!;
+
+        Assert.Null(m.Renew("wrong-id", 60, Now.AddSeconds(10)).lease);   // 404
+        Assert.False(m.Renew("wrong-id", 60, Now.AddSeconds(10)).expired);
+
+        m.Release(lease.Id, Now.AddSeconds(20));
+        var (afterRelease, expiredAfterRelease) = m.Renew(lease.Id, 60, Now.AddSeconds(30));
+        Assert.Null(afterRelease);
+        Assert.False(expiredAfterRelease);
+    }
+
+    [Fact]
+    public void Renew_AfterExpiry_ReportsExpired_AndRestoresSuspended()
+    {
+        var m = new LeaseManager();
+        var events = new List<string>();
+        bool restored = false;
+        m.RestoreHook = l => { restored = true; return (1, 0); };
+        m.LeaseEvent += (l, ev) => events.Add(ev);
+
+        var lease = m.Acquire(Req(ttl: 60), Relief(7), Now)!;
+        var (renewed, expired) = m.Renew(lease.Id, 600, Now.AddMinutes(2));
+
+        Assert.Null(renewed);
+        Assert.True(expired);                    // API 据此返回 410，而不是 404
+        Assert.True(restored);                   // 过期必须恢复挂起进程（不能只记账）
+        Assert.Contains("过期", events);
+        Assert.Equal("expired", lease.State);
+    }
+
+    [Fact]
+    public void Renew_DoesNotSwallowAGuardAlert()
+    {
+        // 续期只延长时间，不该重置"已被侵蚀"的告警状态——
+        // 否则调用方可以用 renew 把真实的侵蚀告警刷掉
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(), Relief(7), Now)!;
+        var eroded = new SystemMemoryInfo { AvailablePhysicalBytes = (long)(4.0 * 1024 * 1024 * 1024) };
+        Assert.NotNull(m.CheckGuard(eroded, Now.AddMinutes(1)));
+
+        m.Renew(lease.Id, 600, Now.AddMinutes(2));
+
+        Assert.Null(m.CheckGuard(eroded, Now.AddMinutes(3)));   // 仍然只告警一次
+    }
+
+    [Fact]
+    public void RestoreHook_RunsBeforeEvent_SoResponseSeesResults()    {
         var m = new LeaseManager();
         var order = new List<string>();
         var suspended = new List<LeaseSuspendedProcess>
@@ -299,8 +367,47 @@ public class LeaseApiTests : IDisposable
         Assert.Equal(1, _reliefCalls);
     }
 
-    // ---- v0.23.0: requesterPid is carried through and auditable ----
+    [Fact]
+    public async Task Renew_ExtendsLease_AndReportsRemaining()
+    {
+        var (s1, b1) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"ttlSeconds":60,"requester":"ai"}""");
+        Assert.Equal(200, s1);
+        var id = ExtractId(b1);
 
+        var (status, body) = await Call("POST", $"/api/lease/{id}/renew", """{"ttlSeconds":600}""");
+        Assert.Equal(200, status);
+        Assert.Contains("\"renewCount\":1", body);
+        Assert.Contains("remainingSeconds", body);   // agent 能直接看"还能用多久"
+        Assert.Equal(1, _reliefCalls);               // 续期不重新腾挪（只有 acquire 那一次）
+    }
+
+    [Fact]
+    public async Task Renew_WrongId_Is404()
+    {
+        var (status, _) = await Call("POST", "/api/lease/does-not-exist/renew", """{"ttlSeconds":60}""");
+        Assert.Equal(404, status);
+    }
+
+    [Fact]
+    public async Task Renew_ThenRelease_StillWorks()
+    {
+        var (_, b1) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"ai"}""");
+        var id = ExtractId(b1);
+        await Call("POST", $"/api/lease/{id}/renew", """{"ttlSeconds":600}""");
+
+        var (status, body) = await Call("DELETE", $"/api/lease/{id}");
+        Assert.Equal(200, status);
+        Assert.Contains("\"state\":\"released\"", body);
+    }
+
+    private static string ExtractId(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("id").GetString()!;
+    }
+
+    // ---- v0.23.0: requesterPid is carried through and auditable ----
     [Fact]
     public async Task RequesterPid_IsPassedToRelief_AndEchoedInResponse()
     {
@@ -333,10 +440,11 @@ public class LeaseApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Status_WithoutPlanner_AdvertisesLeaseOnly()
+    public async Task Status_WithoutPlanner_AdvertisesLeaseAndRenewOnly()
     {
         var (_, body) = await Call("GET", "/api/status");
-        Assert.Contains("\"capabilities\":[\"lease\"]", body);   // 没有 lease.plan
+        Assert.Contains("\"capabilities\":[\"lease\",\"lease.renew\"]", body);
+        Assert.DoesNotContain("lease.plan", body);               // 没接 planner 就不许声称支持
         Assert.Contains("maxSuspendCount", body);
     }
 

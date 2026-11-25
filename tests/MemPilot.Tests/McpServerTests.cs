@@ -206,6 +206,45 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Renew_WithoutId_FetchesActiveLeaseThenPosts()
+    {
+        var api = new FakeApi
+        {
+            Handler = (method, path, _) => method == "GET"
+                ? new(200, """{"id":"abc123","state":"active"}""")
+                : new(200, """{"id":"abc123","renewCount":1,"remainingSeconds":3000,"expiresUtc":"2026-11-25T12:00:00Z"}""")
+        };
+        var resp = CallTool(api, "mem_lease", """{"action":"renew","ttlSeconds":600}""");
+
+        Assert.Equal(2, api.Calls.Count);
+        Assert.Equal("GET", api.Calls[0].Method);
+        Assert.Equal("POST", api.Calls[1].Method);
+        Assert.Equal("/api/lease/abc123/renew", api.Calls[1].Path);
+        Assert.Contains("\"ttlSeconds\":600", api.Calls[1].Body);
+        Assert.Contains("renewed (#1)", resp);
+        Assert.Contains("\"isError\": false", resp);
+    }
+
+    [Fact]
+    public void Renew_AfterExpiry_IsToolError()
+    {
+        // 410 走 Explain：告诉模型"只能重新申请"，而不是让它反复续期一个死租约
+        var api = new FakeApi { Handler = (_, _, _) => new(410, """{"error":"expired"}""") };
+        var resp = CallTool(api, "mem_lease", """{"action":"renew","leaseId":"abc"}""");
+        Assert.Contains("\"isError\": true", resp);
+        Assert.Contains("explained:410", resp);
+    }
+
+    [Fact]
+    public void Renew_WithNoActiveLease_IsFriendly()
+    {
+        var api = new FakeApi { Handler = (_, _, _) => new(404, """{"error":"no_lease"}""") };
+        var resp = CallTool(api, "mem_lease", """{"action":"renew"}""");
+        Assert.Contains("No active lease to renew", resp);
+        Assert.Contains("\"isError\": false", resp);
+    }
+
+    [Fact]
     public void UnknownAction_IsToolError()
     {
         var api = new FakeApi();
@@ -225,6 +264,7 @@ public class McpServerTests
     [InlineData(0, "Cannot reach MemPilot")]
     [InlineData(401, "regenerate the token")]
     [InlineData(409, "already active")]
+    [InlineData(410, "already expired")]
     [InlineData(503, "not wired")]
     public void Explain_TranslatesStatusesIntoActions(int status, string expected)
     {

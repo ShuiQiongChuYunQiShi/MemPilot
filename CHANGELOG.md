@@ -17,6 +17,13 @@ versioning is `0.y.z` while the project is pre-1.0.
   split across segments is no longer mangled either.
 
 ### Added
+- **`POST /api/lease/{id}/renew`.** Long jobs used to be punished by their own lease: on TTL
+  expiry every suspended process is restored immediately — exactly when the job needs that
+  memory most. Renewing extends `expiresUtc` from the renewal moment and returns
+  `renewCount` + `remainingSeconds`. `410 expired` (distinct from `404` "wrong id") means the
+  lease is already dead, so the caller acquires instead of retrying. Renew does not re-run
+  relief and does **not** reset the guard alert — otherwise a caller could renew its way past
+  a real "memory was eroded" warning.
 - **MCP server (`MemPilot.exe --mcp`).** Three tools over stdio JSON-RPC
   (`initialize` / `tools/list` / `tools/call`, hand-written, no new dependencies):
   `mem_status`, `mem_plan`, `mem_lease`. The server is a **client only** — it forwards to

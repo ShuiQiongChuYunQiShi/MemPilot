@@ -250,8 +250,8 @@ public sealed class LeaseApiService : IDisposable
                 leaseActive = lease != null,
                 // v0.23.0：能力发现。agent 先看这个再决定调什么，避免"试了才知道不支持"。
                 capabilities = _planExecutor == null
-                    ? new[] { "lease" }
-                    : new[] { "lease", "lease.plan" },
+                    ? new[] { "lease", "lease.renew" }
+                    : new[] { "lease", "lease.renew", "lease.plan" },
                 limits = new
                 {
                     minTargetGb = 0.5,
@@ -320,6 +320,24 @@ public sealed class LeaseApiService : IDisposable
             return lease == null ? (404, """{"error":"no_lease"}""") : (200, JsonSerializer.Serialize(lease, Json));
         }
 
+        if (method == "POST" && path.StartsWith("/api/lease/") && path.EndsWith("/renew", StringComparison.OrdinalIgnoreCase))
+        {
+            var renewId = path["/api/lease/".Length..^"/renew".Length];
+            if (string.IsNullOrEmpty(renewId)) return (404, """{"error":"not_found"}""");
+
+            LeaseRequest? renewReq;
+            try { renewReq = JsonSerializer.Deserialize<LeaseRequest>(body, Json); }
+            catch { return (400, """{"error":"bad_json"}"""); }
+
+            var (renewed, justExpired) = _manager.Renew(renewId, renewReq?.TtlSeconds ?? 0, now);
+            if (justExpired)
+                // 410 与 404 分开：410 告诉调用方"这个租约存在过、已经过期、只能重申请"
+                return (410, """{"error":"expired"}""");
+            return renewed == null
+                ? (404, """{"error":"not_found_or_expired"}""")
+                : (200, JsonSerializer.Serialize(renewed, Json));
+        }
+
         if (method == "DELETE" && path.StartsWith("/api/lease/"))
         {
             var id = path["/api/lease/".Length..];
@@ -344,6 +362,7 @@ public sealed class LeaseApiService : IDisposable
     private static string Reason(int status) => status switch
     {
         200 => "OK", 400 => "Bad Request", 401 => "Unauthorized", 404 => "Not Found",
-        409 => "Conflict", 500 => "Internal Server Error", _ => status.ToString()
+        409 => "Conflict", 410 => "Gone", 500 => "Internal Server Error", 503 => "Service Unavailable",
+        _ => status.ToString()
     };
 }

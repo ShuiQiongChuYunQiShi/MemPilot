@@ -122,6 +122,8 @@ internal sealed class LeaseApiClient : ILeaseApi
         401 => "Unauthorized: the bearer token does not match. Open MemPilot Settings -> 租约 API, " +
                "regenerate the token, then restart this MCP server.",
         409 => $"A lease is already active. {Trimmed(r.Body)}",
+        410 => "That lease already expired and its suspended processes were restored. " +
+               "Acquire a new lease instead of renewing.",
         404 => $"Not found: {Trimmed(r.Body)}",
         400 => $"Bad request: {Trimmed(r.Body)}",
         503 => "Plan capability is not wired in this build (App did not provide a planner).",
