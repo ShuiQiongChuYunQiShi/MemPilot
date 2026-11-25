@@ -9,6 +9,11 @@ on:
   # 发版仍只走 release.yml 的 workflow_dispatch，不受影响。
   workflow_dispatch:
 
+# 手动也不会叠加：同一分支最多留一个在跑，后触发的取消前一个。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
     runs-on: windows-latest
