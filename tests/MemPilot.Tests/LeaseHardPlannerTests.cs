@@ -16,10 +16,11 @@ public class LeaseHardPlannerTests
     private static ProcessInfo P(int pid, string name, ProcessCategory cat = ProcessCategory.ThirdPartyApp,
         WorkloadKind wl = WorkloadKind.Other, bool window = false, double idle = 0,
         long privateBytes = 300L * 1024 * 1024, double cpu = 0, int ageMinutes = 60,
-        bool isProtected = false, bool audio = false)
+        bool isProtected = false, bool audio = false, int parentPid = 0)
         => new()
         {
             Pid = pid,
+            ParentPid = parentPid,
             Name = name,
             Category = cat,
             Workload = wl,
@@ -129,5 +130,37 @@ public class LeaseHardPlannerTests
         Assert.Empty(LeaseHardPlanner.TakeForShortfall(new List<ProcessInfo> { P(1, "a.exe") }, 0));
         Assert.Empty(LeaseHardPlanner.TakeForShortfall(null!, 1000));
         Assert.Empty(LeaseHardPlanner.PickSuspendCandidates(null!, 0, NoAudio, Now));
+    }
+
+    // ---- v0.23.0 hard invariant: the caller and its subtree are never suspended ----
+
+    [Fact]
+    public void RequesterSubtree_IsNeverPicked_EvenWhenPerfectlyIdle()
+    {
+        // 100 = the agent (node), 101 = its python worker. Both are windowless and idle,
+        // i.e. they would otherwise be the *best* candidates. 200 is unrelated background.
+        var procs = new List<ProcessInfo>
+        {
+            P(100, "node.exe", parentPid: 0),
+            P(101, "worker.py", parentPid: 100),
+            P(200, "other-idle.exe", parentPid: 0),
+        };
+        var excluded = ProcessTreeBuilder.BuildSubtreePids(procs, 100);
+
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now, excluded);
+
+        Assert.Equal(new[] { 200 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void RequesterSubtree_DoesNotChangeBehaviourWhenNotProvided()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(100, "node.exe"),
+            P(200, "other-idle.exe", privateBytes: 900L * 1024 * 1024),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now);
+        Assert.Equal(new[] { 200, 100 }, picked.Select(p => p.Pid).ToArray());
     }
 }

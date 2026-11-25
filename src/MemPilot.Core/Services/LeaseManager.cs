@@ -10,6 +10,13 @@ public sealed class LeaseRequest
     public string Requester { get; set; } = "";
     /// <summary>soft（默认，只压缩）/ hard（允许挂起安全子集，归还时恢复）。</summary>
     public string Policy { get; set; } = "soft";
+    /// <summary>
+    /// v0.23.0：调用方 PID（可选）。传入后该进程及其子树**永不进入处置候选**——
+    /// agent 的 worker 通常是"无窗口 + 空闲"，恰好满足硬租约的挂起条件，
+    /// 不排除就会把自己挂起然后一直等（见 ProcessTreeBuilder.BuildSubtreePids）。
+    /// 0 = 未指定，行为与旧版一致。
+    /// </summary>
+    public int RequesterPid { get; set; }
 }
 
 /// <summary>租约状态：active → released / expired。软租约只压缩"安全子集"，没有需要恢复的东西。</summary>
@@ -24,6 +31,8 @@ public sealed class LeaseInfo
     public DateTime ExpiresUtc { get; set; }
     public string State { get; set; } = "active";   // active / released / expired
     public string Requester { get; set; } = "";
+    /// <summary>调用方 PID（0 = 未指定）。审计用，也用于核对"未处置调用方自身"。</summary>
+    public int RequesterPid { get; set; }
     public string Details { get; set; } = "";
     public DateTime? EndUtc { get; set; }
     /// <summary>实际生效的策略：soft / hard。</summary>
@@ -111,6 +120,7 @@ public sealed class LeaseManager
                 ExpiresUtc = nowUtc.AddSeconds(ttl),
                 State = "active",
                 Requester = req.Requester ?? "",
+                RequesterPid = req.RequesterPid,
                 Details = relief.Details,
                 Policy = policy == LeasePolicy.Hard ? "hard" : "soft",
                 Suspended = suspended ?? new List<LeaseSuspendedProcess>()
@@ -144,6 +154,7 @@ public sealed class LeaseManager
                 ExpiresUtc = nowUtc.AddSeconds(ttl),
                 State = "reserving",
                 Requester = req.Requester ?? "",
+                RequesterPid = req.RequesterPid,
                 Details = "腾挪中…"
             };
             return _current;
@@ -221,7 +232,7 @@ public sealed class LeaseManager
         Id = s.Id, TargetAvailableGb = s.TargetAvailableGb, AchievedAvailableGb = s.AchievedAvailableGb,
         BeforeAvailableGb = s.BeforeAvailableGb, AfterAvailableGb = s.AfterAvailableGb,
         StartUtc = s.StartUtc, ExpiresUtc = s.ExpiresUtc, State = s.State,
-        Requester = s.Requester, Details = s.Details, EndUtc = s.EndUtc,
+        Requester = s.Requester, RequesterPid = s.RequesterPid, Details = s.Details, EndUtc = s.EndUtc,
         Policy = s.Policy,
         // 深拷贝：归还/过期事件里恢复流程会改写 Restored/RestoreNote，
         // 如果共享同一个 list，API 返回的副本就看不到这些结果（v0.8.0 实测踩到：日志说恢复 8，接口说 0）

@@ -10,6 +10,47 @@ namespace MemPilot.Services;
 /// </summary>
 public static class ProcessTreeBuilder
 {
+    /// <summary>
+    /// Collects <paramref name="rootPid"/> plus every descendant (multi-level, cycle-safe).
+    ///
+    /// v0.23.0 — lease hard invariant "never touch the caller or its process tree".
+    /// An agent's worker is typically windowless and idle, which is exactly what
+    /// <see cref="LeaseHardPlanner"/> looks for; without this exclusion a caller can
+    /// suspend its own worker and then wait for it forever.
+    ///
+    /// Returns an empty set when rootPid is not positive. The root itself is always
+    /// included even if absent from the snapshot: excluding a dead pid is harmless,
+    /// and if that pid got reused by an unrelated process the safe direction is still
+    /// "do not touch it".
+    /// </summary>
+    public static HashSet<int> BuildSubtreePids(IEnumerable<ProcessInfo> procs, int rootPid)
+    {
+        var result = new HashSet<int>();
+        if (procs == null || rootPid <= 0) return result;
+
+        // Parent links are not guaranteed to be in topological order, so index by parent
+        // first and walk with a stack instead of a single pass.
+        var byParent = new Dictionary<int, List<int>>();
+        foreach (var p in procs)
+        {
+            if (p == null || p.ParentPid == 0 || p.ParentPid == p.Pid) continue;
+            if (!byParent.TryGetValue(p.ParentPid, out var kids))
+                byParent[p.ParentPid] = kids = new List<int>();
+            kids.Add(p.Pid);
+        }
+
+        var stack = new Stack<int>();
+        stack.Push(rootPid);
+        while (stack.Count > 0)
+        {
+            var pid = stack.Pop();
+            if (!result.Add(pid)) continue;   // already seen: breaks cycles and repeats
+            if (byParent.TryGetValue(pid, out var kids))
+                foreach (var k in kids) stack.Push(k);
+        }
+        return result;
+    }
+
     public static List<ProcessInfo> Build(IEnumerable<ProcessInfo> procs, ISet<int> collapsedPids)
     {
         var list = procs.ToList();

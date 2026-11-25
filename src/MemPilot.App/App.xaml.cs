@@ -25,6 +25,22 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (s, args) => TryLogCrash(args.ExceptionObject as Exception);
 
+        // v0.23.0：MCP server 必须在单实例检查**之前**拦截。
+        // 它是被 agent spawn 的独立进程、只做 HTTP 客户端；若走单实例路径，它会去唤起
+        // 已有窗口然后退出，MCP 直接失效。同步阻塞到 stdin EOF——MCP 模式没有 UI、
+        // 也不需要 Dispatcher，所以 Environment.Exit 是正确退出方式（不走 WPF 清理）。
+        bool isMcp = false;
+        foreach (var arg in e.Args)
+            if (arg is "--mcp" or "/mcp") { isMcp = true; break; }
+        if (isMcp)
+        {
+            int exitCode = Mcp.McpServer.Run();
+            // 用 Shutdown 而不是 Environment.Exit：后者在 WPF OnStartup 期间会卡在
+            // Dispatcher/终结器等待上（实测：进程活着但不退出）。Shutdown 让消息循环正常收尾。
+            Shutdown(exitCode);
+            return;
+        }
+
         // single instance: two copies would fight over standby purges and suspend registries
         _singleInstance = new Mutex(true, @"Local\MemPilot.SingleInstance", out var isNew);
         if (!isNew)

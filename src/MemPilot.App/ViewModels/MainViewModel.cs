@@ -409,6 +409,9 @@ public partial class MainViewModel : INotifyPropertyChanged
     public event EventHandler? AuditChanged;
 
     private List<ProcessInfo> _lastProcs = new();
+    /// <summary>快照时间（UTC）。/api/plan 靠它如实报告 snapshotAgeSeconds——
+    /// plan 基于上一次 tick 的进程列表，不是实时枚举，隐瞒年龄会让 agent 高估可行量。</summary>
+    private DateTime _lastProcsUtc = DateTime.MinValue;
 
     /// <summary>Window visible? When hidden, refreshes skip rebuilding UI collections
     /// (tray lightweight mode — the engine keeps working, the UI stays cheap).</summary>
@@ -429,7 +432,8 @@ public partial class MainViewModel : INotifyPropertyChanged
             ExecuteLeaseRelief,
             LeaseManager,
             () => _leaseToken,
-            () => ConfigStore.Config.LeaseApiPort);
+            () => ConfigStore.Config.LeaseApiPort,
+            BuildLeasePlan);
         _workloadLookup = p => Feedback.FindWorkload(p.Name, p.ExecutablePath);
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
@@ -710,6 +714,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             }, ct).ConfigureAwait(false);
 
             _lastProcs = data.procs;
+            _lastProcsUtc = DateTime.UtcNow;
             var memOut = data.mem;
             var unusedOut = data.unused;
             var gpuOut = data.gpu;

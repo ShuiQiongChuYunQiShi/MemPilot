@@ -174,4 +174,32 @@ public class SafeTrimSelectionTests
         Assert.Empty(TrimSelection.BuildSafeTrimSet(Array.Empty<ProcessInfo>(), 0, NoAudio));
         Assert.Empty(TrimSelection.BuildSafeTrimSet(null!, 0, NoAudio));
     }
+
+    // ---- v0.23.0: 租约调用方自身及子树永不处置 ----
+    // 放在这个文件是因为它属于"谁不能被处置"，与保护/系统/Unknown 同一层，
+    // 不是租约私有的规则（LeaseHardPlanner 只是复用同一份判定）。
+
+    [Fact]
+    public void ExcludedPids_AreRejected_EvenWhenOtherwiseSafe()
+    {
+        var p = P(1, "worker.exe", ProcessCategory.ThirdPartyApp);
+
+        Assert.True(TrimSelection.IsSafe(p, 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(p, 0, NoAudio, Now, new HashSet<int> { 1 }));
+    }
+
+    [Fact]
+    public void BuildSafeTrimSet_OmitsExcludedPids()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "a.exe", ProcessCategory.ThirdPartyApp),
+            P(2, "b.exe", ProcessCategory.ThirdPartyApp),
+            P(3, "c.exe", ProcessCategory.ThirdPartyApp),
+        };
+
+        var set = TrimSelection.BuildSafeTrimSet(procs, 0, NoAudio, new HashSet<int> { 2 });
+
+        Assert.Equal(new[] { 1, 3 }, set.Select(p => p.Pid).OrderBy(x => x).ToArray());
+    }
 }

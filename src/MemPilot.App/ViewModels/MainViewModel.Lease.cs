@@ -46,8 +46,60 @@ public partial class MainViewModel
         private set { _leaseApiStatus = value; OnPropertyChanged(); }
     }
 
-    private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(
-        LeaseRequest req, LeasePolicy policy)
+    private readonly Dictionary<string, DateTime> _planLogTimes = new();
+
+    /// <summary>
+    /// 零动作预演（v0.23.0，POST /api/plan）。只读 _lastProcs + 实时内存、只跑纯函数，
+    /// **绝不调用 Cleanup/ProcessService 的处置原语**——plan 一旦能动作就不叫预演了。
+    /// </summary>
+    private LeasePlan BuildLeasePlan(LeaseRequest req, LeasePolicy policy)
+    {
+        var mem = ProcessService.GetSystemMemory();
+        double currentGb = mem.AvailablePhysicalBytes / 1073741824.0;
+        var procs = _lastProcs;                        // 不拷贝：plan 只读
+        var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
+        var excluded = req.RequesterPid > 0
+            ? ProcessTreeBuilder.BuildSubtreePids(procs, req.RequesterPid)
+            : null;
+        double age = _lastProcsUtc == DateTime.MinValue
+            ? -1
+            : (DateTime.UtcNow - _lastProcsUtc).TotalSeconds;
+
+        var plan = LeasePlanner.Build(procs, Engine.LastForegroundPid, audio, DateTime.Now,
+            req.TargetAvailableGb, policy, currentGb, age, excluded);
+
+        LogLeasePlanOnce(req, plan);
+        return plan;
+    }
+
+    /// <summary>
+    /// 同一 (requester, 目标, 策略) 30 秒内只记一条。agent 可能每次工具调用前都 plan 一次，
+    /// 不去重会把决策日志刷成 plan 流水账——plan 是预演不是处置，不该挤掉真实处置记录。
+    /// 注意 "LeasePlan" **不在** DecisionLog.ImportantKinds 里：它有总量上限、但没有配额保护，
+    /// 这样 800 条重要配额仍然只留给"真的发生了什么"。
+    /// </summary>
+    private void LogLeasePlanOnce(LeaseRequest req, LeasePlan plan)
+    {
+        var key = $"{req.Requester}|{req.TargetAvailableGb:F1}|{plan.Policy}";
+        lock (_planLogTimes)
+        {
+            var nowUtc = DateTime.UtcNow;
+            if (_planLogTimes.TryGetValue(key, out var last) && (nowUtc - last).TotalSeconds < 30) return;
+            if (_planLogTimes.Count > 64) _planLogTimes.Clear();
+            _planLogTimes[key] = nowUtc;
+        }
+        Decisions.Log(new DecisionEntry
+        {
+            Kind = "LeasePlan",
+            Target = req.Requester ?? "",
+            Decision = plan.Feasible ? "可行" : "缺口",
+            Reason = $"预演 {req.TargetAvailableGb:F1} GB（{plan.Policy}）：当前 {plan.CurrentAvailableGb:F1}，" +
+                     $"预计 {plan.ProjectedAvailableGb:F1}（{plan.ProjectionBasis}），" +
+                     $"将挂起 {plan.WouldSuspend.Count} 个；安全边界排除 {plan.Excluded.Total} 个"
+        });
+    }
+
+    private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(        LeaseRequest req, LeasePolicy policy)
     {
         var before = ProcessService.GetSystemMemory();
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
@@ -69,10 +121,20 @@ public partial class MainViewModel
                 : UiStrings.F("Lease_PurgeFailed", pr.message ?? UiStrings.Get("Common_Unknown"));
         }
 
+        // v0.23.0 硬不变式：调用方自身及其子树永不处置。
+        // agent 的 worker 往往"无窗口 + 空闲"，恰好是硬租约的候选画像——
+        // 不排除就会把自己挂起，然后一直等一个永远不会返回的任务。
+        var excluded = req.RequesterPid > 0
+            ? ProcessTreeBuilder.BuildSubtreePids(_lastProcs, req.RequesterPid)
+            : null;
+        int excludedHits = excluded == null ? 0 : _lastProcs.Count(p => excluded.Contains(p.Pid));
+
         // 二级：安全子集压缩
-        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio);
+        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio, excluded);
         var trim = Cleanup.TrimWorkingSets(safe);
         var detail = UiStrings.F("Lease_TrimDetail", purgeNote, trim.Trimmed, _lastProcs.Count - safe.Count);
+        if (excluded != null)
+            detail += UiStrings.F("Lease_RequesterExcluded", excludedHits);
 
         var suspended = new List<LeaseSuspendedProcess>();
         if (policy == LeasePolicy.Hard)
@@ -83,7 +145,7 @@ public partial class MainViewModel
             if (needGb > 0)
             {
                 long needBytes = (long)(needGb * 1073741824.0);
-                var candidates = LeaseHardPlanner.PickSuspendCandidates(_lastProcs, fg, audio, DateTime.Now);
+                var candidates = LeaseHardPlanner.PickSuspendCandidates(_lastProcs, fg, audio, DateTime.Now, excluded);
                 var picked = LeaseHardPlanner.TakeForShortfall(candidates, needBytes);
                 int ok = 0;
                 foreach (var p in picked)

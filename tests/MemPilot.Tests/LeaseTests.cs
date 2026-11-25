@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using MemPilot.Models;
 using MemPilot.Services;
 using Xunit;
@@ -142,6 +143,7 @@ public class LeaseApiTests : IDisposable
     private const string Token = "test-token-0123456789abcdef";
     private int _reliefCalls;
     private LeasePolicy _lastPolicy = LeasePolicy.Soft;
+    private int _lastRequesterPid = -1;
 
     public LeaseApiTests()
     {
@@ -157,6 +159,7 @@ public class LeaseApiTests : IDisposable
             {
                 _reliefCalls++;
                 _lastPolicy = policy;
+                _lastRequesterPid = req.RequesterPid;
                 var suspended = policy == LeasePolicy.Hard
                     ? new List<LeaseSuspendedProcess> { new() { Pid = 4242, Name = "idle.exe", StartTime = DateTime.UtcNow } }
                     : new List<LeaseSuspendedProcess>();
@@ -294,6 +297,95 @@ public class LeaseApiTests : IDisposable
     {
         await Call("POST", "/api/lease", """{"targetAvailableGb":6}""");
         Assert.Equal(1, _reliefCalls);
+    }
+
+    // ---- v0.23.0: requesterPid is carried through and auditable ----
+
+    [Fact]
+    public async Task RequesterPid_IsPassedToRelief_AndEchoedInResponse()
+    {
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"claude-code","requesterPid":4321}""");
+        Assert.Equal(200, status);
+        Assert.Equal(4321, _lastRequesterPid);          // relief 执行前就能看到它，才能排除自身子树
+        Assert.Contains("\"requesterPid\":4321", body); // 账本里可核对
+    }
+
+    [Fact]
+    public async Task NegativeRequesterPid_Is400_AndNoReliefRuns()
+    {
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"x","requesterPid":-1}""");
+        Assert.Equal(400, status);
+        Assert.Contains("requesterPid", body);
+        Assert.Equal(0, _reliefCalls);                  // 校验发生在占位/腾挪之前，不留脏账
+    }
+
+    [Fact]
+    public async Task Plan_WithoutPlanner_Is503_NotAFakeSuccess()
+    {
+        // App 没注入 planner 时（例如未来的 CLI 宿主），必须老实说"不支持"，
+        // 而不是返回一个全 0 的 plan 让调用方以为"可行"
+        var (status, body) = await Call("POST", "/api/plan", """{"targetAvailableGb":4}""");
+        Assert.Equal(503, status);
+        Assert.Contains("plan_unavailable", body);
+        Assert.Equal(0, _reliefCalls);
+    }
+
+    [Fact]
+    public async Task Status_WithoutPlanner_AdvertisesLeaseOnly()
+    {
+        var (_, body) = await Call("GET", "/api/status");
+        Assert.Contains("\"capabilities\":[\"lease\"]", body);   // 没有 lease.plan
+        Assert.Contains("maxSuspendCount", body);
+    }
+
+    // ---- v0.23.0 修偶发 400：body 落在第二个 TCP 段时必须仍被读到 ----
+
+    [Fact]
+    public async Task SplitPacket_BodyArrivesLater_StillParsed()
+    {
+        // 回归：旧实现只 ReadAsync 一次，body 分第二段到达时被丢掉 → 400 bad_json。
+        // 实测 lease-demo.py 连跑 3 次命中 1 次；调用方会误判成参数错并放弃。
+        const string body = """{"targetAvailableGb":6,"requester":"split"}""";
+        var raw = await SendSplit("POST /api/lease", body);
+
+        Assert.Contains("200", raw.Split("\r\n")[0]);
+        Assert.Contains("\"state\":\"active\"", raw);
+    }
+
+    [Fact]
+    public async Task SplitPacket_MultibyteRequester_IsNotMangled()
+    {
+        // 分段时按字节累积、只在完整 body 后解码 UTF-8，否则中文 requester 会被切成替换字符
+        const string body = """{"targetAvailableGb":6,"requester":"中文调用方"}""";
+        var raw = await SendSplit("POST /api/lease", body);
+
+        var json = raw[(raw.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..];
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("中文调用方", doc.RootElement.GetProperty("requester").GetString());
+    }
+
+    /// <summary>先发 header、等一会再发 body，模拟 TCP 分段。</summary>
+    private async Task<string> SendSplit(string requestLine, string body)
+    {
+        using var client = new TcpClient("127.0.0.1", _port);
+        var stream = client.GetStream();
+        var head = $"{requestLine} HTTP/1.1\r\nHost: 127.0.0.1\r\n" +
+                   $"Authorization: Bearer {Token}\r\nContent-Type: application/json\r\n" +
+                   $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n";
+
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
+        await stream.FlushAsync();
+        await Task.Delay(80);                           // 让服务端先完成一次"只有 header"的读
+        await stream.WriteAsync(Encoding.UTF8.GetBytes(body));
+        await stream.FlushAsync();
+
+        var buf = new byte[64 * 1024];
+        using var ms = new MemoryStream();
+        int n;
+        while ((n = await stream.ReadAsync(buf)) > 0) ms.Write(buf, 0, n);
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 }
 

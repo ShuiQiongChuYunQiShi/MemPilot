@@ -704,6 +704,7 @@ Continue?</sys:String>
     <sys:String x:Key="Lease_StatusNotStartedBody">Lease API did not start: {0}</sys:String>
     <sys:String x:Key="Lease_PurgeFailed">Standby purge failed ({0})</sys:String>
     <sys:String x:Key="Lease_TrimDetail">{0}; trimmed the safe subset: {1} (excluded {2})</sys:String>
+    <sys:String x:Key="Lease_RequesterExcluded">; caller and its subtree excluded ({0} seen in snapshot)</sys:String>
     <sys:String x:Key="Lease_SuspendDetail">; suspended {0} idle processes (restorable)</sys:String>
     <sys:String x:Key="Lease_AvailableDetail">{0}; available {1:F1} → {2:F1} GB</sys:String>
     <sys:String x:Key="Lease_ActiveBody">Freed {1:F1} GB for {0} (target {2:F1} GB) until {3}.</sys:String>

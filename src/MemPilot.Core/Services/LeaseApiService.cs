@@ -30,6 +30,8 @@ public sealed class LeaseApiService : IDisposable
     private readonly LeaseManager _manager;
     private readonly Func<string> _token;
     private readonly Func<int> _port;
+    /// <summary>零动作预演（v0.23.0）。null = App 层没接，`POST /api/plan` 返回 503 而不是假装成功。</summary>
+    private readonly Func<LeaseRequest, LeasePolicy, LeasePlan>? _planExecutor;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -61,11 +63,13 @@ public sealed class LeaseApiService : IDisposable
         Func<LeaseRequest, LeasePolicy, (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended)> reliefExecutor,
         LeaseManager manager,
         Func<string> token,
-        Func<int> port)
+        Func<int> port,
+        Func<LeaseRequest, LeasePolicy, LeasePlan>? planExecutor = null)
     {
         _mem = mem;
         _reliefExecutor = reliefExecutor;
         _manager = manager; _token = token; _port = port;
+        _planExecutor = planExecutor;
     }
 
     /// <summary>
@@ -143,14 +147,43 @@ public sealed class LeaseApiService : IDisposable
         catch { /* 断连/超时：下一个请求继续 */ }
     }
 
+    /// <summary>请求体上限：超过按 400 处理，避免恶意客户端把内存吃满。</summary>
+    private const int MaxRequestBytes = 1024 * 1024;
+
     private static async Task<(string method, string path, string body, string auth)> ReadRequestAsync(
         NetworkStream stream, CancellationToken ct)
     {
-        var buffer = new byte[64 * 1024];
-        int read = await stream.ReadAsync(buffer, ct);
-        var raw = Encoding.UTF8.GetString(buffer, 0, read);
-        var headEnd = raw.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-        var head = headEnd < 0 ? raw : raw[..headEnd];
+        var buffer = new byte[16 * 1024];
+        using var ms = new MemoryStream();
+        int headEnd = -1;
+        int contentLength = 0;
+
+        // v0.23.0 修偶发 400：旧实现只 ReadAsync 一次，假设 header 与 body 在同一个
+        // TCP 段里到达。实测约 1/3 的请求 body 落在第二次读（lease-demo.py 连跑 3 次复现
+        // 1 次），于是 Deserialize("") 抛异常 → 400 bad_json——调用方会误判成"参数错"
+        // 并放弃重试。改为按 Content-Length 读满；header 用 ASCII 解、body 用 UTF-8 解，
+        // 避免分段解码切断中文 requester 的多字节字符。
+        while (ms.Length < MaxRequestBytes)
+        {
+            int read = await stream.ReadAsync(buffer, ct);
+            if (read <= 0) break;
+            ms.Write(buffer, 0, read);
+
+            if (headEnd < 0)
+            {
+                headEnd = IndexOfHeaderEnd(ms.GetBuffer(), (int)ms.Length);
+                if (headEnd >= 0)
+                    contentLength = ParseContentLength(ms.GetBuffer(), headEnd);
+            }
+            if (headEnd >= 0 && ms.Length >= headEnd + 4 + contentLength) break;
+        }
+
+        var all = ms.GetBuffer();
+        int total = (int)ms.Length;
+        var head = headEnd < 0
+            ? Encoding.ASCII.GetString(all, 0, total)
+            : Encoding.ASCII.GetString(all, 0, headEnd);
+
         var lines = head.Split("\r\n");
         var first = lines.FirstOrDefault() ?? "";
         var parts = first.Split(' ');
@@ -164,8 +197,33 @@ public sealed class LeaseApiService : IDisposable
             if (line.StartsWith("Authorization:", StringComparison.OrdinalIgnoreCase))
                 auth = line["Authorization:".Length..].Trim();
         }
-        var body = headEnd >= 0 && raw.Length > headEnd + 4 ? raw[(headEnd + 4)..] : "";
+
+        int bodyStart = headEnd < 0 ? total : Math.Min(total, headEnd + 4);
+        int bodyLen = Math.Max(0, total - bodyStart);
+        var body = bodyLen > 0 ? Encoding.UTF8.GetString(all, bodyStart, bodyLen) : "";
         return (method, path, body, auth);
+    }
+
+    /// <summary>找 header 结束的 \r\n\r\n，返回其起始下标（找不到 -1）。</summary>
+    private static int IndexOfHeaderEnd(byte[] buf, int length)
+    {
+        for (int i = 0; i + 3 < length; i++)
+            if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n')
+                return i;
+        return -1;
+    }
+
+    /// <summary>从 header 文本里取 Content-Length（缺失/非法视为 0，钳到上限）。</summary>
+    private static int ParseContentLength(byte[] buf, int headEnd)
+    {
+        var head = Encoding.ASCII.GetString(buf, 0, headEnd);
+        foreach (var line in head.Split("\r\n"))
+        {
+            if (!line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) continue;
+            if (int.TryParse(line["Content-Length:".Length..].Trim(), out var n) && n > 0)
+                return Math.Min(n, MaxRequestBytes);
+        }
+        return 0;
     }
 
     private (int status, string json) Route(string method, string path, string body, string authHeader)
@@ -190,8 +248,36 @@ public sealed class LeaseApiService : IDisposable
                 totalGb = Math.Round(mem.TotalPhysicalBytes / 1073741824.0, 2),
                 commitFreePct = cf is { } v ? Math.Round(v, 1) : (double?)null,
                 leaseActive = lease != null,
+                // v0.23.0：能力发现。agent 先看这个再决定调什么，避免"试了才知道不支持"。
+                capabilities = _planExecutor == null
+                    ? new[] { "lease" }
+                    : new[] { "lease", "lease.plan" },
+                limits = new
+                {
+                    minTargetGb = 0.5,
+                    maxTtlSeconds = LeaseManager.MaxTtlSeconds,
+                    maxSuspendCount = LeaseHardPlanner.MaxSuspendCount
+                },
                 lease
             }, Json));
+        }
+
+        if (method == "POST" && path == "/api/plan")
+        {
+            LeaseRequest? planReq;
+            try { planReq = JsonSerializer.Deserialize<LeaseRequest>(body, Json); }
+            catch { return (400, """{"error":"bad_json"}"""); }
+            if (planReq == null || planReq.TargetAvailableGb <= 0)
+                return (400, """{"error":"targetAvailableGb must be > 0"}""");
+            if (planReq.RequesterPid < 0)
+                return (400, """{"error":"requesterPid must be >= 0"}""");
+            if (_planExecutor == null)
+                return (503, """{"error":"plan_unavailable"}""");   // 不假装成功
+
+            var planPolicy = string.Equals(planReq.Policy, "hard", StringComparison.OrdinalIgnoreCase)
+                ? LeasePolicy.Hard : LeasePolicy.Soft;
+            var plan = _planExecutor(planReq, planPolicy);
+            return (200, JsonSerializer.Serialize(plan, Json));
         }
 
         if (method == "POST" && path == "/api/lease")
@@ -201,6 +287,9 @@ public sealed class LeaseApiService : IDisposable
             catch { return (400, """{"error":"bad_json"}"""); }
             if (req == null || req.TargetAvailableGb <= 0)
                 return (400, """{"error":"targetAvailableGb must be > 0"}""");
+            // v0.23.0：负 PID 无意义；0 表示"未指定"（兼容旧客户端）。
+            if (req.RequesterPid < 0)
+                return (400, """{"error":"requesterPid must be >= 0"}""");
 
             var policy = string.Equals(req.Policy, "hard", StringComparison.OrdinalIgnoreCase)
                 ? LeasePolicy.Hard : LeasePolicy.Soft;

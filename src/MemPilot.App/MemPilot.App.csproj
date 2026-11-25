@@ -45,6 +45,11 @@
   <ItemGroup>
     <ProjectReference Include="..\MemPilot.Core\MemPilot.Core.csproj" />
   </ItemGroup>
+  <!-- v0.23.0：MCP 协议层单测需要访问 McpServer.HandleAsync（internal）。
+       协议层是 agent 的入口，回归成本最高，值得直接测。 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MemPilot.Tests" />
+  </ItemGroup>
   <Target Name="SignExe" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
     <!-- sign both the apphost exe (what users double-click, SmartScreen checks it) and the managed dll -->
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\sign.ps1&quot; -TargetPath &quot;$(TargetDir)$(TargetName).exe&quot;" ContinueOnError="true" />

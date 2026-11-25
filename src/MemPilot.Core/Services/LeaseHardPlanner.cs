@@ -39,16 +39,19 @@ public static class LeaseHardPlanner
     /// <summary>
     /// 从当前快照挑出可挂起的候选，按可释放提交内存降序排列。
     /// 返回的列表供调用方按目标额度截断后实际挂起。
+    /// <paramref name="excludedPids"/>：调用方自身及其子树（v0.23.0 硬不变式）——
+    /// 透传给 TrimSelection，保证"申请者永不被自己挂起"。
     /// </summary>
     public static List<ProcessInfo> PickSuspendCandidates(
-        IEnumerable<ProcessInfo> procs, int foregroundPid, IReadOnlySet<int> audioPids, DateTime now)
+        IEnumerable<ProcessInfo> procs, int foregroundPid, IReadOnlySet<int> audioPids, DateTime now,
+        IReadOnlySet<int>? excludedPids = null)
     {
         var result = new List<ProcessInfo>();
         if (procs == null) return result;
 
         foreach (var p in procs)
         {
-            if (!TrimSelection.IsSafe(p, foregroundPid, audioPids, now)) continue;
+            if (!TrimSelection.IsSafe(p, foregroundPid, audioPids, now, excludedPids)) continue;
             // 额外：必须"足够闲"——无窗口，或已空闲 ≥ MinIdleMinutes
             bool idle = !p.HasVisibleWindow || p.IdleMinutes >= MinIdleMinutes;
             if (!idle) continue;
@@ -60,8 +63,12 @@ public static class LeaseHardPlanner
             .ToList();
     }
 
+    /// <summary>单次硬租约最多挂起几个——永不一次挂一片。单一来源：API 的 limits 也读它。</summary>
+    public const int MaxSuspendCount = 8;
+
     /// <summary>按目标缺口截断候选：累计私有提交达到 needBytes 即停（最多 maxCount 个，避免一刀切挂一片）。</summary>
-    public static List<ProcessInfo> TakeForShortfall(List<ProcessInfo> candidates, long needBytes, int maxCount = 8)
+    public static List<ProcessInfo> TakeForShortfall(List<ProcessInfo> candidates, long needBytes,
+        int maxCount = MaxSuspendCount)
     {
         var picked = new List<ProcessInfo>();
         if (candidates == null || needBytes <= 0) return picked;

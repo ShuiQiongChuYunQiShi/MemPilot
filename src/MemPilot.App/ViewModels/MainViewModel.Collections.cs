@@ -151,6 +151,7 @@ public partial class MainViewModel
     {
         SysMem = mem;
         _lastProcs = procs;
+        _lastProcsUtc = DateTime.UtcNow;
         _lastUnused = unused;
         var cfg = ConfigStore.Config;
         CandidateRuleText = UiStrings.F("Cleanup_CandidateRule", cfg.UnusedIdleMinutes, cfg.RequiredIdleObservations);
