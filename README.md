@@ -41,6 +41,76 @@ That is expected for a new project, not a sign the file is broken. See
 [SECURITY.md](SECURITY.md) for the trust model and [docs/PRIVACY.md](docs/PRIVACY.md)
 for what data is stored (and what never leaves your machine).
 
+## Try it in 60 seconds
+
+The lease API is the part no other memory tool has: a task asks for memory before
+loading a model, gets **the amount actually freed** back, and returns it afterwards.
+
+```powershell
+# 1. install (pick one)
+#    a) winget — manifest is in this repo, submission in review; usable from the next release
+winget install ShuiQiongChuYunQiShi.MemPilot
+#    b) today — download MemPilot-<ver>-win-x64.exe from Releases (no runtime needed)
+
+# 2. turn the lease API on once: Settings -> 租约 API  (default port 52717)
+#    the bearer token is written to %APPDATA%\MemPilot\lease-token.txt
+
+# 3. run the self-check — it reads the token and port for you
+python tools/lease-demo.py --gb 4 --policy hard --stress
+```
+
+Expected shape (every line is a claim this project has to keep):
+
+```
+租约 c31c54f71963（hard）· 实测 14.98 GB / 目标 16.0 GB · 缺口 1.02 GB
+  ✓ 调用方自身（pid=34152）不在处置范围 · 挂起 3 个
+  ✓ 归还状态 released · 恢复 3/3 个挂起进程
+```
+
+- `实测 … 缺口 …` — it reports what it actually freed, not what you asked for.
+- `调用方自身…不在处置范围` — the caller and its process tree are never suspended
+  (`requesterPid`), so an agent cannot freeze its own worker.
+- `恢复 3/3` — every suspended process came back, and the count comes from the
+  response, not from a log you have to trust.
+
+## Use it from an agent (MCP)
+
+MemPilot ships a minimal MCP server over stdio, so an agent can check and reserve memory
+without anyone writing HTTP by hand. Add it to your MCP client:
+
+```json
+{
+  "mcpServers": {
+    "mempilot": {
+      "command": "C:\\Program Files\\MemPilot\\MemPilot.exe",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+Replace the path with wherever `MemPilot.exe` lives. A winget portable install also puts
+`mempilot` on PATH, so `"command": "mempilot"` works there too.
+
+Three tools, deliberately — every extra tool is another way for a model to pick wrong:
+
+| Tool | What it does |
+|---|---|
+| `mem_status` | memory state, `capabilities` (`lease`, `lease.plan`), and `limits` |
+| `mem_plan` | zero-action preview: measured current memory, an upper-bound projection, which processes *would* be suspended, and how many the safety rules exclude (and why) |
+| `mem_lease` | acquire (returns the amount **actually** freed) / release |
+
+The server is a **client only**: it forwards to the lease API on 127.0.0.1. The lease
+ledger has to stay in the single long-running process that can actually restore what it
+suspended — a second process with its own ledger is how you get processes suspended with
+nobody to resume them. If MemPilot isn't running or the lease API is off, the tools return
+an error saying exactly what to turn on.
+
+`mem_plan` takes no action at all: it reads the last process snapshot and returns a
+projection. `projectionBasis` tells you how to read that number — `hard-upper-bound`
+(current + private bytes of processes that would be suspended) or `current-only`
+(a lower bound; soft reclaim can't be predicted).
+
 ## Two problems, not one
 
 Most memory utilities treat RAM as one number and flush it. Measured on a real

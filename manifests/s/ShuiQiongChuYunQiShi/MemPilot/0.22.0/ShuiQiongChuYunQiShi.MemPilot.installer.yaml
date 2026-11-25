@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+#
+# 为什么选自包含单文件（65 MB）而不是 portable.zip（535 KB）：
+#   zip 是 framework-dependent，要求预装 .NET 10 Desktop Runtime；winget 装完还要
+#   用户自己去装 runtime，首装成功率会被砍一半。单文件无依赖，代价只是下载体积。
+#
+# Portable 类型会把 exe 放进 %LOCALAPPDATA%\Microsoft\WinGet\Links 并以文件名命名；
+# Commands 额外提供 mempilot 这个别名，agent 可以直接 spawn `mempilot --mcp`。
+# （PortableCommandAlias 在 1.6.0 schema 里不被识别，winget validate 会告警——用 Commands。）
+# app.manifest 是 asInvoker，不强制提权，所以 shim 调用不会弹 UAC。
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.22.0
+InstallerType: portable
+MinimumOSVersion: 10.0.17763.0
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/download/v0.22.0/MemPilot-0.22.0-win-x64.exe
+    InstallerSha256: 73447954434d0a8d10a47bba38f37844efd9b6e792ccfccd5ea21849ddc9a1e6
+    Commands:
+      - mempilot
+ManifestType: installer
+ManifestVersion: 1.6.0

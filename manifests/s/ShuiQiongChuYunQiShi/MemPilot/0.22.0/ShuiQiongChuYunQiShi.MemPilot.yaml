@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+#
+# winget-pkgs 提交布局：manifests/s/ShuiQiongChuYunQiShi/MemPilot/<version>/
+# 版本号不带 v 前缀（tag 是 v0.22.0，PackageVersion 必须是 0.22.0）。
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.22.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

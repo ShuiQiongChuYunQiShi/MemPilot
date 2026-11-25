@@ -4,6 +4,79 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [Unreleased]
+
+### Fixed
+- **The lease API returned a spurious `400 bad_json` on roughly 1 in 3 requests.**
+  `ReadRequestAsync` did a single `ReadAsync` and assumed headers and body arrived in
+  the same TCP segment; when the body landed in a second segment it was dropped and
+  deserialization failed — callers read that as "bad parameters" and gave up. Caught
+  by running `tools/lease-demo.py` repeatedly against v0.22.0 (2 of the first 3 runs
+  failed). The reader now accumulates bytes until `Content-Length` is satisfied and
+  decodes the body as UTF-8 only once it is complete, so a multi-byte `requester`
+  split across segments is no longer mangled either.
+
+### Added
+- **MCP server (`MemPilot.exe --mcp`).** Three tools over stdio JSON-RPC
+  (`initialize` / `tools/list` / `tools/call`, hand-written, no new dependencies):
+  `mem_status`, `mem_plan`, `mem_lease`. The server is a **client only** — it forwards to
+  the local lease API, because the lease ledger and the restore hook live in the single
+  long-running process; a second process with its own ledger is how you get processes
+  suspended with nobody to resume them. `--mcp` is intercepted *before* the single-instance
+  check, otherwise the second instance would just wake the GUI and exit.
+- **`POST /api/plan` — zero-action preview.** Returns measured current memory, an
+  upper-bound projection, the processes that *would* be suspended, and
+  `excluded.byReason` counts (so "L4 never automatic / Unknown never automatic" is a number
+  the caller can see, not a sentence in a README). `projectionBasis` says whether the
+  number is `hard-upper-bound` or `current-only`. Returns `503 plan_unavailable` when no
+  planner is wired instead of a fake all-zero plan. Writes `Kind=LeasePlan` with a 30-second
+  dedupe and **no** share of the important-record quota.
+- `GET /api/status` gained `capabilities` and `limits` (`minTargetGb`, `maxTtlSeconds`,
+  `maxSuspendCount` — the last one reads `LeaseHardPlanner.MaxSuspendCount`, so the API and
+  the scheduler cannot drift).
+- `TrimSelection.ExplainUnsafe` — the safety filter now reports *why* a process was
+  rejected (`caller`/`self`/`protected`/`category`/`workload`/`inUse`). `IsSafe` is a
+  boolean projection of the same implementation, so there is still exactly one judgement
+  (v0.9.2's convergence lesson).
+- **`requesterPid` (safety).** A lease can name its caller; that process and its whole
+  subtree are excluded from every reclaim candidate (trim and hard-suspend). An agent's
+  worker is typically windowless and idle — exactly the hard-lease suspend profile — so
+  without this a caller could freeze its own worker and wait forever. This is a hard
+  invariant evaluated before the protection/category rules; omitting the field (`0`)
+  keeps the old behaviour.
+- `tools/lease-demo.py` — zero-dependency self-check that reads the token and port
+  itself and asserts four claims: reachable, measured-not-promised, caller not
+  disposed, every suspension restored.
+- winget and scoop manifests (`manifests/`), with `mempilot` exposed on PATH so an
+  agent can spawn it directly.
+- `docs/SIGNING.md` — what the existing self-signed step does *not* solve, and the
+  SignPath OSS path (the only route to a signature other machines trust).
+
+### Fixed
+- **MCP server deadlocked on its first HTTP request.** It ran on the WPF `OnStartup`
+  thread, which carries a `DispatcherSynchronizationContext`; waiting synchronously on
+  async HTTP (`GetAwaiter().GetResult()`) posted the continuation back to the blocked
+  thread. Moved to `Task.Run` + `ConfigureAwait(false)`. Symptom: no output at all, then
+  a timeout — the JSON-RPC handshake had already worked, which made it look like a
+  transport bug.
+- **MCP HTTP requests went through the system proxy.** `HttpClient` inherits the system
+  proxy by default; with a local proxy configured but not running, `mem_status` hung until
+  the 60-second timeout. Loopback requests now use `UseProxy = false`.
+- **The lease API returned a spurious `400 bad_json` on roughly 1 in 3 requests.**
+  `ReadRequestAsync` did a single `ReadAsync` and assumed headers and body arrived in
+  the same TCP segment; when the body landed in a second segment it was dropped and
+  deserialization failed — callers read that as "bad parameters" and gave up. Caught
+  by running `tools/lease-demo.py` repeatedly against v0.22.0 (2 of the first 3 runs
+  failed). The reader now accumulates bytes until `Content-Length` is satisfied and
+  decodes the body as UTF-8 only once it is complete, so a multi-byte `requester`
+  split across segments is no longer mangled either.
+
+### Changed
+- `docs/LEASE-API.md` documents `requesterPid`, `POST /api/plan`, and the new
+  `capabilities`/`limits` fields (the status example had also drifted: it showed a
+  `commitLimitGb` field that does not exist); both READMEs gained a "60 seconds" section
+  built on the demo script and an MCP setup section.
+
 ## [0.22.0] — safety fixes, WSL hint, decision export, process-page polish
 
 ### Fixed

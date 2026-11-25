@@ -39,6 +39,71 @@ Get-Content .\SHA256SUMS.txt
 产物**未签名**（不购商业证书的决策见英文 README），首次运行被 360/SmartScreen 提示属预期；
 信任模型见 [SECURITY.md](../SECURITY.md)，数据说明见 [PRIVACY.md](PRIVACY.md)。
 
+## 60 秒试一下
+
+租约 API 是同类工具都没有的那一块：任务在加载模型前申请内存，拿回的是**实测腾出量**，
+结束后归还。
+
+```powershell
+# 1. 安装（二选一）
+#    a) winget —— 清单已在本仓库，提交审核中，下个版本起可用
+winget install ShuiQiongChuYunQiShi.MemPilot
+#    b) 现在：从 Releases 下载 MemPilot-<ver>-win-x64.exe（无需运行时）
+
+# 2. 一次性开启：设置 →「租约 API」（默认端口 52717）
+#    令牌落在 %APPDATA%\MemPilot\lease-token.txt
+
+# 3. 跑自检脚本（自动读令牌与端口）
+python tools/lease-demo.py --gb 4 --policy hard --stress
+```
+
+输出形状（每一行都是本项目必须守住的承诺）：
+
+```
+租约 c31c54f71963（hard）· 实测 14.98 GB / 目标 16.0 GB · 缺口 1.02 GB
+  ✓ 调用方自身（pid=34152）不在处置范围 · 挂起 3 个
+  ✓ 归还状态 released · 恢复 3/3 个挂起进程
+```
+
+- `实测 … 缺口 …`——报的是真腾出多少，不是你要多少。
+- `调用方自身…不在处置范围`——调用方及其进程树永不被挂起（`requesterPid`），
+  agent 不会把自己的 worker 冻住。
+- `恢复 3/3`——挂起的进程逐个恢复，数字来自响应而不是要你相信的日志。
+
+## 让 agent 直接用（MCP）
+
+MemPilot 内置一个极简 MCP server（stdio 传输），agent 不写任何 HTTP 就能查内存、申请租约。
+在你的 MCP 客户端里加：
+
+```json
+{
+  "mcpServers": {
+    "mempilot": {
+      "command": "C:\\Program Files\\MemPilot\\MemPilot.exe",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+路径换成你自己的 `MemPilot.exe` 位置。winget portable 安装会把 `mempilot` 放进 PATH，
+那里写 `"command": "mempilot"` 也可以。
+
+只有三个 tool——每多一个，模型选错的概率就多一分：
+
+| Tool | 作用 |
+|---|---|
+| `mem_status` | 内存状态、`capabilities`（`lease` / `lease.plan`）、`limits` |
+| `mem_plan` | **零动作**预演：实时可用、上界预估、**将会**被挂起的进程、以及被安全边界挡掉多少（附原因） |
+| `mem_lease` | acquire（返回**实测**腾出量）/ release |
+
+这个 server 只当**客户端**：它把请求转发给 127.0.0.1 的租约 API。租约账本必须留在
+唯一那个长驻进程里——第二个进程自带账本，就是"进程被挂起、没人负责恢复"的老路。
+MemPilot 没在跑或租约 API 没开时，tool 会返回一条说清"该去哪里打开"的错误。
+
+`mem_plan` 不做任何动作：读上一次进程快照、返回预估。`projectionBasis` 说明这个数字怎么来的——
+`hard-upper-bound`（当前 + 将会挂起进程的私有提交）或 `current-only`（下界，soft 的回收量不可预测）。
+
 ## 核心能力
 
 ### 1. 先分类，再动手
