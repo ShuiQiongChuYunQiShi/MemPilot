@@ -111,6 +111,11 @@ public partial class MainViewModel
     private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(
         LeaseRequest req, LeasePolicy policy)
     {
+        // v0.24.1：腾挪一开始就把申请方告诉引擎。reserving 阶段（占位后、完成前）也可能撞上
+        // FloorTrim，而 FloorTrim 是独立路径、不读租约账本。失败/取消时这个值可能残留，
+        // 后果是"多排除一个 PID"——安全方向，无害。
+        Engine.LeaseRequesterPid = req.RequesterPid;
+
         var before = ProcessService.GetSystemMemory();
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
         var fg = Engine.LastForegroundPid;

@@ -475,6 +475,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             switch (ev)
             {
                 case "开始":
+                    // v0.24.1：把申请方 PID 同步给引擎——自动兜底（FloorTrim / CommitRelief 的
+                    // TrimSafe）也必须排除它及其子树，不能压缩"为工作让路"的那一方。
+                    Engine.LeaseRequesterPid = lease.RequesterPid;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
                         Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB（策略 {lease.Policy}，挂起 {lease.Suspended.Count} 个）；实测达成 {achieved:F1} GB（{lease.Details}）" });
                     RaiseAlert(UiStrings.Get("Lease_Active"), UiStrings.F("Lease_ActiveBody",
@@ -482,11 +485,13 @@ public partial class MainViewModel : INotifyPropertyChanged
                     AlertRaised?.Invoke(UiStrings.Get("Lease_Active"), $"{achieved:F1} / {peak:F1} GB", false);
                     break;
                 case "归还":
+                    Engine.LeaseRequesterPid = 0;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
                         Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟，策略 {lease.Policy}）" });
                     RaiseAlert(UiStrings.Get("Lease_ReturnedTitle"), UiStrings.F("Lease_ReturnedBody", lease.Requester));
                     break;
                 case "过期":
+                    Engine.LeaseRequesterPid = 0;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
                         Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}，策略 {lease.Policy}）" });
                     RaiseAlert(UiStrings.Get("Lease_ExpiredTitle"), UiStrings.Get("Lease_ExpiredBody"));

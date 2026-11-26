@@ -20,6 +20,21 @@ public partial class ResidentEngine
     /// 只是走"温和档"少压一些。旧注释写"活跃时不做任何压缩"，与实现不符（2026-11-26 修正）。</summary>
     public bool AiSessionActive { get; set; }
 
+    /// <summary>
+    /// 当前租约的申请方 PID（v0.24.1，0 = 无活跃租约）。由 VM 在租约开始/归还时同步。
+    ///
+    /// 为什么需要：租约的 relief 已经排除了 requesterPid 子树，但 **FloorTrim 是独立路径**——
+    /// 租约期间内存告急时，自动兜底若不排除申请方，就可能压缩申请人自己的进程
+    /// （把它的页面换出 → 任务变慢），而申请方正是为"给工作让路"付出代价的那一方。
+    /// </summary>
+    public int LeaseRequesterPid { get; set; }
+
+    /// <summary>租约申请方及其子树的 PID 集合（无租约时 null）。两条自动压缩路径共用。</summary>
+    private IReadOnlySet<int>? LeaseExcluded(IEnumerable<ProcessInfo>? procs)
+        => LeaseRequesterPid > 0 && procs != null
+            ? ProcessTreeBuilder.BuildSubtreePids(procs, LeaseRequesterPid)
+            : null;
+
     /// <summary>提交告急且允许 L3 时，向 UI 请求确认（候选进程, 预计释放提交字节）。UI 决定是否关闭。</summary>
     public event Action<IReadOnlyList<ProcessInfo>, long>? CommitReliefL3Suggested;
 
@@ -109,7 +124,7 @@ public partial class ResidentEngine
 
         long before = mem.AvailablePhysicalBytes;
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
-        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs));
 
         // v0.10.0（开源前正确性修复）：**先判权限，再说执行**。
         // v0.13.0（第四轮复盘）：**失败不吃冷却**——旧实现 `_lastReliefUtc` 无条件赋值，
@@ -236,7 +251,9 @@ public partial class ResidentEngine
         if ((DateTime.UtcNow - _lastFloorTrimUtc).TotalMinutes < 10) return;   // 去重
 
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
-        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
+        // v0.24.1：自动兜底也绝不能碰租约申请方（及其子树）。
+        // 申请方是"为工作让路"付出代价的一方，把它自己的页面换出等于让它替别人买单。
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs));
         if (safeSet.Count == 0) return;
 
         string trigger = availGb < 3.0 ? $"可用 {availGb:F1} GB < 3 GB" : "提交余量 <10%";

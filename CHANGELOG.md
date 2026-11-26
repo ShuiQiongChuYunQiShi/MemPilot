@@ -4,6 +4,17 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [Unreleased]
+
+### Fixed
+- **Automatic trimming could compress the lease caller's own processes.** `FloorTrim` and
+  CommitRelief's TrimSafe are independent paths that never read the lease ledger — so while a
+  lease was active, a memory crunch could trim the caller's process tree, evicting the pages
+  of the very job the lease was making room for. The engine now receives `LeaseRequesterPid`
+  (synced on lease start / release / expiry) and excludes that whole subtree from both
+  automatic paths, including the `reserving` window. Residual value after an aborted
+  reservation is harmless: it only excludes one more PID, which is the safe direction.
+
 ## [0.24.0] — available-floor tiers, orphan lease recovery, agent skill
 
 ### Fixed
