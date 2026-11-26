@@ -4,7 +4,7 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
-## [Unreleased]
+## [0.24.0] — available-floor tiers, orphan lease recovery, agent skill
 
 ### Fixed
 - **An available-floor trim could touch 152 processes at once and made the machine feel
