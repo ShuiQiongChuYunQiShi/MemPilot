@@ -1,5 +1,5 @@
 {
-    "version": "0.23.0",
+    "version": "0.24.0",
     "description": "Windows memory and process pilot with a measured lease API for AI tasks.",
     "homepage": "https://github.com/ShuiQiongChuYunQiShi/MemPilot",
     "license": "Apache-2.0",
@@ -9,8 +9,8 @@
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/download/v0.23.0/MemPilot-0.23.0-win-x64.exe#/MemPilot.exe",
-            "hash": "3fae3909451e76483da4174920887af950fe1d8b88294f017ad190cc269667f9"
+            "url": "https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/download/v0.24.0/MemPilot-0.24.0-win-x64.exe#/MemPilot.exe",
+            "hash": "dc80023570481b26f8878571e2b067f21a76ee7780f200dfb25a4d6eeb7d032d"
         }
     },
     "bin": [

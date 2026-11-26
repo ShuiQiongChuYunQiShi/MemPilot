@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.24.0
+InstallerType: portable
+MinimumOSVersion: 10.0.17763.0
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/download/v0.24.0/MemPilot-0.24.0-win-x64.exe
+    InstallerSha256: dc80023570481b26f8878571e2b067f21a76ee7780f200dfb25a4d6eeb7d032d
+    Commands:
+      - mempilot
+ManifestType: installer
+ManifestVersion: 1.6.0

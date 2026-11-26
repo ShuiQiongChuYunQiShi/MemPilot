@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.24.0
+PackageLocale: zh-CN
+Publisher: ShuiQiongChuYunQiShi
+PublisherUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+PublisherSupportUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/issues
+PackageName: MemPilot
+PackageUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+License: Apache-2.0
+LicenseUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/LICENSE
+ShortDescription: Windows 内存与进程领航员，为 AI 任务提供实测口径的租约 API 与 MCP 接入。
+Description: >-
+  MemPilot 同时观测物理内存与提交内存，判断哪些进程真的闲置，并且只通过可逆动作回收。
+  AI 任务可以在加载模型前通过本地 HTTP API 或 MCP 申请内存租约、结束后归还；返回的是实测
+  达成量，不是承诺量。内存偏低时它先压缩少量进程、再询问是否继续，并说明自己做了什么、
+  为什么这么做。安全边界写在代码里：强杀永不自动、未识别进程永不处置，每个动作都有审计留痕。
+Tags:
+  - 内存
+  - 进程管理
+  - ai
+  - agent
+  - 租约
+  - mcp
+  - windows
+ManifestType: locale
+ManifestVersion: 1.6.0
