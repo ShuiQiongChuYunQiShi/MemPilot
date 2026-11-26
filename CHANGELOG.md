@@ -17,6 +17,14 @@ versioning is `0.y.z` while the project is pre-1.0.
   split across segments is no longer mangled either.
 
 ### Added
+- **Default deny list for network infrastructure.** Suspending a proxy or VPN core
+  (`FlClashCore`, `tailscaled`, `mihomo`, `sing-box`, …) cuts **all** network — including the
+  caller's own LLM API connection. The caller then sees request timeouts and retries, never
+  suspecting the memory tool. Those processes are windowless, idle and large, i.e. a perfect
+  hard-lease candidate, so this happened on the first real `plan` run. The list is always
+  active (merged with the caller's `denyNames`) and reported under `denied.defaultCount`;
+  it is a default *preference*, not a safety rule, so it lives in the planner and not in
+  `TrimSelection`.
 - **`denyNames` (caller preference).** `POST /api/lease` and `POST /api/plan` accept a list
   of process names the caller does not want touched (exact, case-insensitive, trimmed).
   `plan` reports them under `denied` — deliberately separate from `excluded`, because

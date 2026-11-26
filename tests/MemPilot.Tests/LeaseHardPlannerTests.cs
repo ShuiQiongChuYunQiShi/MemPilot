@@ -178,4 +178,29 @@ public class LeaseHardPlannerTests
 
         Assert.Equal(new[] { 2 }, picked.Select(p => p.Pid).ToArray());
     }
+
+    [Fact]
+    public void DefaultDenyNames_AlwaysApply_WithoutCallerInput()
+    {
+        // 挂起代理/VPN 内核 = 断网，包括 agent 自己的 API 调用
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "FlClashCore"),
+            P(2, "tailscaled"),
+            P(3, "other-idle.exe"),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now);
+        Assert.Equal(new[] { 3 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void MergeDenyNames_CombinesDefaultsAndCaller_AndDedupes()
+    {
+        var merged = LeaseHardPlanner.MergeDenyNames(new[] { "Weixin", "   ", "flclashcore" });
+
+        Assert.Contains("tailscaled", merged);                       // 默认
+        Assert.Contains("Weixin", merged);                           // 调用方
+        Assert.Contains("FlClashCore", merged);                      // 大小写去重后仍是默认名
+        Assert.Equal(LeaseHardPlanner.DefaultDenyNames.Count + 1, merged.Count);  // 只多了 Weixin
+    }
 }

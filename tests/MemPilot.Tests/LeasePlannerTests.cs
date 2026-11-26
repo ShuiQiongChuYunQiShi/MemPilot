@@ -210,4 +210,48 @@ public class LeasePlannerTests
         Assert.False(plan.Feasible);                     // 并且如实说"凑不够"
         Assert.Equal(2, plan.Denied.Total);
     }
+
+    // ---- 内置默认排除：挂起即断网的那一类（代理/VPN 内核）----
+
+    [Fact]
+    public void NetworkInfra_IsNeverPlanned_EvenWithNoCallerInput()
+    {
+        // 挂起 FlClashCore/tailscaled 会切断所有网络——包括 agent 自己调 LLM API 的连接，
+        // 而 agent 只会看到"请求超时"，永不会想到是内存工具干的。
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "FlClashCore", privateBytes: 4 * Gb),
+            P(2, "tailscaled", privateBytes: 4 * Gb),
+            P(3, "normal.exe", privateBytes: 4 * Gb),
+        };
+        var plan = LeasePlanner.Build(procs, 0, NoAudio, Now, 10, LeasePolicy.Hard,
+            currentAvailableGb: 0, snapshotAgeSeconds: 1);
+
+        var picked = Assert.Single(plan.WouldSuspend);
+        Assert.Equal(3, picked.Pid);
+        Assert.Equal(2, plan.Denied.Total);
+        Assert.Equal(2, plan.Denied.DefaultCount);       // 来自内置名单
+        Assert.Equal(0, plan.Denied.CallerCount);
+    }
+
+    [Fact]
+    public void Denied_SeparatesDefaultsFromCallerChoices()
+    {
+        // 调用方没传 denyNames 时也会看到非零的 denied.total，
+        // 所以必须拆开报，否则那个数字没法解释
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "FlClashCore", privateBytes: 2 * Gb),
+            P(2, "Weixin", privateBytes: 2 * Gb),
+            P(3, "other.exe", privateBytes: 2 * Gb),
+        };
+        var plan = LeasePlanner.Build(procs, 0, NoAudio, Now, 10, LeasePolicy.Hard,
+            currentAvailableGb: 0, snapshotAgeSeconds: 1,
+            denyNames: new HashSet<string> { "Weixin" });
+
+        Assert.Equal(2, plan.Denied.Total);
+        Assert.Equal(1, plan.Denied.DefaultCount);
+        Assert.Equal(1, plan.Denied.CallerCount);
+        Assert.Equal(new[] { "FlClashCore", "Weixin" }, plan.Denied.Names);
+    }
 }

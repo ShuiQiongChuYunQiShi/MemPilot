@@ -45,7 +45,7 @@ MemPilot 的租约（Lease）让 AI 任务在加载模型前**申请**可用内�
 | `shortfallGb` | 与目标的缺口 |
 | `wouldSuspend` | hard 策略下**将会**挂起的进程（`pid` / `name` / `privateBytes`），最多 `maxSuspendCount` 个 |
 | `excluded` | 被安全边界挡住的进程统计：`total` + `byReason`（`caller`/`protected`/`category`/`workload`/`inUse`/`self`/`invalid`） |
-| `denied` | 被**调用方点名**排除的进程统计：`total` + 实际命中的 `names`。与 `excluded` 刻意分开：`excluded` 是"安全边界不让动"，`denied` 是"你让我别动"——混在一起会让调用方误以为这些进程有风险 |
+| `denied` | 被排除的进程统计：`total`（进程数）+ `names`（去重后的进程名）+ `defaultCount`（内置名单命中）+ `callerCount`（你的 `denyNames` 命中）。与 `excluded` 刻意分开：`excluded` 是"安全边界不让动"，`denied` 是"别动"——混在一起会让调用方误以为这些进程有风险。**调用方不传 `denyNames` 时 `defaultCount` 也可能非零**，这是内置的网络基础设施保护（见下） |
 | `snapshotAgeSeconds` | 进程快照年龄；**-1 = 还没有快照**（刚启动）。plan 基于上一次 tick 的列表，不是实时枚举 |
 
 ```json
@@ -123,6 +123,27 @@ TTL 到期同样自动归还并恢复。
 
 续期不会重新执行腾挪（`beforeAvailableGb`/`achievedAvailableGb` 保持不变），
 也**不会重置守护告警**——否则调用方可以用 renew 把"内存已被侵蚀"的真实告警刷掉。
+
+## 内置排除名单：挂起即断网的那一类
+
+`denyNames` 之外，还有一份**总是生效**的默认名单（精确名、忽略大小写）：
+
+| 类别 | 名字 |
+|---|---|
+| 代理 / 分流内核 | `FlClashCore` `FlClash` `clash` `clash-meta` `mihomo` `verge-mihomo` `sing-box` `v2ray` `xray` `hysteria` `trojan` `naive` |
+| VPN / 远程访问 | `tailscaled` `wireguard` `wg` `openvpn` `zerotier-one` `netbird` `cloudflared` |
+| 虚拟网卡 / 桥接 | `wintun` `tap-windows` |
+
+**为什么必须默认排除**：这些进程无窗口、空闲、体积够大，完美满足硬租约的挂起条件。
+但挂起代理或 VPN 内核会切断**所有**网络——包括调用方自己调 LLM API 的连接。
+调用方看到的是"请求超时"，只会去重试，永远不会想到是内存工具干的。
+
+**为什么它不进安全边界**（`TrimSelection`）：安全边界回答"谁绝对不能动"（系统/安全/Unknown），
+这份名单回答"默认别动谁"。前者不可配置，后者是默认偏好。实测里 `FlClashCore` 有连接在传数据时
+本来就不满足"够闲"，名单只在它真正空闲时兜底——这是保险，不是限制。
+
+名单必然不全（新代理工具层出不穷）。漏了只是回到旧行为，不会更糟；
+调用方发现漏网时用 `denyNames` 补。
 
 ## 策略
 

@@ -21,14 +21,21 @@ public sealed class LeasePlanExcluded
 }
 
 /// <summary>
-/// 被调用方点名的进程（denyNames）统计。
-/// 与 <see cref="LeasePlanExcluded"/> 刻意分开：这个是"你让我别动"，不是"安全边界挡住了"。
+/// 被排除的进程统计。
+/// 与 <see cref="LeasePlanExcluded"/> 刻意分开：这个是"别动"，不是"安全边界挡住了"。
 /// 混在一起会让 agent 误判成"这些进程有风险"。
+///
+/// `DefaultCount` 与 `CallerCount` 分开报，是因为默认排除（网络基础设施）会自己生效——
+/// 调用方没传 denyNames 也会看到非零的 total，不拆开就没法解释这个数字。
 /// </summary>
 public sealed class LeasePlanDenied
 {
     public int Total { get; set; }
     public List<string> Names { get; set; } = new();
+    /// <summary>来自内置名单（挂起即断网：代理/VPN 内核等）。</summary>
+    public int DefaultCount { get; set; }
+    /// <summary>来自调用方 denyNames。</summary>
+    public int CallerCount { get; set; }
 }
 
 /// <summary>
@@ -75,7 +82,7 @@ public static class LeasePlanner
         IEnumerable<ProcessInfo>? procs, int foregroundPid, IReadOnlySet<int>? audioPids,
         DateTime now, double targetAvailableGb, LeasePolicy policy, double currentAvailableGb,
         double snapshotAgeSeconds, IReadOnlySet<int>? excludedPids = null,
-        IReadOnlySet<string>? denyNames = null)
+        IEnumerable<string>? denyNames = null)
     {
         var plan = new LeasePlan
         {
@@ -88,16 +95,22 @@ public static class LeasePlanner
 
         var list = procs as IList<ProcessInfo> ?? procs?.ToList() ?? new List<ProcessInfo>();
         var audio = audioPids ?? EmptyAudio;
-        var deny = denyNames == null
-            ? null
-            : new HashSet<string>(
-                denyNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
-                StringComparer.OrdinalIgnoreCase);
+
+        // 默认排除（挂起即断网）与调用方点名的分开记，plan 才能解释"你没传也非零"
+        var defaultDeny = new HashSet<string>(LeaseHardPlanner.DefaultDenyNames, StringComparer.OrdinalIgnoreCase);
+        var callerDeny = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (denyNames != null)
+            foreach (var n in denyNames)
+                if (!string.IsNullOrWhiteSpace(n))
+                {
+                    var trimmed = n.Trim();
+                    if (!defaultDeny.Contains(trimmed)) callerDeny.Add(trimmed);
+                }
 
         // 被安全边界挡住多少：这是"excluded.byReason.unknown > 0"能成为可见证据的地方
         var byReason = new Dictionary<string, int>();
         var deniedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int denied = 0;
+        int defaultDenied = 0, callerDenied = 0;
         foreach (var p in list)
         {
             var reject = TrimSelection.ExplainUnsafe(p, foregroundPid, audio, now, excludedPids);
@@ -107,15 +120,27 @@ public static class LeasePlanner
                 byReason[key] = byReason.TryGetValue(key, out var n) ? n + 1 : 1;
                 continue;
             }
-            // 只统计"本来是候选、被调用方点名排除"的——这样 denied.total 有解释力
-            if (deny != null && !string.IsNullOrEmpty(p.Name) && deny.Contains(p.Name))
+            // 只统计"本来是候选、被排除的"——这样数字才有解释力
+            if (string.IsNullOrEmpty(p.Name)) continue;
+            if (defaultDeny.Contains(p.Name))
             {
-                denied++;
+                defaultDenied++;
+                deniedNames.Add(p.Name);
+            }
+            else if (callerDeny.Contains(p.Name))
+            {
+                callerDenied++;
                 deniedNames.Add(p.Name);
             }
         }
         plan.Excluded = new LeasePlanExcluded { Total = byReason.Values.Sum(), ByReason = byReason };
-        plan.Denied = new LeasePlanDenied { Total = denied, Names = deniedNames.OrderBy(x => x).ToList() };
+        plan.Denied = new LeasePlanDenied
+        {
+            Total = defaultDenied + callerDenied,
+            Names = deniedNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(),
+            DefaultCount = defaultDenied,
+            CallerCount = callerDenied
+        };
 
         double projected = Math.Max(0, currentAvailableGb);
 
@@ -123,7 +148,7 @@ public static class LeasePlanner
         {
             long needBytes = (long)((targetAvailableGb - currentAvailableGb) * Gb);
             var candidates = LeaseHardPlanner.PickSuspendCandidates(list, foregroundPid, audio, now,
-                excludedPids, deny);
+                excludedPids, denyNames);
             var picked = LeaseHardPlanner.TakeForShortfall(candidates, needBytes);
             foreach (var p in picked)
             {
