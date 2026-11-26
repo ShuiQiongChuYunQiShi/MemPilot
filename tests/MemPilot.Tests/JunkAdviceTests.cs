@@ -70,8 +70,10 @@ public class JunkAdviceTests : IDisposable
     [Fact]
     public void Recommend_SkipsProcessActiveToday()
     {
+        // 用"此刻"而不是 UtcNow-30min：后者在 UTC 日界（00:00–00:30）会落到昨天，
+        // 被判成"今天没用过"，测试每天必红一次（CI 实测 2026-11-26T00:10Z）。
         var procs = new List<ProcessInfo> { P(1, "wps") };
-        var advice = JunkAdvisor.Recommend(procs, Behaviors(("wps", DateTime.UtcNow - TimeSpan.FromMinutes(30))),
+        var advice = JunkAdvisor.Recommend(procs, Behaviors(("wps", DateTime.UtcNow)),
             -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow);
         Assert.Null(advice);   // 今天有活动 → 不打扰
     }
@@ -335,7 +337,8 @@ public class JunkAdviceTests : IDisposable
             P(1, "svc1", cat: ProcessCategory.SystemCritical),
             P(2, "activesvc"),
         };
-        var behaviors = Behaviors(("activesvc", DateTime.UtcNow - TimeSpan.FromMinutes(5)));
+        // 用"此刻"：UtcNow-5min 在 UTC 00:00–00:05 会落到昨天，判成"今天没用过"
+        var behaviors = Behaviors(("activesvc", DateTime.UtcNow));
         var advice = JunkAdvisor.Recommend(procs, behaviors,
             -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
             markedCleanable: new[] { "svc1", "activesvc" });

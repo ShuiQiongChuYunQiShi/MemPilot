@@ -4,7 +4,7 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
-## [Unreleased]
+## [0.23.0] — lease safety, MCP server, zero-action planning, queuing
 
 ### Fixed
 - **The lease API returned a spurious `400 bad_json` on roughly 1 in 3 requests.**

@@ -85,8 +85,10 @@ public class LongResidentAdvisorTests : IDisposable
     [Fact]
     public void SkipsProcessUsedToday()
     {
+        // 用"此刻"而不是 UtcNow-30min：后者在 UTC 日界（00:00–00:30）会落到昨天，
+        // 被判成"今天没用过"，测试每天必红一次（CI 实测 2026-11-26T00:10Z）。
         var advice = Recommend(new List<ProcessInfo> { P(1, "used") },
-            Behaviors(("used", DateTime.UtcNow - TimeSpan.FromMinutes(30))));
+            Behaviors(("used", DateTime.UtcNow)));
         Assert.Null(advice);
     }
 
