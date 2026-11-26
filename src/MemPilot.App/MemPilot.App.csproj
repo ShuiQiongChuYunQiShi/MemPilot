@@ -10,9 +10,9 @@
     <RootNamespace>MemPilot</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.24.0</Version>
-    <AssemblyVersion>0.24.0.0</AssemblyVersion>
-    <FileVersion>0.24.0.0</FileVersion>
+    <Version>0.24.1</Version>
+    <AssemblyVersion>0.24.1.0</AssemblyVersion>
+    <FileVersion>0.24.1.0</FileVersion>
     <!-- 可复现构建：锁文件入库，CI 用 locked-mode（棱镜 stack/dependency） -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <Title>MemPilot</Title>

@@ -4,7 +4,7 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
-## [Unreleased]
+## [0.24.1] — automatic trimming never touches the lease caller
 
 ### Fixed
 - **Automatic trimming could compress the lease caller's own processes.** `FloorTrim` and
