@@ -17,6 +17,11 @@ versioning is `0.y.z` while the project is pre-1.0.
   split across segments is no longer mangled either.
 
 ### Added
+- **`plan.samplingWarm`.** CPU/IO usage comes from differencing two enumerations; the first one
+  has no baseline, so most processes look "busy" and `wouldSuspend` comes back empty (observed
+  for real: `excluded.inUse` went 1 → 62 right after a restart). Plans now report `samplingWarm`,
+  and the MCP tool prepends a "retry in ~30s" note instead of letting a model conclude the machine
+  can free nothing.
 - **Default deny list for network infrastructure.** Suspending a proxy or VPN core
   (`FlClashCore`, `tailscaled`, `mihomo`, `sing-box`, …) cuts **all** network — including the
   caller's own LLM API connection. The caller then sees request timeouts and retries, never

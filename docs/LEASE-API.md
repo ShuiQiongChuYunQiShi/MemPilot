@@ -47,6 +47,7 @@ MemPilot 的租约（Lease）让 AI 任务在加载模型前**申请**可用内�
 | `excluded` | 被安全边界挡住的进程统计：`total` + `byReason`（`caller`/`protected`/`category`/`workload`/`inUse`/`self`/`invalid`） |
 | `denied` | 被排除的进程统计：`total`（进程数）+ `names`（去重后的进程名）+ `defaultCount`（内置名单命中）+ `callerCount`（你的 `denyNames` 命中）。与 `excluded` 刻意分开：`excluded` 是"安全边界不让动"，`denied` 是"别动"——混在一起会让调用方误以为这些进程有风险。**调用方不传 `denyNames` 时 `defaultCount` 也可能非零**，这是内置的网络基础设施保护（见下） |
 | `snapshotAgeSeconds` | 进程快照年龄；**-1 = 还没有快照**（刚启动）。plan 基于上一次 tick 的列表，不是实时枚举 |
+| `samplingWarm` | CPU/IO 采样是否已预热（前两次枚举没有基线，会把大量进程算成"忙"）。**`false` 时应稍后重试**，不要据此判断机器没余量 |
 
 ```json
 {

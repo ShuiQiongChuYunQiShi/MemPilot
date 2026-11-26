@@ -257,7 +257,26 @@ internal static class McpServer
         };
         CopyDenyNames(args, body);
         var r = await client.CallAsync(HttpMethod.Post, "/api/plan", body.ToJsonString());
-        return r.Ok ? ToolText(Pretty(r.Body)) : ToolError(client.Explain(r));
+        if (!r.Ok) return ToolError(client.Explain(r));
+        // 刚启动时 CPU/IO 采样没有基线，inUse 虚高 → 候选为空。
+        // 明确告诉模型"稍后重试"，而不是让它据此放弃。
+        var warmNote = IsSamplingCold(r.Body)
+            ? "NOTE: MemPilot just started and its CPU/IO sampling is not warm yet — 'inUse' is " +
+              "inflated and wouldSuspend may be empty. Retry in about 30 seconds before concluding " +
+              "this machine cannot free memory.\n\n"
+            : "";
+        return ToolText(warmNote + Pretty(r.Body));
+    }
+
+    private static bool IsSamplingCold(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("samplingWarm", out var w)
+                   && w.ValueKind == JsonValueKind.False;
+        }
+        catch { return false; }
     }
 
     private static async Task<JsonNode> LeaseAsync(JsonObject args, ILeaseApi client)

@@ -130,6 +130,28 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Plan_WhenSamplingIsCold_PrependsRetryHint()
+    {
+        // 刚启动时 inUse 虚高、候选为空；不提示的话模型会得出"这台机器没余量"的错误结论
+        var api = new FakeApi
+        {
+            Handler = (_, _, _) => new(200, """{"feasible":false,"samplingWarm":false,"wouldSuspend":[]}""")
+        };
+        var resp = CallTool(api, "mem_plan", """{"targetAvailableGb":8}""");
+
+        Assert.Contains("sampling is not warm", resp);
+        Assert.Contains("Retry in about 30 seconds", resp);
+    }
+
+    [Fact]
+    public void Plan_WhenWarm_HasNoRetryHint()
+    {
+        var api = new FakeApi { Handler = (_, _, _) => new(200, """{"feasible":true,"samplingWarm":true}""") };
+        var resp = CallTool(api, "mem_plan", """{"targetAvailableGb":8}""");
+        Assert.DoesNotContain("not warm", resp);
+    }
+
+    [Fact]
     public void Plan_ForwardsDenyNames()
     {
         var api = new FakeApi { Handler = (_, _, _) => new(200, """{"feasible":true}""") };

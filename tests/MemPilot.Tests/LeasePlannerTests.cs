@@ -211,6 +211,19 @@ public class LeasePlannerTests
         Assert.Equal(2, plan.Denied.Total);
     }
 
+    [Fact]
+    public void SamplingWarm_DefaultsTrue_AndIsReportedWhenCold()
+    {
+        var warm = LeasePlanner.Build(new List<ProcessInfo>(), 0, NoAudio, Now, 4, LeasePolicy.Soft,
+            currentAvailableGb: 10, snapshotAgeSeconds: 1);
+        Assert.True(warm.SamplingWarm);
+
+        // 刚启动：CPU/IO 没有基线，inUse 虚高、候选可能为空——调用方应"稍后重试"而不是放弃
+        var cold = LeasePlanner.Build(new List<ProcessInfo>(), 0, NoAudio, Now, 4, LeasePolicy.Soft,
+            currentAvailableGb: 10, snapshotAgeSeconds: 2, samplingWarm: false);
+        Assert.False(cold.SamplingWarm);
+    }
+
     // ---- 内置默认排除：挂起即断网的那一类（代理/VPN 内核）----
 
     [Fact]

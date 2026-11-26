@@ -65,6 +65,12 @@ public sealed class LeasePlan
     public List<LeasePlanSuspend> WouldSuspend { get; set; } = new();
     public LeasePlanExcluded Excluded { get; set; } = new();
     public LeasePlanDenied Denied { get; set; } = new();
+    /// <summary>
+    /// CPU/IO 采样是否已预热（v0.23.0）。首次枚举没有上一次的 CPU 时间基线，
+    /// 会把大量进程算成"正在干活"（真机：inUse 从 1 涨到 62），于是 plan 报"什么都腾不出来"。
+    /// false 时调用方应**稍后重试**，而不是据此判断机器没余量。
+    /// </summary>
+    public bool SamplingWarm { get; set; } = true;
 }
 
 /// <summary>
@@ -78,11 +84,15 @@ public static class LeasePlanner
     private static readonly HashSet<int> EmptyAudio = new();
     private const double Gb = 1073741824.0;
 
+    /// <remarks>
+    /// 参数已到 11 个：下次再扩字段时应改成 input record（LeasePlanInput），
+    /// 这次不动是为了让本次 diff 只包含功能改动。
+    /// </remarks>
     public static LeasePlan Build(
         IEnumerable<ProcessInfo>? procs, int foregroundPid, IReadOnlySet<int>? audioPids,
         DateTime now, double targetAvailableGb, LeasePolicy policy, double currentAvailableGb,
         double snapshotAgeSeconds, IReadOnlySet<int>? excludedPids = null,
-        IEnumerable<string>? denyNames = null)
+        IEnumerable<string>? denyNames = null, bool samplingWarm = true)
     {
         var plan = new LeasePlan
         {
@@ -91,6 +101,7 @@ public static class LeasePlanner
             Policy = policy == LeasePolicy.Hard ? "hard" : "soft",
             // -1 = 还没有进程快照（刚启动）。保留负值，别钳成 0 —— 0 会被误读成"刚刚枚举过"。
             SnapshotAgeSeconds = snapshotAgeSeconds < 0 ? -1 : Math.Round(snapshotAgeSeconds, 1),
+            SamplingWarm = samplingWarm,
         };
 
         var list = procs as IList<ProcessInfo> ?? procs?.ToList() ?? new List<ProcessInfo>();

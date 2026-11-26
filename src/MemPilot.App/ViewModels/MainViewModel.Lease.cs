@@ -73,7 +73,9 @@ public partial class MainViewModel
             : (DateTime.UtcNow - _lastProcsUtc).TotalSeconds;
 
         var plan = LeasePlanner.Build(procs, Engine.LastForegroundPid, audio, DateTime.Now,
-            req.TargetAvailableGb, policy, currentGb, age, excluded, req.DenyNames);
+            req.TargetAvailableGb, policy, currentGb, age, excluded, req.DenyNames,
+                // 前两次枚举的 CPU/IO 差值没有基线，会虚高成"忙" → 候选集为空
+                samplingWarm: _enumerationCount >= 2);
 
         LogLeasePlanOnce(req, plan);
         return plan;
