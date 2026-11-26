@@ -20,8 +20,7 @@ public class SuspendRegistryTests : IDisposable
     }
 
     [Fact]
-    public void AddRemove_RoundTripsThroughFile()
-    {
+    public void AddRemove_RoundTripsThroughFile()    {
         using var self = Process.GetCurrentProcess();
         var reg = new SuspendRegistry(_dir);
         Assert.False(reg.IsSuspended(self.Id));
@@ -82,5 +81,20 @@ public class SuspendRegistryTests : IDisposable
 
         var reloaded = new SuspendRegistry(_dir);
         Assert.False(reloaded.IsSuspended(self.Id));
+    }
+
+    [Fact]
+    public void LeaseReason_SurvivesRestart_SoOrphansCanBeIdentified()
+    {
+        // 租约账本只在内存（LeaseManager._current），挂起记录却落盘。
+        // 崩溃重启后，只有 Reason 能说明"这批进程是租约挂的、账本已经没了"——
+        // 启动时的孤儿恢复正是按它精确匹配。
+        using var self = Process.GetCurrentProcess();
+        var reg = new SuspendRegistry(_dir);
+        reg.Add(self.Id, self.StartTime, "self", CleanupEngine.LeaseSuspendReason);
+
+        var reloaded = new SuspendRegistry(_dir);      // 模拟重启：重新加载
+        var record = Assert.Single(reloaded.LiveRecords());
+        Assert.Equal(CleanupEngine.LeaseSuspendReason, record.Reason);
     }
 }

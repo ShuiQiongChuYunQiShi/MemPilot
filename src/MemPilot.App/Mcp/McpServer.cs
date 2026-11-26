@@ -139,12 +139,14 @@ internal static class McpServer
         ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
         ["serverInfo"] = new JsonObject { ["name"] = "mempilot", ["version"] = Version() },
         ["instructions"] =
-            "MemPilot is a Windows memory pilot. Before starting a large job (model load, video " +
-            "generation, big test run), call mem_plan to see whether the memory can be freed " +
-            "WITHOUT touching any process. Then call mem_lease with action=acquire and release it " +
-            "with the returned id. acquired leases report the amount ACTUALLY freed " +
-            "(achievedAvailableGb), never a promise. Pass requesterPid (the PID of your own task " +
-            "process) so MemPilot never suspends your process tree."
+            "MemPilot manages Windows system RAM through leases. Before a memory-heavy job " +
+            "(model load, video generation, big test run) call mem_plan — it takes no action and " +
+            "reports whether the memory can be freed and which processes would be suspended. " +
+            "Then mem_lease action=acquire, and branch on achievedAvailableGb / shortfallGb — " +
+            "never on HTTP 200 alone. Renew before ttlSeconds expires (expiry restores suspended " +
+            "processes immediately) and release when done, including on failure. " +
+            "Pass requesterPid so your own process tree is never suspended. " +
+            "Full guidance: skills/mempilot/SKILL.md in the MemPilot repository."
     };
 
     private static JsonNode Schema(string json) => JsonNode.Parse(json)!;

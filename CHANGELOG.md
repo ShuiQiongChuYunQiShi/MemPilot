@@ -4,6 +4,47 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [Unreleased]
+
+### Fixed
+- **An available-floor trim could touch 152 processes at once and made the machine feel
+  slower, with no way to undo it.** `K32EmptyWorkingSet` has no inverse API — the pages come
+  back only when each process touches them again — so the fix is to trim less and say more:
+  `< 1.5 GB` still trims everything (OOM is worse than a short read-back), `1.5–3 GB` now
+  trims only the 20 largest and then asks whether to continue (20 s timeout = keep the mild
+  trim). Explanations go to the tray balloon + status bar, **not** the home banner: the
+  banner is only visible on the home tab and `RaiseAlert` overwrites it unconditionally, so
+  using it would hide "memory is still tight".
+- **Floor trim ignored the "automatic commit relief" switch** even though that field's own
+  comment promises it is "the only automatic behaviour that trims working sets without
+  asking" (`Models.cs:474-477`). It is now respected for the mild tier; the critical tier
+  still runs and records "forced, OOM prevention" in the decision log. Ordering is pinned by
+  a unit test (`FloorTierTests`).
+- **Processes suspended by a lease became orphans if MemPilot died mid-lease.** Every L2
+  suspend was recorded with the hardcoded reason "manual suspend" (`CleanupEngine.cs:136`)
+  while the lease ledger lives only in memory — after a crash the records said "manually
+  suspended", the user had never suspended them, and nothing would resume them. The reason is
+  now a parameter (`"租约挂起"` for leases) and startup resumes lease-reason orphans after a
+  30 s delay (the original job may still be running).
+- **Lease release resumed processes without the handle-level `StartTime` check**
+  (`MainViewModel.cs:607`), bypassing the v0.18.0 TOCTOU guard — a reused PID could have been
+  resumed instead of the intended process.
+
+### Added
+- **`FloorTrim` stage events + `ClassifyFloor` pure function.** Judgment (which tier) is
+  separated from execution, so the three-way split is unit-testable without a live engine.
+- **`skills/mempilot/SKILL.md` + `docs/agents/mempilot-agents-snippet.md`.** MCP makes the
+  capability discoverable; these make an agent know *when* to call it (plan before big jobs,
+  branch on `shortfallGb`, renew long jobs, never deny safety-critical processes).
+- MCP `instructions` rewritten to lead with the loop and the two footguns (renew, requesterPid).
+
+### Changed
+- `docs/NOTIFICATION-POLICY.md`: added the "automatic fallback explains itself, user-initiated
+  actions don't" rule, the two floor tiers, and a table of what can and cannot be undone.
+  Also corrected the "master switch silences everything" claim — it only covers CommitWatch,
+  HabitHint and the new floor notices; the older paths don't read it (recorded as known
+  inconsistency rather than silently fixed in a feature commit).
+
 ## [0.23.0] — lease safety, MCP server, zero-action planning, queuing
 
 ### Fixed

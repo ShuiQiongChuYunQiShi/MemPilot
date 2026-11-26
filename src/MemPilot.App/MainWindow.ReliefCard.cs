@@ -6,6 +6,10 @@ public partial class MainWindow
     private void ConfirmCommitRelief_Click(object sender, RoutedEventArgs e) => _vm.ConfirmCommitRelief();
     private void DismissCommitRelief_Click(object sender, RoutedEventArgs e) => _vm.DismissCommitRelief();
 
+    // ---- 低可用兜底的"继续压缩"确认卡（v0.24.0）----
+    private void ConfirmFloorTrim_Click(object sender, RoutedEventArgs e) => _vm.ConfirmFloorTrimContinue();
+    private void DismissFloorTrim_Click(object sender, RoutedEventArgs e) => _vm.DismissFloorTrimContinue();
+
     // ---- WSL 常驻提示卡（v0.22.0，只提示/复制，不执行）----
     private void CopyWslCommand_Click(object sender, RoutedEventArgs e) => _vm.CopyWslShutdownCommand();
     private void DismissWslHint_Click(object sender, RoutedEventArgs e) => _vm.DismissWslHint();

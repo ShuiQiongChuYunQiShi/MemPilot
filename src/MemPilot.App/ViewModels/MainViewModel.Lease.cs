@@ -108,7 +108,8 @@ public partial class MainViewModel
         });
     }
 
-    private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(        LeaseRequest req, LeasePolicy policy)
+    private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(
+        LeaseRequest req, LeasePolicy policy)
     {
         var before = ProcessService.GetSystemMemory();
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
@@ -168,7 +169,7 @@ public partial class MainViewModel
                 {
                     try
                     {
-                        Cleanup.Execute(p, CleanupActionLevel.L2Suspend, 0);
+                        Cleanup.Execute(p, CleanupActionLevel.L2Suspend, 0, suspendReason: "租约挂起");
                         suspended.Add(new LeaseSuspendedProcess
                         {
                             Pid = p.Pid, StartTime = p.StartTime, Name = p.Name,
@@ -190,5 +191,39 @@ public partial class MainViewModel
             before.AvailablePhysicalBytes / 1073741824.0,
             after.AvailablePhysicalBytes / 1073741824.0,
             detail), suspended);
+    }
+
+    /// <summary>
+    /// 启动 30 秒后恢复"租约孤儿"（v0.24.0）。
+    ///
+    /// 为什么需要：租约账本（<see cref="LeaseManager"/> 的当前租约）只在内存，而挂起记录
+    /// 落盘在 suspended.json。MemPilot 在租约期间崩溃或重启时账本丢了、RestoreHook 也没了，
+    /// 那批进程被标成"租约挂起"却永远没人恢复——用户只能自己发现再手动恢复。
+    ///
+    /// 为什么延迟 30 秒：崩溃后原任务可能还在跑（它也吃内存），立刻唤醒 8 个进程会去抢。
+    /// 30 秒够系统稳定，又不至于让用户盯着"已挂起"页困惑太久。
+    /// </summary>
+    private void ScheduleOrphanLeaseResume()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30));
+                var (restored, failed) = Cleanup.ResumeOrphans(CleanupEngine.LeaseSuspendReason);
+                if (restored + failed == 0) return;      // 没有孤儿，安静退出
+                Decisions.Log(new DecisionEntry
+                {
+                    Kind = "Lease",
+                    Target = "孤儿恢复",
+                    Decision = "恢复",
+                    Code = "lease.orphan_resume",
+                    Args = new[] { restored.ToString(), failed.ToString() },
+                    Reason = $"上次运行在租约期间结束、账本已丢失：恢复 {restored} 个挂起进程，失败 {failed} 个"
+                });
+                SetUi(() => SetActionStatus(UiStrings.F("Lease_OrphanRestored", restored, failed)));
+            }
+            catch (Exception ex) { Diag.Record("lease:orphan-resume", ex); }
+        });
     }
 }

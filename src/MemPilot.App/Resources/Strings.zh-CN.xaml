@@ -206,6 +206,28 @@
     <sys:String x:Key="Col_Count">数量</sys:String>
     <sys:String x:Key="Relief_Title">提交内存告急——要关闭闲置后台吗？</sys:String>
     <sys:String x:Key="Relief_Body">提交余量低于 5%。可优雅关闭：</sys:String>
+    <!-- v0.24.0：低可用兜底（温和档 / 危急档 / 用户关闭 / 继续确认） -->
+    <sys:String x:Key="Floor_MildTitle">内存偏紧</sys:String>
+    <sys:String x:Key="Floor_MildBody">已温和压缩 {0} 个后台进程，释放 {1} MB（当时可用 {2:F1} GB）。切回这些程序可能短暂变慢，通常几秒恢复，无需操作。</sys:String>
+    <sys:String x:Key="Floor_FullTitle">内存危急</sys:String>
+    <sys:String x:Key="Floor_FullBody">可用仅 {2:F1} GB，已压缩 {0} 个后台进程释放 {1} MB。切回这些程序可能短暂变慢，通常几秒恢复。</sys:String>
+    <sys:String x:Key="Floor_SkippedTitle">内存偏紧（未自动压缩）</sys:String>
+    <sys:String x:Key="Floor_SkippedBody">可用 {1:F1} GB，{0} 个后台进程可压缩，但「自动提交兜底」已关闭。需要腾内存请手动执行。</sys:String>
+    <sys:String x:Key="Floor_CardTitle">要继续压缩吗？</sys:String>
+    <sys:String x:Key="Floor_CardBody">还有 </sys:String>
+    <sys:String x:Key="Floor_CardReclaim"> 个后台进程可继续压缩，预计释放 </sys:String>
+    <sys:String x:Key="Floor_CardBodyEnd">。20 秒内不操作将保持当前状态（已压缩的部分不会回滚）。</sys:String>
+    <sys:String x:Key="Floor_BtnContinue">继续压缩</sys:String>
+    <sys:String x:Key="Floor_ContinueDone">已继续压缩 {0} 个进程，释放约 {1:F0} MB</sys:String>
+    <sys:String x:Key="Lease_OrphanRestored">已恢复上次租约遗留的 {0} 个挂起进程（失败 {1} 个）</sys:String>
+    <!-- v0.24.0：低可用兜底的决策日志模板（code → Decision_*） -->
+    <sys:String x:Key="Decision_floor_trim_mild">内存偏紧（可用 {3} GB）：温和压缩 {0}/{1} 个，释放 {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_full">内存危急（可用 {3} GB）：全量压缩 {0}/{1} 个，释放 {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_skipped_by_user">低可用但已关闭自动兜底（可用 {1} GB，候选 {0} 个）；仅通知</sys:String>
+    <sys:String x:Key="Decision_floor_trim_deferred">保持温和档（剩余候选 {0} 个未处理）</sys:String>
+    <sys:String x:Key="Decision_floor_trim_continue">用户确认继续：压缩 {0} 个，释放 {1} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_declined">用户选择不继续压缩（已压缩的不会回滚）</sys:String>
+    <sys:String x:Key="Decision_lease_orphan_resume">上次运行在租约期间结束：恢复 {0} 个挂起进程，失败 {1} 个</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">，预计释放提交</sys:String>
     <sys:String x:Key="Relief_BodyEnd">。它们只会收到正常关闭请求，不会被强制结束。</sys:String>
     <sys:String x:Key="Btn_ConfirmClose">确认关闭</sys:String>
@@ -409,7 +431,7 @@
     <sys:String x:Key="Settings_WslHint">WSL 常驻提示：vmmemWSL 占用 ≥2GB 且今天零活动时提示退出 WSL（默认开，只提示不执行）</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">立即检查垃圾建议</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">忽略次数越多，提示越少（7→30→90 天）</sys:String>
-    <sys:String x:Key="Settings_CommitRelief">提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）</sys:String>
+    <sys:String x:Key="Settings_CommitRelief">自动兜底：提交余量 &lt;5% 先清备用列表、仍告急才压缩「安全子集」；可用 &lt;3 GB 时先温和压缩 20 个再询问（工作/游戏/前台/忙碌进程一律不碰）。关闭后偏紧档只提醒不压缩；但可用 &lt;1.5 GB 的危急档仍会压缩，以防 OOM。</sys:String>
     <sys:String x:Key="Settings_CommitReliefL3">提交告急时允许「征得同意后优雅关闭闲置后台」来释放提交（唯一真正有效的动作；每次都会弹窗确认，AI 会话/游戏期间不做）</sys:String>
     <sys:String x:Key="Settings_Alerts">重要提示触达（托盘气泡 + 主页横幅；取消勾选 = 仅写决策日志）</sys:String>
     <sys:String x:Key="Settings_LowRiskProfile">应用低风险自动档（自动优化 + 仅清孤儿残留，清理仍只 L1）</sys:String>

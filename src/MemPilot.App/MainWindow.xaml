@@ -498,6 +498,28 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- v0.24.0：低可用兜底的"继续压缩"确认卡。
+                                 温和档（前 20 个）已经压过一轮，这张卡只问要不要压剩下的；
+                                 20 秒无响应按"不继续"处理（DispatcherTimer 在 VM 里）。
+                                 与 L3 卡的区别：L3 超时=放弃（什么都不做），这里超时=维持温和档。 -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding FloorTrimPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource WarnBg}" Background="{DynamicResource WarnBg}" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Floor_CardTitle}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12">
+                                        <Run Text="{DynamicResource Floor_CardBody}"/>
+                                        <Run Text="{Binding FloorTrimRemaining, Mode=OneWay}"/>
+                                        <Run Text="{DynamicResource Floor_CardReclaim}"/>
+                                        <Run Text="{Binding FloorTrimReclaimMb, Mode=OneWay, StringFormat={}{0} MB}"/>
+                                        <Run Text="{DynamicResource Floor_CardBodyEnd}"/>
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{DynamicResource Floor_BtnContinue}" Click="ConfirmFloorTrim_Click" Style="{StaticResource GhostBtn}"/>
+                                        <Button Content="{DynamicResource Btn_GiveUp}" Click="DismissFloorTrim_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
                             <!-- v0.15.0：垃圾进程建议卡（整天未使用的垃圾进程）。
                                  只建议不执行：挂起 2h/8h 到期自动恢复；结束进程走既有确认流程。 -->
                             <Border Style="{StaticResource Card}" Visibility="{Binding JunkAdvicePending, Converter={StaticResource BoolToVis}}"

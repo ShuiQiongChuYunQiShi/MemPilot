@@ -64,7 +64,11 @@ public class CleanupEngine
         return new BatchTrimResult(ok, fail, freed);
     }
 
-    public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec, bool escalateToKill = false)
+    /// <param name="suspendReason">L2 挂起写进账本的原因（v0.24.0）。租约挂起传"租约挂起"，
+    /// 这样启动时可以识别"租约期间崩溃留下的孤儿"并自动恢复——旧实现硬编码"手动挂起"，
+    /// 而租约账本只在内存，崩溃重启后那批进程没有任何恢复路径。</param>
+    public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec,
+        bool escalateToKill = false, string suspendReason = "手动挂起")
     {
         // v0.18.0（P0）：复检与动作共用同一句柄，消除 TOCTOU。
         // 旧实现按 PID 复检一次、再按 PID OpenProcess 一次——两次打开之间进程可能退出、
@@ -133,7 +137,7 @@ public class CleanupEngine
                 case CleanupActionLevel.L2Suspend:
                     _procs.SuspendProcessHandle(handle);
                     // 身份已验证，StartTime 一定有效——到期恢复才能配对成功
-                    Suspended.Add(p.Pid, p.StartTime, p.Name, "手动挂起");
+                    Suspended.Add(p.Pid, p.StartTime, p.Name, suspendReason);
                     result = "进程已挂起（可在“已挂起”中恢复）";
                     break;
                 case CleanupActionLevel.L3GracefulClose:
@@ -276,6 +280,25 @@ public class CleanupEngine
             return p.StartTime.ToUniversalTime() == startUtc.ToUniversalTime();
         }
         catch { return false; }
+    }
+
+    /// <summary>租约挂起写进账本的原因（v0.24.0）。稳定标识，恢复孤儿时按它精确匹配。</summary>
+    public const string LeaseSuspendReason = "租约挂起";
+
+    /// <summary>
+    /// 恢复指定原因留下的挂起记录（v0.24.0）。
+    /// 用于"租约期间崩溃 → 内存账本丢失"的孤儿：传 <see cref="LeaseSuspendReason"/> 把它们全部唤醒。
+    /// 带 StartTime 走句柄级验证——进程已退出或 PID 被复用的记录会被跳过，不会误恢复别的进程。
+    /// </summary>
+    public (int restored, int failed) ResumeOrphans(string reason)
+    {
+        int restored = 0, failed = 0;
+        foreach (var r in Suspended.LiveRecords().Where(x => x.Reason == reason).ToList())
+        {
+            var res = Resume(r.Pid, r.Name, r.StartTime);
+            if (res.Success) restored++; else failed++;
+        }
+        return (restored, failed);
     }
 
     public ActionResult Resume(int pid, string name, DateTime expectedStartTime = default)

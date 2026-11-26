@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using MemPilot.Helpers;
 using MemPilot.Models;
@@ -14,11 +15,62 @@ public partial class ResidentEngine
     private DateTime _lastReliefUtc = DateTime.MinValue;
     private ReliefAction _lastReliefAction = ReliefAction.None;
 
-    /// <summary>AI 会话是否活跃（由 VM 从 GpuMonitor 会话事件同步过来）；活跃时不做任何压缩。</summary>
+    /// <summary>AI 会话是否活跃（由 VM 从 GpuMonitor 会话事件同步过来）；活跃时 CommitRelief 不动作。
+    /// **注意**：FloorTrim 例外——低可用兜底在 AI 会话期间仍会执行（此时正是最需要兜底的时刻），
+    /// 只是走"温和档"少压一些。旧注释写"活跃时不做任何压缩"，与实现不符（2026-11-26 修正）。</summary>
     public bool AiSessionActive { get; set; }
 
     /// <summary>提交告急且允许 L3 时，向 UI 请求确认（候选进程, 预计释放提交字节）。UI 决定是否关闭。</summary>
     public event Action<IReadOnlyList<ProcessInfo>, long>? CommitReliefL3Suggested;
+
+    // ---- 低可用兜底的阶段通知（v0.24.0）----
+    // 引擎只传数值，文案与 UI 全部在 App 层：引擎侧现有告警标题是硬编码中文，
+    // 英文界面会直接坏掉，新路径不重蹈。
+
+    public enum FloorTrimStage
+    {
+        /// <summary>温和压缩完成（只压了最大的 N 个，读回范围可控）。</summary>
+        MildDone,
+        /// <summary>全量压缩完成（危急档：不做会 OOM）。</summary>
+        FullDone,
+        /// <summary>温和压缩后仍有候选，询问是否继续压剩下的。</summary>
+        SuggestContinue,
+        /// <summary>用户关闭了自动兜底且未到危急档，本次未压缩。</summary>
+        SkippedByUser,
+    }
+
+    /// <summary>一次低可用兜底的阶段快照：Count = 本次压缩/剩余候选数，FreedMb = 实测释放。</summary>
+    public sealed record FloorTrimNotice(FloorTrimStage Stage, int Count, long FreedMb, double AvailGb);
+
+    /// <summary>App 层据此决定提示文案、以及是否弹"继续压缩"确认卡。</summary>
+    public event Action<FloorTrimNotice>? FloorTrim;
+
+    /// <summary>危急线：低于此值全量压缩、不再询问——不压的后果是 OOM，比"多压了"更糟。</summary>
+    public const double FloorCriticalGb = 1.5;
+    /// <summary>温和档每次最多压几个：先缓解压力，又不制造大范围读回。</summary>
+    public const int FloorMildTake = 20;
+    /// <summary>低可用兜底的档位（内部判定用；对外的完成/建议通知见 FloorTrimStage）。</summary>
+    public enum FloorTier { Mild, Critical, Skipped }
+
+    /// <summary>
+    /// 低可用兜底的档位判定（纯函数，便于单测）。
+    /// 返回 null = 不该动手。判定顺序很重要：**危急档先于开关**——
+    /// 用户关了自动兜底也照样压，因为不压会 OOM。
+    /// </summary>
+    public static FloorTier? ClassifyFloor(double availGb, double commitFreePct, bool autoReliefEnabled)
+    {
+        bool hit = availGb < 3.0 || commitFreePct < 10.0;
+        if (!hit) return null;
+        if (availGb < FloorCriticalGb) return FloorTier.Critical;
+        return autoReliefEnabled ? FloorTier.Mild : FloorTier.Skipped;
+    }
+
+    private void RaiseFloorTrim(FloorTrimNotice notice)
+    {
+        // v0.18.0 纪律：订阅方在 tick 线程外执行，抛异常不能击穿整个阶段
+        try { FloorTrim?.Invoke(notice); }
+        catch (Exception ex) { Diag.Record("floor-trim:notice", ex); }
+    }
 
     /// <summary>
     /// 提交兜底：数据依据是 11-01 02:30（提交余量 0.3%、物理可用仍 31%）——只看可用% 的旧逻辑不会动手。
@@ -160,19 +212,26 @@ public partial class ResidentEngine
     private DateTime _lastFloorTrimUtc = DateTime.MinValue;
 
     /// <summary>
-    /// 数据依据：11 天效果审计——L1TrimAll 29/29 成功、中位回收 1924 MB、大额全兑现且 >5min 持续；
+    /// 数据依据：11 天效果审计——L1TrimAll 29/29 成功、中位回收 1924 MB、大额全兑现且 &gt;5min 持续；
     /// 而 11-04 15:53（可用 509MB）与 11-05 05:24（1.94GB）两个危机时刻，救援梯被失败的
     /// PurgeStandby 堵住，什么都没做。本触发器独立于 CommitRelief 状态机：
-    /// **可用 <3GB 或 提交余量 <10%**（单采样确认，间隔 10 分钟去重）→ 直接执行安全子集压缩。
+    /// **可用 &lt;3GB 或 提交余量 &lt;10%**（单采样确认，间隔 10 分钟去重）→ 安全子集压缩。
     /// 前台全屏跳过（与 AutoOptimize/CommitRelief 的守门一致）。
+    ///
+    /// v0.24.0 三档（真机 18:17 的教训：一次压 152 个让用户体感"清理后变卡"）：
+    /// - **&lt; 1.5 GB（危急）**：全量压缩，不问——不压会 OOM；
+    /// - **1.5–3 GB（偏紧）**：先温和压前 20 个（立刻缓解、读回范围可控），再问要不要继续；
+    /// - **用户关闭了"自动提交兜底"**：偏紧档只通知不动作；危急档仍压，但决策日志记"强制执行"。
+    ///   这个开关的注释本来就承诺"不打招呼就不压缩工作集"，旧实现漏了检查。
     /// </summary>
     private void WatchAvailableFloor(List<ProcessInfo> procs, SystemMemoryInfo mem)
     {
         double availGb = mem.AvailablePhysicalBytes / 1073741824.0;
         double commitFreeGb = (mem.TotalCommitLimitBytes - mem.TotalCommittedBytes) / 1073741824.0;
         double limitGb = mem.TotalCommitLimitBytes / 1073741824.0;
-        bool floorHit = availGb < 3.0 || (limitGb > 0 && commitFreeGb / limitGb * 100 < 10);
-        if (!floorHit) return;
+        double commitFreePct = limitGb > 0 ? commitFreeGb / limitGb * 100 : 100;
+        var tier = ClassifyFloor(availGb, commitFreePct, _config.Config.AutoCommitReliefEnabled);
+        if (tier == null) return;
         if (ForegroundFullscreen) return;                       // 游戏/全屏不动作
         if ((DateTime.UtcNow - _lastFloorTrimUtc).TotalMinutes < 10) return;   // 去重
 
@@ -180,21 +239,45 @@ public partial class ResidentEngine
         var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio);
         if (safeSet.Count == 0) return;
 
+        string trigger = availGb < 3.0 ? $"可用 {availGb:F1} GB < 3 GB" : "提交余量 <10%";
+
+        if (tier == FloorTier.Skipped)
+        {
+            _lastFloorTrimUtc = DateTime.UtcNow;                // 同样去重，别每轮都记一条
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "CommitRelief",
+                Target = "FloorTrim",
+                Decision = "跳过",
+                Code = "floor_trim.skipped_by_user",
+                Args = new[] { safeSet.Count.ToString(), availGb.ToString("F1", CultureInfo.InvariantCulture) },
+                Reason = $"低可用但已关闭自动兜底（{trigger}；候选 {safeSet.Count} 个）；仅通知，不压缩"
+            });
+            RaiseFloorTrim(new FloorTrimNotice(FloorTrimStage.SkippedByUser, safeSet.Count, 0, availGb));
+            return;
+        }
+
+        // 偏紧走温和档：先压 20 个（sorted 已按私有工作集降序，前 20 就是收益最大的）
+        bool critical = tier == FloorTier.Critical;
+        var toTrim = critical ? safeSet : safeSet.Take(FloorMildTake).ToList();
         long before = mem.AvailablePhysicalBytes;
-        var r = _cleanup.TrimWorkingSets(safeSet);
+        var r = _cleanup.TrimWorkingSets(toTrim);
         _lastFloorTrimUtc = DateTime.UtcNow;
         _lastReliefUtc = DateTime.UtcNow;       // 同时压制 CommitRelief 在同一时刻重复触发
         _lastReliefAction = ReliefAction.TrimSafe;
         var after = _probe.GetSystemMemory();
         long delta = Math.Max(0, after.AvailablePhysicalBytes - before);
+        long freedMb = delta / 1048576;
 
-        string trigger = availGb < 3.0 ? $"可用 {availGb:F1} GB < 3 GB" : $"提交余量 <10%";
         _audit.Log(new AuditEntry
         {
             Action = "CommitRelief",
             Target = "FloorTrim",
             Level = "L1Trim",
-            Result = $"低可用兜底：{trigger}，安全子集压缩 {r.Trimmed} 个（排除 {procs.Count - safeSet.Count} 个），可用 +{delta / 1048576.0:F0} MB",
+            Result = $"低可用兜底{(critical ? "（危急档）" : "（温和档）")}：{trigger}，" +
+                     $"安全子集压缩 {r.Trimmed} 个（候选 {safeSet.Count}，排除 {procs.Count - safeSet.Count} 个），" +
+                     $"可用 +{freedMb} MB" +
+                     (!_config.Config.AutoCommitReliefEnabled ? "；自动兜底已关闭，危急档强制执行" : ""),
             MemoryBeforeBytes = before,
             MemoryAfterBytes = after.AvailablePhysicalBytes
         });
@@ -202,9 +285,29 @@ public partial class ResidentEngine
         {
             Kind = "CommitRelief",
             Target = "FloorTrim",
-            Decision = "执行",
-            Reason = $"低可用兜底触发（{trigger}）；压缩 {r.Trimmed} 个安全子集，实测可用 +{delta / 1048576.0:F0} MB"
+            Decision = critical ? "执行" : "温和执行",
+            Code = critical ? "floor_trim.full" : "floor_trim.mild",
+            Args = new[]
+            {
+                r.Trimmed.ToString(),
+                safeSet.Count.ToString(),
+                freedMb.ToString(),
+                availGb.ToString("F1", CultureInfo.InvariantCulture)
+            },
+            Reason = $"低可用兜底触发（{trigger}）；压缩 {r.Trimmed}/{safeSet.Count} 个，实测可用 +{freedMb} MB" +
+                     (!_config.Config.AutoCommitReliefEnabled ? "；自动兜底已关闭，危急档强制执行" : "")
         });
+
+        RaiseFloorTrim(new FloorTrimNotice(
+            critical ? FloorTrimStage.FullDone : FloorTrimStage.MildDone, r.Trimmed, freedMb, availGb));
+
+        int remaining = critical ? 0 : safeSet.Count - toTrim.Count;
+        if (remaining > 0)
+        {
+            long remainingMb = safeSet.Skip(toTrim.Count)
+                .Sum(p => Math.Max(0, p.Memory.PrivateWorkingSetBytes)) / 1048576;
+            RaiseFloorTrim(new FloorTrimNotice(FloorTrimStage.SuggestContinue, remaining, remainingMb, availGb));
+        }
     }
 
 

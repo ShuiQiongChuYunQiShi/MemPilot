@@ -206,6 +206,28 @@
     <sys:String x:Key="Col_Count">Count</sys:String>
     <sys:String x:Key="Relief_Title">Commit memory is low — close idle background apps?</sys:String>
     <sys:String x:Key="Relief_Body">Commit free is below 5%. Can gracefully close:</sys:String>
+    <!-- v0.24.0: available-floor fallback (mild / critical / disabled by user / continue prompt) -->
+    <sys:String x:Key="Floor_MildTitle">Memory getting tight</sys:String>
+    <sys:String x:Key="Floor_MildBody">Trimmed {0} background processes, freeing {1} MB (available was {2:F1} GB). Switching back to them may feel slow for a few seconds — no action needed.</sys:String>
+    <sys:String x:Key="Floor_FullTitle">Memory critical</sys:String>
+    <sys:String x:Key="Floor_FullBody">Only {2:F1} GB available; trimmed {0} background processes to free {1} MB. Switching back to them may feel slow for a few seconds.</sys:String>
+    <sys:String x:Key="Floor_SkippedTitle">Memory getting tight (nothing trimmed)</sys:String>
+    <sys:String x:Key="Floor_SkippedBody">{1:F1} GB available and {0} background processes could be trimmed, but automatic commit relief is turned off. Free memory manually if you need it.</sys:String>
+    <sys:String x:Key="Floor_CardTitle">Continue trimming?</sys:String>
+    <sys:String x:Key="Floor_CardBody">There are still </sys:String>
+    <sys:String x:Key="Floor_CardReclaim"> background processes that could be trimmed, expected to free </sys:String>
+    <sys:String x:Key="Floor_CardBodyEnd">. Nothing happens if you do not respond in 20s — already-trimmed pages are not rolled back.</sys:String>
+    <sys:String x:Key="Floor_BtnContinue">Continue trimming</sys:String>
+    <sys:String x:Key="Floor_ContinueDone">Trimmed {0} more processes, freeing about {1:F0} MB</sys:String>
+    <sys:String x:Key="Lease_OrphanRestored">Restored {0} process(es) left suspended by a previous lease (failed {1})</sys:String>
+    <!-- v0.24.0: decision-log templates for the available-floor fallback -->
+    <sys:String x:Key="Decision_floor_trim_mild">Memory getting tight ({3} GB available): mildly trimmed {0}/{1}, freeing {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_full">Memory critical ({3} GB available): trimmed all {0}/{1}, freeing {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_skipped_by_user">Low memory but automatic relief is off ({1} GB available, {0} candidates); notify only</sys:String>
+    <sys:String x:Key="Decision_floor_trim_deferred">Kept the mild trim ({0} candidates left untouched)</sys:String>
+    <sys:String x:Key="Decision_floor_trim_continue">User confirmed: trimmed {0} more, freeing {1} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_declined">User declined further trimming (already-trimmed pages are not rolled back)</sys:String>
+    <sys:String x:Key="Decision_lease_orphan_resume">Previous run ended during a lease: restored {0} suspended process(es), {1} failed</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">, expected to free commit</sys:String>
     <sys:String x:Key="Relief_BodyEnd">. They only receive a normal close request; nothing is force-killed.</sys:String>
     <sys:String x:Key="Btn_ConfirmClose">Confirm close</sys:String>
@@ -409,7 +431,7 @@
     <sys:String x:Key="Settings_WslHint">WSL resident hint: when vmmemWSL holds ≥2 GB with zero activity today, suggest shutting WSL down (on by default; hint only)</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">Check junk advice now</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">More ignores mean fewer prompts (7 → 30 → 90 days)</sys:String>
-    <sys:String x:Key="Settings_CommitRelief">Commit relief: below 5% commit free, purge the low-priority standby list first; only after 2 more minutes of pressure trim the "safe subset" (work / game / foreground / busy processes are never touched)</sys:String>
+    <sys:String x:Key="Settings_CommitRelief">Automatic relief: below 5% commit free, purge the low-priority standby list first and trim the "safe subset" only if pressure persists; below 3 GB available, mildly trim 20 processes and then ask (work / game / foreground / busy processes are never touched). When off, the mild tier only notifies — but the critical tier (below 1.5 GB) still trims to prevent OOM.</sys:String>
     <sys:String x:Key="Settings_CommitReliefL3">When commit is critical, allow gracefully closing idle background apps after confirmation (the only action that really lowers commit; always confirmed, never during an AI session or game)</sys:String>
     <sys:String x:Key="Settings_Alerts">Important alerts (tray balloon + home banner; unchecked = decision log only)</sys:String>
     <sys:String x:Key="Settings_LowRiskProfile">Apply the low-risk auto profile (auto-optimize + orphan-only sweep; cleanup still L1 only)</sys:String>

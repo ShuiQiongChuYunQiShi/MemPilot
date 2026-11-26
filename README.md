@@ -117,6 +117,15 @@ projection. `projectionBasis` tells you how to read that number — `hard-upper-
 (current + private bytes of processes that would be suspended) or `current-only`
 (a lower bound; soft reclaim can't be predicted).
 
+Optional skill files, so an agent knows **when** to use it rather than just that it exists:
+
+```powershell
+# Claude Code: install the skill
+Copy-Item -Recurse skills\mempilot $env:USERPROFILE\.claude\skills\mempilot
+# Codex / ZCode: paste the snippet into your project's AGENTS.md
+Get-Content docs\agents\mempilot-agents-snippet.md
+```
+
 ## Two problems, not one
 
 Most memory utilities treat RAM as one number and flush it. Measured on a real

@@ -108,6 +108,15 @@ MemPilot 没在跑或租约 API 没开时，tool 会返回一条说清"该去哪
 `mem_plan` 不做任何动作：读上一次进程快照、返回预估。`projectionBasis` 说明这个数字怎么来的——
 `hard-upper-bound`（当前 + 将会挂起进程的私有提交）或 `current-only`（下界，soft 的回收量不可预测）。
 
+可选的 skill 文件——让 agent 知道**什么时候该用**，而不只是"有这个东西"：
+
+```powershell
+# Claude Code：安装 skill
+Copy-Item -Recurse skills\mempilot $env:USERPROFILE\.claude\skills\mempilot
+# Codex / ZCode：把片段粘进项目的 AGENTS.md
+Get-Content docs\agents\mempilot-agents-snippet.md
+```
+
 ## 核心能力
 
 ### 1. 先分类，再动手

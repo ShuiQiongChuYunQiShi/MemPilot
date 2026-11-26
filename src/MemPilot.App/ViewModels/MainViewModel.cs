@@ -547,6 +547,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 CommitReliefPending = true;
             }));
 
+        // v0.24.0：低可用兜底的阶段通知（温和完成 / 全量完成 / 询问继续 / 用户关闭后跳过）
+        Engine.FloorTrim += notice => SetUi(() => HandleFloorTrim(notice));
+
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
         {
             Engine.AiSessionActive = started;
@@ -594,6 +597,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         RebuildDecisionKindOptions();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
+        ScheduleOrphanLeaseResume();
     }
 
     /// <summary>
@@ -619,7 +623,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     s.RestoreNote = UiStrings.Get("Common_ProcessExited");
                     continue;
                 }
-                var r = Cleanup.Resume(s.Pid, s.Name);
+                var r = Cleanup.Resume(s.Pid, s.Name, s.StartTime);
                 s.Restored = r.Success;
                 s.RestoreNote = r.Message;
                 if (r.Success) restored++; else failed++;
