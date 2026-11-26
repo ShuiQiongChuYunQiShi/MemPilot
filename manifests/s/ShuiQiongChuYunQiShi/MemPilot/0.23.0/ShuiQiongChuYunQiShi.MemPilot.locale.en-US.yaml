@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.23.0
+PackageLocale: en-US
+Publisher: ShuiQiongChuYunQiShi
+PublisherUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+PublisherSupportUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/issues
+PackageName: MemPilot
+PackageUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+License: Apache-2.0
+LicenseUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/LICENSE
+Copyright: Copyright (c) 2026 ShuiQiongChuYunQiShi
+Moniker: mempilot
+ShortDescription: Windows memory and process pilot with a measured lease API for AI tasks.
+Description: >-
+  MemPilot watches both physical memory and commit charge, decides which processes are
+  genuinely idle, and reclaims memory only through reversible actions. AI tasks can
+  request a memory lease over a local HTTP API before loading a model and release it
+  afterwards; the response reports what was actually freed, not what was promised.
+  Safety boundaries are enforced in code: force-kill is never automatic, unidentified
+  processes are never touched, and every action is written to an audit trail.
+Tags:
+  - memory
+  - process-manager
+  - ai
+  - agent
+  - lease
+  - mcp
+  - windows
+ReleaseNotesUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/tag/v0.23.0
+Documentations:
+  - DocumentLabel: Lease API reference
+    DocumentUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/docs/LEASE-API.md
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
