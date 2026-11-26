@@ -97,7 +97,27 @@ plan 不写 `Kind=Lease`，只写 `Kind=LeasePlan`（同一 requester/目标/策
 | `policy` | 生效策略 |
 | `relief` | 动作明细（清了什么、压缩了谁、排除了多少） |
 
-错误：`401` 令牌错误 · `400` JSON 无效/字段非法 · `409` 已有活跃租约。
+错误：`401` 令牌错误 · `400` JSON 无效/字段非法 · `409` 已有活跃租约（**响应带 holder 与退避建议**）。
+
+`409` 不是死胡同——它告诉等待方"谁占着、还剩多久、该等多久"：
+
+```json
+{
+  "error": "lease_active",
+  "holder": {
+    "requester": "comfyui-job-42",
+    "expiresUtc": "2026-11-26T12:34:56Z",
+    "remainingSeconds": 92.4,
+    "achievedAvailableGb": 18.5
+  },
+  "retryAfterSeconds": 10
+}
+```
+
+`retryAfterSeconds` 取"剩余时间的 1/4"并封顶 10 秒——不是"还剩多久就等多久"，
+因为持有方**随时可能提前归还**。排队本身不做在服务端：服务端长轮询会留下
+"租约授予了但客户端已超时断开"的僵尸租约，重试放在客户端的话，进程一死就自然停止。
+MCP 的 `mem_lease` 已经把这段逻辑包好了（见 `waitSeconds`）。
 
 ### GET /api/lease
 

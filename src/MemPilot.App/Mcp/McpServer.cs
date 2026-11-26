@@ -207,6 +207,7 @@ internal static class McpServer
                     "action":{"type":"string","enum":["acquire","release","renew"],"description":"acquire a new lease, renew an existing one, or release it."},
                     "targetAvailableGb":{"type":"number","description":"acquire: how much available memory the job needs, in GB."},
                     "ttlSeconds":{"type":"integer","description":"acquire: max hold in seconds (30-86400, default 3600). renew: the new TTL from now (default 3600)."},
+                    "waitSeconds":{"type":"integer","description":"acquire: if another lease is active, wait up to N seconds (0-120) for it to clear before failing. Default 0 = fail immediately with the current holder."},
                     "policy":{"type":"string","enum":["soft","hard"],"description":"acquire: soft (default) or hard."},
                     "requester":{"type":"string","description":"acquire: who is asking (written to the decision log)."},
                     "requesterPid":{"type":"integer","description":"acquire: PID of your own task process; it and its subtree are never suspended."},
@@ -296,12 +297,37 @@ internal static class McpServer
                 ["requesterPid"] = Pid(args) ?? Environment.ProcessId
             };
             CopyDenyNames(args, body);
-            var r = await client.CallAsync(HttpMethod.Post, "/api/lease", body.ToJsonString());
-            if (!r.Ok) return ToolError(client.Explain(r));
 
-            // 摘要 + 原始 JSON：模型先用一句话判断"够不够"，需要细节时再看 JSON
-            var summary = SummarizeLease(r.Body);
-            return ToolText(summary + "\n\n" + Pretty(r.Body));
+            // v0.23.0 排队：服务端保持无状态（409 带 holder + retryAfterSeconds），
+            // 重试放在这边——客户端进程一死就自然停止，不会留下"授予了但没人要"的僵尸租约。
+            int waitSeconds = Math.Clamp((int?)Num(args, "waitSeconds") ?? 0, 0, 120);
+            var started = DateTime.UtcNow;
+            var deadline = started.AddSeconds(waitSeconds);
+
+            while (true)
+            {
+                var r = await client.CallAsync(HttpMethod.Post, "/api/lease", body.ToJsonString());
+                if (r.Ok)
+                {
+                    var summary = SummarizeLease(r.Body);
+                    double waited = (DateTime.UtcNow - started).TotalSeconds;
+                    if (waitSeconds > 0 && waited >= 1)
+                        summary = $"Waited {waited:F0}s for the previous lease to clear. " + summary;
+                    return ToolText(summary + "\n\n" + Pretty(r.Body));
+                }
+                if (r.Status != 409) return ToolError(client.Explain(r));
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    double waited = (DateTime.UtcNow - started).TotalSeconds;
+                    var prefix = waitSeconds > 0 ? $"Timed out after {waited:F0}s waiting. " : "";
+                    return ToolError(prefix + DescribeConflict(r.Body));
+                }
+
+                var retryAfter = ReadRetryAfter(r.Body) ?? 5;
+                var remaining = Math.Max(1, (deadline - DateTime.UtcNow).TotalSeconds);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(retryAfter, remaining)));
+            }
         }
 
         if (action == "release")
@@ -371,6 +397,38 @@ internal static class McpServer
                        : "Call mem_lease with action=release and this id when the job finishes.");
         }
         catch { return "Lease acquired."; }
+    }
+
+    /// <summary>409 的可读版本：谁占着、还剩多久、腾了多少——比原始 JSON 更适合模型决策。</summary>
+    private static string DescribeConflict(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("holder", out var h) || h.ValueKind != JsonValueKind.Object)
+                return "A lease is already active. Release it (mem_lease action=release) or retry with waitSeconds.";
+            var who = h.TryGetProperty("requester", out var rq) ? rq.GetString() : "?";
+            double rem = h.TryGetProperty("remainingSeconds", out var rs) && rs.TryGetDouble(out var d) ? d : 0;
+            double gb = h.TryGetProperty("achievedAvailableGb", out var ag) && ag.TryGetDouble(out var g) ? g : 0;
+            return $"A lease is already active: held by \"{who}\", {rem:F0}s left, {gb:F1} GB. " +
+                   "Release it (mem_lease action=release) or retry with waitSeconds.";
+        }
+        catch
+        {
+            return "A lease is already active. Release it (mem_lease action=release) or retry with waitSeconds.";
+        }
+    }
+
+    private static double? ReadRetryAfter(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("retryAfterSeconds", out var r) && r.TryGetDouble(out var d))
+                return Math.Clamp(d, 1, 30);
+        }
+        catch { /* 服务端没给就按默认退避 */ }
+        return null;
     }
 
     private static string SummarizeRenew(string body)

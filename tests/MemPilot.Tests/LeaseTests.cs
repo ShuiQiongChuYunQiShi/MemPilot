@@ -419,6 +419,20 @@ public class LeaseApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Conflict_ReportsHolderAndRetryAfter()
+    {
+        await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"first","ttlSeconds":600}""");
+        var (status, body) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"second"}""");
+
+        Assert.Equal(409, status);
+        Assert.Contains("\"error\":\"lease_active\"", body);
+        Assert.Contains("\"requester\":\"first\"", body);     // 等待方知道是谁占着
+        Assert.Contains("\"holder\"", body);
+        Assert.Contains("\"retryAfterSeconds\"", body);      // 知道该等多久
+        Assert.Contains("\"remainingSeconds\"", body);
+    }
+
+    [Fact]
     public async Task NegativeRequesterPid_Is400_AndNoReliefRuns()
     {
         var (status, body) = await Call("POST", "/api/lease",

@@ -106,6 +106,12 @@ suspended — a second process with its own ledger is how you get processes susp
 nobody to resume them. If MemPilot isn't running or the lease API is off, the tools return
 an error saying exactly what to turn on.
 
+`mem_lease` also takes `waitSeconds` (0–120): if another lease is active, it retries with
+the server-suggested backoff (`retryAfterSeconds`, capped at 10s) until the slot frees up
+or the wait expires, and reports the current holder either way. The retry lives in the MCP
+client, not the server — a long-polled request would leave leases granted to clients that
+already timed out.
+
 `mem_plan` takes no action at all: it reads the last process snapshot and returns a
 projection. `projectionBasis` tells you how to read that number — `hard-upper-bound`
 (current + private bytes of processes that would be suspended) or `current-only`

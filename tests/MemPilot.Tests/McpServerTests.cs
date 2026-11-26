@@ -238,6 +238,60 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Acquire_ConflictWithoutWait_FailsImmediately_WithHolder()
+    {
+        var api = new FakeApi
+        {
+            Handler = (_, _, _) => new(409,
+                """{"error":"lease_active","holder":{"requester":"other","remainingSeconds":30,"achievedAvailableGb":8}}""")
+        };
+        var resp = CallTool(api, "mem_lease", """{"action":"acquire","targetAvailableGb":6}""");
+
+        Assert.Contains("\"isError\": true", resp);
+        Assert.Contains("held by", resp);
+        Assert.Contains("other", resp);
+        Assert.Single(api.Calls);                       // 没传 waitSeconds 就不重试
+    }
+
+    [Fact]
+    public void Acquire_WithWaitSeconds_RetriesUntilAvailable()
+    {
+        int attempts = 0;
+        var api = new FakeApi
+        {
+            Handler = (_, _, _) =>
+            {
+                attempts++;
+                return attempts < 2
+                    ? new(409, """{"error":"lease_active","holder":{"requester":"other","remainingSeconds":1,"achievedAvailableGb":8},"retryAfterSeconds":1}""")
+                    : new(200, """{"id":"abc","targetAvailableGb":6,"achievedAvailableGb":6,"shortfallGb":0,"suspended":[]}""");
+            }
+        };
+        var resp = CallTool(api, "mem_lease",
+            """{"action":"acquire","targetAvailableGb":6,"waitSeconds":10}""");
+
+        Assert.Equal(2, attempts);
+        Assert.Contains("Waited", resp);                // 告诉模型"等过"，不是秒回
+        Assert.Contains("\"isError\": false", resp);
+    }
+
+    [Fact]
+    public void Acquire_WhenWaitExpires_ReportsTheHolder()
+    {
+        var api = new FakeApi
+        {
+            Handler = (_, _, _) => new(409,
+                """{"error":"lease_active","holder":{"requester":"other","remainingSeconds":300,"achievedAvailableGb":8},"retryAfterSeconds":1}""")
+        };
+        var resp = CallTool(api, "mem_lease",
+            """{"action":"acquire","targetAvailableGb":6,"waitSeconds":1}""");
+
+        Assert.Contains("\"isError\": true", resp);
+        Assert.Contains("Timed out after", resp);
+        Assert.Contains("held by", resp);               // 超时也要说清谁占着
+    }
+
+    [Fact]
     public void Renew_WithoutId_FetchesActiveLeaseThenPosts()
     {
         var api = new FakeApi

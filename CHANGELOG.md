@@ -17,6 +17,14 @@ versioning is `0.y.z` while the project is pre-1.0.
   split across segments is no longer mangled either.
 
 ### Added
+- **`409` now carries the holder, and `mem_lease` can wait.** A conflict used to be a dead
+  end: the second caller got `{"error":"lease_active"}` and had to invent its own backoff.
+  The response now includes `holder` (requester, `remainingSeconds`, achieved GB) and
+  `retryAfterSeconds` — a quarter of the remaining time, capped at 10s, because the holder
+  may release early. `mem_lease` takes `waitSeconds` (0–120) and retries in **the client**:
+  a long-polled server-side request would leave leases granted to clients that already
+  timed out, while a client-side retry stops when the process dies. Verified on a real
+  machine: holder A released at t+5s, waiter B acquired at t+10s ("Waited 10s").
 - **`plan.samplingWarm`.** CPU/IO usage comes from differencing two enumerations; the first one
   has no baseline, so most processes look "busy" and `wouldSuspend` comes back empty (observed
   for real: `excluded.inUse` went 1 → 62 right after a restart). Plans now report `samplingWarm`,

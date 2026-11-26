@@ -101,6 +101,10 @@ MemPilot 内置一个极简 MCP server（stdio 传输），agent 不写任何 HT
 唯一那个长驻进程里——第二个进程自带账本，就是"进程被挂起、没人负责恢复"的老路。
 MemPilot 没在跑或租约 API 没开时，tool 会返回一条说清"该去哪里打开"的错误。
 
+`mem_lease` 还支持 `waitSeconds`（0–120）：若已有活跃租约，按服务端建议的退避
+（`retryAfterSeconds`，封顶 10 秒）重试，直到空出或等待超时，两种情况都会报出当前持有者。
+重试放在 MCP 客户端而不是服务端——服务端长轮询会留下"授予了但客户端已断开"的僵尸租约。
+
 `mem_plan` 不做任何动作：读上一次进程快照、返回预估。`projectionBasis` 说明这个数字怎么来的——
 `hard-upper-bound`（当前 + 将会挂起进程的私有提交）或 `current-only`（下界，soft 的回收量不可预测）。
 
