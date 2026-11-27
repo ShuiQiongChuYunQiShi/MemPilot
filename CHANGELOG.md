@@ -33,6 +33,28 @@ versioning is `0.y.z` while the project is pre-1.0.
   sessions (one 212 minutes long) with **zero** lease usage, because the jobs were plain
   commands started by an agent, not MCP tool calls.
 
+## [Unreleased]
+
+### Added
+- **Automatic reservation for AI sessions** (Settings → 租约 API, **off by default**).
+  When an AI session starts, a **soft** lease is acquired (configurable GB, 12 h TTL) and
+  released when the session ends. Hard is deliberately excluded: suspending processes
+  automatically would leave the "observe only, don't act" boundary behind. A manual request
+  preempts it — `requester` starts with `auto:` and `LeaseApiService` releases it before
+  retrying, so "helping you reserve" never turns into "locking you out".
+  Known limit: detection lags ~2–2.5 minutes, so it only covers long sessions; short jobs
+  should use `mempilot lease run`.
+- **Trim ordering now uses measured yield, not working-set size.** `TrimWorkingSets` records
+  per-process `freed / workingSet` (keyed by name, stored in `trim-feedback.json`), and
+  `BuildSafeTrimSet` sorts by `workingSet × historicalRatio` (0.6 fallback, needs ≥2 samples).
+  On 2026-11-27 two rounds of 20 processes freed 1493 MB and 164 MB — a 9× spread caused by
+  picking "biggest" rather than "most reclaimable".
+
+### Fixed
+- `TrimFeedbackStore` silently failed to persist when the data directory did not exist yet
+  (`File.WriteAllText` threw, the catch swallowed it, history stayed empty forever). It now
+  creates the directory on construction.
+
 ## [0.24.1] — automatic trimming never touches the lease caller
 
 ### Fixed

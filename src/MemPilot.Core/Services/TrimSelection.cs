@@ -22,7 +22,7 @@ public static class TrimSelection
 
     public static List<ProcessInfo> BuildSafeTrimSet(
         IEnumerable<ProcessInfo> procs, int foregroundPid, IReadOnlySet<int> audioPids,
-        IReadOnlySet<int>? excludedPids = null)
+        IReadOnlySet<int>? excludedPids = null, Func<string, double>? releaseRatio = null)
     {
         var result = new List<ProcessInfo>();
         if (procs == null) return result;
@@ -33,8 +33,12 @@ public static class TrimSelection
             if (!IsSafe(p, foregroundPid, audioPids, now, excludedPids)) continue;
             result.Add(p);
         }
-        // 优先压占用大的（回收更多），但仍是"安全子集"内部排序
-        return result.OrderByDescending(x => x.Memory.PrivateWorkingSetBytes).ToList();
+
+        // v0.25.0：按"预计释放"排序，而不是工作集大小。
+        // 工作集大 ≠ 可回收多——活跃代码页面压完立刻被读回。实测同规模两轮差 9 倍
+        // （1493 MB vs 164 MB），所以用历史释放率加权：expected = 工作集 × 释放率。
+        double Ratio(ProcessInfo p) => releaseRatio?.Invoke(p.Name) ?? TrimFeedbackStore.DefaultRatio;
+        return result.OrderByDescending(x => x.Memory.PrivateWorkingSetBytes * Ratio(x)).ToList();
     }
 
     /// <summary>

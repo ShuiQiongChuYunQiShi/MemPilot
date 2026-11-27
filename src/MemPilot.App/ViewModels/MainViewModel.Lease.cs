@@ -1,4 +1,6 @@
-﻿using MemPilot.Models;
+﻿using System.Net.Http;
+using System.Text.Json;
+using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -108,6 +110,130 @@ public partial class MainViewModel
         });
     }
 
+    // ---- 为 AI 任务自动预留（v0.25.0，默认关）----
+
+    private string? _autoLeaseId;
+
+    /// <summary>
+    /// AI 会话开始 → 申请软租约；结束 → 归还。
+    ///
+    /// 为什么只做 **soft**：hard 会挂起进程，而"自动挂起"离本项目"只观察不处置"的原则太远。
+    /// soft 只清备用列表 + 压缩空闲后台，完全可逆、不改任何进程状态。
+    ///
+    /// 为什么 TTL 12 小时且不续期：实测最长 AI 会话 212 分钟，12h 足够；自动续期只会
+    /// 多一条要维护的路径（租约有 RenewCount 可查，真不够再加）。
+    ///
+    /// 为什么冲突就跳过：手动申请是用户的明确意图，自动预留是可再生的，不该抢。
+    /// 反过来，手动申请会挤掉自动预留（见 LeaseApiService 的让位逻辑）。
+    ///
+    /// 固有短板：AI 会话检测有 2–2.5 分钟延迟（5 个 30 秒样本里 ≥3 个），
+    /// 所以只对长任务有效——短脚本用 `mempilot lease run`。
+    /// </summary>
+    private void HandleAutoLeaseForAi(bool started)
+    {
+        var cfg = ConfigStore.Config;
+        if (!cfg.AutoLeaseForAiEnabled || !cfg.LeaseApiEnabled)
+        {
+            if (!started) ReleaseAutoLease("自动预留已关闭");
+            return;
+        }
+
+        if (!started)
+        {
+            ReleaseAutoLease("AI 会话结束");
+            return;
+        }
+        if (_autoLeaseId != null) return;          // 已有自动租约，不重复申请
+
+        double gb = Math.Clamp(cfg.AutoLeaseForAiGb, 1, 64);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var http = new LeaseHttp();
+                if (!http.HasToken) return;
+                var body = JsonSerializer.Serialize(new
+                {
+                    targetAvailableGb = gb,
+                    ttlSeconds = 12 * 3600,
+                    policy = "soft",
+                    requester = "auto:ai-session"
+                });
+                var r = await http.CallAsync(HttpMethod.Post, "/api/lease", body).ConfigureAwait(false);
+                if (r.Ok && ReadLeaseId(r.Body) is { Length: > 0 } id)
+                {
+                    SetUi(() =>
+                    {
+                        _autoLeaseId = id;
+                        Decisions.Log(new DecisionEntry
+                        {
+                            Kind = "Lease", Target = "AI 自动预留", Decision = "开始",
+                            Code = "lease.auto_acquired",
+                            Args = new[] { gb.ToString("0.#"), id },
+                            Reason = $"检测到 AI 任务，自动预留 {gb:0.#} GB（soft，12h）；租约 {id}"
+                        });
+                    });
+                }
+                else if (r.Status == 409)
+                {
+                    SetUi(() => Decisions.Log(new DecisionEntry
+                    {
+                        Kind = "Lease", Target = "AI 自动预留", Decision = "跳过",
+                        Code = "lease.auto_skipped",
+                        Reason = "已有租约在占用，自动预留跳过（手动优先）"
+                    }));
+                }
+                else
+                {
+                    SetUi(() => Decisions.Log(new DecisionEntry
+                    {
+                        Kind = "Lease", Target = "AI 自动预留", Decision = "失败",
+                        Code = "lease.auto_failed",
+                        Args = new[] { r.Status.ToString() },
+                        Reason = $"自动预留失败：{http.Explain(r)}"
+                    }));
+                }
+            }
+            catch (Exception ex) { Diag.Record("lease:auto-acquire", ex); }
+        });
+    }
+
+    private void ReleaseAutoLease(string reason)
+    {
+        var id = _autoLeaseId;
+        if (id == null) return;
+        _autoLeaseId = null;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var http = new LeaseHttp();
+                var r = await http.CallAsync(HttpMethod.Delete, "/api/lease/" + id).ConfigureAwait(false);
+                // 404 = 已经不在了（比如被手动申请挤掉），不是错误
+                if (!r.Ok && r.Status != 404)
+                    Diag.Record("lease:auto-release", new Exception($"HTTP {r.Status}: {r.Body}"));
+                SetUi(() => Decisions.Log(new DecisionEntry
+                {
+                    Kind = "Lease", Target = "AI 自动预留", Decision = "归还",
+                    Code = "lease.auto_released",
+                    Args = new[] { reason },
+                    Reason = $"自动预留已归还（{reason}）"
+                }));
+            }
+            catch (Exception ex) { Diag.Record("lease:auto-release", ex); }
+        });
+    }
+
+    private static string? ReadLeaseId(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("id", out var el) ? el.GetString() : null;
+        }
+        catch { return null; }
+    }
+
     private (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) ExecuteLeaseRelief(
         LeaseRequest req, LeasePolicy policy)
     {
@@ -146,7 +272,7 @@ public partial class MainViewModel
         var deny = DenySet(req);
 
         // 二级：安全子集压缩
-        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio, excluded);
+        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, fg, audio, excluded, Cleanup.TrimFeedback.RatioOf);
         int safeBefore = safe.Count;
         safe.RemoveAll(p => !string.IsNullOrEmpty(p.Name) && deny.Contains(p.Name));
         int deniedCount = safeBefore - safe.Count;

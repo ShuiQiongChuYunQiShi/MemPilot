@@ -1441,6 +1441,13 @@
                                     <Button Content="{DynamicResource Btn_Regenerate}" Click="RegenerateLeaseToken_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock Text="{DynamicResource Settings_LeaseNote}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="16,4,0,0" TextWrapping="Wrap"/>
+                                <!-- v0.25.0：为 AI 任务自动预留（默认关；只做 soft，不挂起进程） -->
+                                <CheckBox x:Name="SetAutoLeaseAi" Content="{DynamicResource Settings_AutoLeaseAi}" Margin="16,8,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="16,4,0,0">
+                                    <TextBlock Text="{DynamicResource Settings_AutoLeaseGb}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="0,0,8,0"/>
+                                    <TextBox x:Name="SetAutoLeaseAiGb" Width="60" Padding="6,4" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="{DynamicResource Settings_AutoLeaseNote}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="16,4,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
 

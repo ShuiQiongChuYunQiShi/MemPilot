@@ -213,7 +213,8 @@ public partial class MainViewModel
         _floorTrimTimer?.Stop();
 
         var audio = new HashSet<int>(_lastProcs.Where(p => p.AudioActive).Select(p => p.Pid));
-        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, Engine.LastForegroundPid, audio);
+        var safe = TrimSelection.BuildSafeTrimSet(_lastProcs, Engine.LastForegroundPid, audio,
+            releaseRatio: Cleanup.TrimFeedback.RatioOf);
         var r = Cleanup.TrimWorkingSets(safe);
         Decisions.Log(new DecisionEntry
         {

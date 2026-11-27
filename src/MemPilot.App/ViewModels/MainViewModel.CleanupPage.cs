@@ -57,7 +57,8 @@ public partial class MainViewModel
         }
         var all = _lastProcs.ToList();
         var audio = new HashSet<int>(all.Where(p => p.AudioActive).Select(p => p.Pid));
-        var procs = TrimSelection.BuildSafeTrimSet(all, Engine.LastForegroundPid, audio);
+        var procs = TrimSelection.BuildSafeTrimSet(all, Engine.LastForegroundPid, audio,
+            releaseRatio: Cleanup.TrimFeedback.RatioOf);
         if (procs.Count == 0)
         {
             var none = UiStrings.Get("Cleanup_NoSafe");

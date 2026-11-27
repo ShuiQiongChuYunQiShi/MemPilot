@@ -450,6 +450,14 @@
     <sys:String x:Key="Settings_Token">Token</sys:String>
     <sys:String x:Key="Btn_Regenerate">Regenerate</sys:String>
     <sys:String x:Key="Settings_LeaseNote">See tools/lease-example.py for a working example; sync the new token to callers after regenerating. The soft policy only trims the safe subset (never work / game / foreground processes) and returns the measured amount actually achieved.</sys:String>
+    <!-- v0.25.0: automatic reservation for AI sessions (off by default, soft only) -->
+    <sys:String x:Key="Settings_AutoLeaseAi">Reserve memory automatically for AI tasks (soft, never suspends a process)</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseGb">Target available</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseNote">When an AI session starts, a 12-hour lease is acquired and released when it ends. Detection lags about 2 minutes, so short jobs should use mempilot lease run; a manual request preempts the automatic lease.</sys:String>
+    <sys:String x:Key="Decision_lease_auto_acquired">Automatic reservation of {0} GB is active (lease {1})</sys:String>
+    <sys:String x:Key="Decision_lease_auto_skipped">Another lease is active; automatic reservation skipped (manual wins)</sys:String>
+    <sys:String x:Key="Decision_lease_auto_failed">Automatic reservation failed (HTTP {0})</sys:String>
+    <sys:String x:Key="Decision_lease_auto_released">Automatic reservation released ({0})</sys:String>
     <sys:String x:Key="Settings_Resident">Resident</sys:String>
     <sys:String x:Key="Settings_AutoStart">Start with Windows (applies immediately)</sys:String>
     <sys:String x:Key="Settings_StartMinimized">Start minimized to tray</sys:String>

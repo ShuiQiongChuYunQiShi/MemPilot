@@ -450,6 +450,14 @@
     <sys:String x:Key="Settings_Token">令牌</sys:String>
     <sys:String x:Key="Btn_Regenerate">重新生成</sys:String>
     <sys:String x:Key="Settings_LeaseNote">调用示例见 tools/lease-example.py；令牌重新生成后记得同步给调用方。软策略只压缩安全子集（不碰工作/游戏/前台进程），返回的是实测达成量。</sys:String>
+    <!-- v0.25.0：AI 任务自动预留（默认关，只做 soft） -->
+    <sys:String x:Key="Settings_AutoLeaseAi">为 AI 任务自动预留内存（soft，不挂起任何进程）</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseGb">目标可用</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseNote">检测到 AI 任务开始时申请 12 小时租约、结束时归还。检测有约 2 分钟延迟，短任务请用 mempilot lease run；手动申请会挤掉自动预留（手动优先）。</sys:String>
+    <sys:String x:Key="Decision_lease_auto_acquired">自动预留 {0} GB 已生效（租约 {1}）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_skipped">已有租约在占用，自动预留跳过（手动优先）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_failed">自动预留失败（HTTP {0}）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_released">自动预留已归还（{0}）</sys:String>
     <sys:String x:Key="Settings_Resident">驻守</sys:String>
     <sys:String x:Key="Settings_AutoStart">开机自启（勾选即生效）</sys:String>
     <sys:String x:Key="Settings_StartMinimized">启动时最小化到托盘</sys:String>

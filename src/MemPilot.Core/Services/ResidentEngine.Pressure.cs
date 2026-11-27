@@ -124,7 +124,7 @@ public partial class ResidentEngine
 
         long before = mem.AvailablePhysicalBytes;
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
-        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs));
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs), _cleanup.TrimFeedback.RatioOf);
 
         // v0.10.0（开源前正确性修复）：**先判权限，再说执行**。
         // v0.13.0（第四轮复盘）：**失败不吃冷却**——旧实现 `_lastReliefUtc` 无条件赋值，
@@ -253,7 +253,7 @@ public partial class ResidentEngine
         var audio = new HashSet<int>(procs.Where(p => p.AudioActive).Select(p => p.Pid));
         // v0.24.1：自动兜底也绝不能碰租约申请方（及其子树）。
         // 申请方是"为工作让路"付出代价的一方，把它自己的页面换出等于让它替别人买单。
-        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs));
+        var safeSet = TrimSelection.BuildSafeTrimSet(procs, _lastForegroundPid, audio, LeaseExcluded(procs), _cleanup.TrimFeedback.RatioOf);
         if (safeSet.Count == 0) return;
 
         string trigger = availGb < 3.0 ? $"可用 {availGb:F1} GB < 3 GB" : "提交余量 <10%";

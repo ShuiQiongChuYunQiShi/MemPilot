@@ -26,7 +26,11 @@ public class CleanupEngine
         _audit = audit;
         Suspended = new SuspendRegistry(dataDir);
         Disposals = new DisposalRegistry(dataDir);
+        TrimFeedback = new TrimFeedbackStore(dataDir);   // v0.25.0：压缩收益历史
     }
+
+    /// <summary>压缩收益历史（v0.25.0）。排序用它把"工作集大"换成"预计可回收"。</summary>
+    public TrimFeedbackStore TrimFeedback { get; }
 
     public record ActionResult(bool Success, string Message, bool Exited);
 
@@ -47,9 +51,29 @@ public class CleanupEngine
         foreach (var p in procs)
         {
             if (p.Pid == self) continue;      // 永远不压自己
+
+            // v0.25.0：逐进程测"压前工作集 → 压后工作集"，喂给排序用的历史释放率。
+            // 读不到（进程已退出 / 权限）就用快照值或跳过观测，绝不影响清理本身。
+            long wsBefore = p.Memory.PrivateWorkingSetBytes;
+            try
+            {
+                long live = _procs.ReadPrivateWorkingSet(p.Pid);
+                if (live > 0) wsBefore = live;
+            }
+            catch { }
+
             try { _procs.TrimWorkingSet(p.Pid); ok++; }
-            catch { fail++; }
+            catch { fail++; continue; }
+
+            try
+            {
+                long wsAfter = _procs.ReadPrivateWorkingSet(p.Pid);
+                if (wsBefore > 0 && wsAfter >= 0 && wsAfter < wsBefore)
+                    TrimFeedback.Observe(p.Name, wsBefore, wsBefore - wsAfter);
+            }
+            catch { }
         }
+        TrimFeedback.Flush();
         long after = _procs.GetSystemMemory().AvailablePhysicalBytes;
         long freed = Math.Max(0, after - before);
         _audit.Log(new AuditEntry

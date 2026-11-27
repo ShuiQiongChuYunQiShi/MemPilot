@@ -557,6 +557,9 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
         {
+            // v0.25.0：可选自动预留（默认关）。放在会话状态同步之后，
+            // 因为 HandleAutoLeaseForAi 会读 ConfigStore，不依赖 AiSessionActive。
+            HandleAutoLeaseForAi(started);
             Engine.AiSessionActive = started;
             AiSessionActive = started;
             double peakGb = summary.PeakUsedBytes / 1073741824.0;

@@ -433,6 +433,30 @@ public class LeaseApiTests : IDisposable
     }
 
     [Fact]
+    public async Task ManualRequest_PreemptsAutomaticReservation()
+    {
+        // v0.25.0：自动预留（requester 以 auto: 开头）给手动申请让位——
+        // "帮你预留"不该变成"把你挡在门外"。
+        await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"auto:ai-session","ttlSeconds":43200}""");
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"manual"}""");
+
+        Assert.Equal(200, status);
+        Assert.Contains("\"requester\":\"manual\"", body);
+    }
+
+    [Fact]
+    public async Task ManualRequest_DoesNotPreemptAnotherManualLease()
+    {
+        await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"first"}""");
+        var (status, body) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"second"}""");
+
+        Assert.Equal(409, status);                       // 手动之间仍然互斥
+        Assert.Contains("\"requester\":\"first\"", body);
+    }
+
+    [Fact]
     public async Task NegativeRequesterPid_Is400_AndNoReliefRuns()
     {
         var (status, body) = await Call("POST", "/api/lease",

@@ -299,30 +299,42 @@ public sealed class LeaseApiService : IDisposable
             var reserved = _manager.TryReserve(req, now);
             if (reserved == null)
             {
-                // v0.23.0：409 不再是死胡同——告诉等待方"谁占着、还要多久"。
-                // 排队逻辑放在客户端（MCP）：服务端长轮询会引入"租约授予了但客户端已超时断开"
-                // 的僵尸租约，而客户端重试的话，进程一死就自然停止。
                 var holder = _manager.Current(now);
-                int retryAfter = 5;
-                if (holder != null)
+                // v0.25.0：自动预留（requester 以 "auto:" 开头）给手动申请让位。
+                // 自动预留可能占住 12 小时，而手动申请是用户的明确意图、且自动预留可再生——
+                // 不该让"帮你预留"变成"把你挡在门外"。
+                if (holder != null && holder.Requester.StartsWith("auto:", StringComparison.Ordinal))
                 {
-                    // 不是"还剩多久就等多久"——对方可能随时提前归还。
-                    // 取剩余时间的 1/4 并封顶 10s：长租约也不至于让人干等 30 秒。
-                    double remaining = (holder.ExpiresUtc - now).TotalSeconds;
-                    retryAfter = Math.Clamp((int)Math.Ceiling(remaining / 4.0), 1, 10);
+                    _manager.Release(holder.Id, now, "为手动申请让位");
+                    reserved = _manager.TryReserve(req, now);
+                    holder = _manager.Current(now);
                 }
-                return (409, JsonSerializer.Serialize(new
+                if (reserved == null)
                 {
-                    error = "lease_active",
-                    holder = holder == null ? null : new
+                    // v0.23.0：409 不再是死胡同——告诉等待方"谁占着、还要多久"。
+                    // 排队逻辑放在客户端（MCP）：服务端长轮询会引入"租约授予了但客户端已超时断开"
+                    // 的僵尸租约，而客户端重试的话，进程一死就自然停止。
+                    int retryAfter = 5;
+                    if (holder != null)
                     {
-                        requester = holder.Requester,
-                        expiresUtc = holder.ExpiresUtc,
-                        remainingSeconds = Math.Round(Math.Max(0, (holder.ExpiresUtc - now).TotalSeconds), 1),
-                        achievedAvailableGb = holder.AchievedAvailableGb
-                    },
-                    retryAfterSeconds = retryAfter
-                }, Json));
+                        // 不是"还剩多久就等多久"——对方可能随时提前归还。
+                        // 取剩余时间的 1/4 并封顶 10s：长租约也不至于让人干等 30 秒。
+                        double remaining = (holder.ExpiresUtc - now).TotalSeconds;
+                        retryAfter = Math.Clamp((int)Math.Ceiling(remaining / 4.0), 1, 10);
+                    }
+                    return (409, JsonSerializer.Serialize(new
+                    {
+                        error = "lease_active",
+                        holder = holder == null ? null : new
+                        {
+                            requester = holder.Requester,
+                            expiresUtc = holder.ExpiresUtc,
+                            remainingSeconds = Math.Round(Math.Max(0, (holder.ExpiresUtc - now).TotalSeconds), 1),
+                            achievedAvailableGb = holder.AchievedAvailableGb
+                        },
+                        retryAfterSeconds = retryAfter
+                    }, Json));
+                }
             }
 
             (LeaseReliefResult relief, List<LeaseSuspendedProcess> suspended) result;

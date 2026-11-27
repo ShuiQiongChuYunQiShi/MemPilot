@@ -475,6 +475,14 @@ public class AppConfig
     // （压缩会让下次访问重新读盘、卡顿一秒）。开源后陌生人装上就该什么都不做，
     // 让他看完说明再自己打开。已有的 config.json 里这个键已存在，改默认值不会影响老用户。
     public bool AutoCommitReliefEnabled { get; set; } = false;
+    // 为 AI 任务自动预留内存（v0.25.0，默认关）。
+    // 开启后检测到 AI 会话开始就申请一个 **soft** 租约（12h），会话结束归还。
+    // 只做 soft：hard 会挂起进程，而"自动挂起"离"只观察不处置"太远。
+    // 检测有 2–2.5 分钟延迟（5 个 30 秒样本里 ≥3 个），所以只对长任务有效——
+    // 短脚本请用 `mempilot lease run`。
+    public bool AutoLeaseForAiEnabled { get; set; } = false;
+    /// <summary>自动预留的目标可用内存（GB）。clamp 到 1–64。</summary>
+    public double AutoLeaseForAiGb { get; set; } = 16;
     // 提交告急时是否允许「征得同意后优雅关闭闲置后台」来真正释放提交内存。
     // 默认关：L3 会关掉程序，必须由用户逐次确认（压缩/清缓存已被实测证明降不了提交）。
     public bool CommitReliefL3Enabled { get; set; } = false;
