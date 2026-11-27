@@ -126,6 +126,20 @@ Copy-Item -Recurse skills\mempilot $env:USERPROFILE\.claude\skills\mempilot
 Get-Content docs\agents\mempilot-agents-snippet.md
 ```
 
+### Or just wrap the command
+
+If the job is a plain command line — which is how agents usually start one — wrap it:
+
+```powershell
+mempilot lease run --gb 16 -- python gen.py
+```
+
+It plans, acquires, runs the child, and releases when the child exits (including failure and
+Ctrl+C). `--policy hard` also suspends idle background processes, `--dry-run` prints the plan
+without acquiring, `--wait 60` queues behind another lease.
+
+(`mempilot` is on PATH once installed with winget; before that, call `MemPilot.exe` directly.)
+
 ## Two problems, not one
 
 Most memory utilities treat RAM as one number and flush it. Measured on a real

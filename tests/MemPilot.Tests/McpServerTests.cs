@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text.Json;
 using MemPilot.App.Mcp;
+using MemPilot.Services;
 using Xunit;
 
 namespace MemPilot.Tests;
@@ -17,17 +18,17 @@ public class McpServerTests
         public bool HasToken => true;
         public List<(string Method, string Path, string? Body)> Calls { get; } = new();
 
-        public Func<string, string, string?, LeaseApiClient.Result> Handler { get; set; } =
-            (_, _, _) => new LeaseApiClient.Result(200, "{}");
+        public Func<string, string, string?, LeaseHttp.Result> Handler { get; set; } =
+            (_, _, _) => new LeaseHttp.Result(200, "{}");
 
-        public Task<LeaseApiClient.Result> CallAsync(HttpMethod method, string path, string? json = null,
+        public Task<LeaseHttp.Result> CallAsync(HttpMethod method, string path, string? json = null,
             CancellationToken ct = default)
         {
             Calls.Add((method.Method, path, json));
             return Task.FromResult(Handler(method.Method, path, json));
         }
 
-        public string Explain(LeaseApiClient.Result r) => $"explained:{r.Status}";
+        public string Explain(LeaseHttp.Result r) => $"explained:{r.Status}";
     }
 
     private static string? Handle(FakeApi api, string json) =>
@@ -354,7 +355,7 @@ public class McpServerTests
     [InlineData(503, "not wired")]
     public void Explain_TranslatesStatusesIntoActions(int status, string expected)
     {
-        var text = LeaseApiClient.Explain(new LeaseApiClient.Result(status, "{}"), 52717, @"C:\data");
+        var text = LeaseHttp.Explain(new LeaseHttp.Result(status, "{}"), 52717, @"C:\data");
         Assert.Contains(expected, text);
     }
 

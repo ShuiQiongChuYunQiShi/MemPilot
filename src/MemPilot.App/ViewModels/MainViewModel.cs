@@ -761,6 +761,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             });
             // v0.20.0：分段耗时交给引擎落盘（self-*.jsonl），慢 tick 可定位到具体阶段
             Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds, lookupMs);
+            Engine.LastTimingsUtc = DateTime.UtcNow;   // v0.25.0：给"分段过期"判定用
 
             Engine.AfterRefresh(_lastProcs, memOut);
             LeaseManager.CheckGuard(memOut, DateTime.UtcNow);   // v0.7.0：占用期守护

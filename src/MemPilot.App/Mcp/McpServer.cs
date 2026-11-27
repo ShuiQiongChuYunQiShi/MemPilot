@@ -13,7 +13,7 @@ namespace MemPilot.App.Mcp;
 /// 为什么手写而不是引 SDK：项目运行时只有 1 个 NuGet 包，官方 SDK 会把依赖树变成十几个，
 /// 而这里只需要 initialize / tools/list / tools/call / ping 四个方法（约 300 行）。
 ///
-/// 为什么不直接调 Core：租约账本只活在常驻 GUI 进程里，见 LeaseApiClient 的注释。
+/// 为什么不直接调 Core：租约账本只活在常驻 GUI 进程里，见 <see cref="LeaseHttp"/> 的注释。
 ///
 /// 异常纪律：任何异常都只写 stderr 或转成 isError 的 tool 结果，绝不抛给宿主——
 /// 客户端把它当"tool 失败"处理，比当"server 崩了"更好恢复。
@@ -47,7 +47,7 @@ internal static class McpServer
             {
                 AutoFlush = true     // 客户端等的是即时响应，不能靠缓冲
             };
-            var client = new LeaseApiClient();
+            var client = new LeaseHttp();
             if (!client.HasToken)
                 Log("no lease token found. Start MemPilot once, enable Settings -> 租约 API, then retry.");
 
@@ -146,6 +146,8 @@ internal static class McpServer
             "never on HTTP 200 alone. Renew before ttlSeconds expires (expiry restores suspended " +
             "processes immediately) and release when done, including on failure. " +
             "Pass requesterPid so your own process tree is never suspended. " +
+            "For a long-running command, prefer wrapping it with the `mempilot lease run` CLI — " +
+            "release is then guaranteed by the process boundary. " +
             "Full guidance: skills/mempilot/SKILL.md in the MemPilot repository."
     };
 

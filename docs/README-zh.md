@@ -117,6 +117,19 @@ Copy-Item -Recurse skills\mempilot $env:USERPROFILE\.claude\skills\mempilot
 Get-Content docs\agents\mempilot-agents-snippet.md
 ```
 
+### 或者直接把命令包起来
+
+如果任务就是一条命令行（agent 起任务时最常见的样子），把它包起来：
+
+```powershell
+mempilot lease run --gb 16 -- python gen.py
+```
+
+它会 plan → 申请 → 跑子进程 → 子进程退出时归还（失败与 Ctrl+C 同样归还）。
+`--policy hard` 同时挂起闲置后台，`--dry-run` 只打印计划不申请，`--wait 60` 在别人占用时排队。
+
+（winget 安装后 `mempilot` 在 PATH 里；在那之前直接用 `MemPilot.exe`。）
+
 ## 核心能力
 
 ### 1. 先分类，再动手

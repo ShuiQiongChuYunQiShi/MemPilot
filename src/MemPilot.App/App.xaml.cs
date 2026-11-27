@@ -41,6 +41,19 @@ public partial class App : Application
             return;
         }
 
+        // v0.25.0：`mempilot lease run ...` 同样必须在单实例检查之前拦截。
+        // 它只做 HTTP 客户端 + 子进程托管，不启动 GUI；走单实例路径会被当成"第二个实例"
+        // 去唤起已有窗口然后退出。Task.Run 是为了脱离 OnStartup 的 SynchronizationContext
+        // ——里面用 GetAwaiter().GetResult() 等 HTTP，同步等待会死锁。
+        if (e.Args.Length >= 2 &&
+            (e.Args[0] is "lease" or "/lease") &&
+            string.Equals(e.Args[1], "run", StringComparison.OrdinalIgnoreCase))
+        {
+            int exitCode = Task.Run(() => Cli.LeaseRun.Run(e.Args[2..])).GetAwaiter().GetResult();
+            Shutdown(exitCode);
+            return;
+        }
+
         // single instance: two copies would fight over standby purges and suspend registries
         _singleInstance = new Mutex(true, @"Local\MemPilot.SingleInstance", out var isNew);
         if (!isNew)
@@ -131,30 +144,5 @@ public partial class App : Application
         catch { }
     }
 
-    internal static string ResolveDataDir()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemPilot"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemPilot"),
-            Path.Combine(AppContext.BaseDirectory, "data"),
-            Path.Combine(Path.GetTempPath(), "MemPilot")
-        };
-        foreach (var c in candidates)
-        {
-            try
-            {
-                Directory.CreateDirectory(c);
-                var test = Path.Combine(c, ".writetest");
-                File.WriteAllText(test, "x");
-                File.Delete(test);
-                // 落盘失败诊断（JsonFileStore）写这里；只在首次可用目录时确定
-                if (Diag.LogPath == null)
-                    Diag.LogPath = Path.Combine(c, "diag.log");
-                return c;
-            }
-            catch { }
-        }
-        return candidates[candidates.Length - 1];
-    }
+    internal static string ResolveDataDir() => MemPilotPaths.ResolveDataDir();
 }

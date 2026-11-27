@@ -8,6 +8,25 @@ description: Reserve Windows memory before a large local job (model load, video 
 MemPilot runs on this machine and exposes three MCP tools. A lease reserves system RAM for
 the duration of a job and reports **what was actually freed**, not what was requested.
 
+## Shortest path: wrap the command
+
+If the job is a command line, do not call the tools by hand — wrap it:
+
+```
+mempilot lease run --gb 16 -- python gen.py --steps 40
+```
+
+It plans, acquires, runs the child, and releases when the child exits — including failure and
+Ctrl+C. `requesterPid` is taken from the wrapper, so your whole process tree is covered
+automatically, and the child is bound to a job object (it dies with the wrapper).
+
+- `--policy hard` — also suspend idle background processes (restored on release)
+- `--wait 60` — queue behind another lease instead of failing with 409
+- `--dry-run` — print the plan and exit without acquiring
+- `--ttl 7200` — for jobs that may run longer than an hour
+
+Use the MCP tools below when you need to inspect state or negotiate manually.
+
 ## When to use
 
 - Before loading a model or dataset that needs more than ~4 GB of RAM.

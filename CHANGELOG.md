@@ -4,6 +4,35 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [Unreleased]
+
+### Added
+- **`mempilot lease run --gb N -- <command>`.** One command wraps a job: plan → acquire →
+  run the child → release. Release is guaranteed by the process boundary (including failure
+  and Ctrl+C), which fixes the most common way an agent-managed lease leaks. `requesterPid`
+  comes from the wrapper, so the whole process tree is protected without a second round-trip;
+  the child is bound to a job object so it dies with the wrapper instead of outliving an
+  expired lease. `--policy hard|soft`, `--wait`, `--ttl`, `--dry-run`, `--port`.
+  Exit codes: child's code passed through; 2 usage; 3 unavailable; 4 conflict; 130 Ctrl+C.
+- **`RefreshTimings.AfterMs`** — the `AfterRefresh` stage pipeline (including
+  `available-floor`, i.e. the low-memory trim) is finally timed and written to
+  `history/self-*.jsonl`. On 2026-11-27 a 1055 ms tick had 746 ms unattributable because
+  this path was outside every existing segment.
+- **`LeaseHttp` in Core** — the lease HTTP client moved out of `App.Mcp` so the CLI and the
+  MCP server share one implementation of token/port discovery, timeouts and error text.
+  `ILeaseApi` moved with it (the MCP protocol layer is still unit-testable via a fake).
+
+### Fixed
+- **Stale timings attribution.** If a refresh threw before writing its segment snapshot, the
+  tick was recorded with the *previous* refresh's segments, pointing attribution at the wrong
+  stage. `LastTimingsUtc` now guards it: a snapshot older than 30 s is recorded as zero.
+
+### Changed
+- `skills/mempilot/SKILL.md`, `docs/agents/mempilot-agents-snippet.md` and the MCP
+  `instructions` now lead with "wrap the command" — the 2026-11-27 data showed three AI
+  sessions (one 212 minutes long) with **zero** lease usage, because the jobs were plain
+  commands started by an agent, not MCP tool calls.
+
 ## [0.24.1] — automatic trimming never touches the lease caller
 
 ### Fixed
