@@ -4,7 +4,7 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
-## [Unreleased]
+## [0.25.0] — lease run CLI, automatic reservation, measured-yield trim ordering
 
 ### Added
 - **`mempilot lease run --gb N -- <command>`.** One command wraps a job: plan → acquire →
@@ -32,8 +32,6 @@ versioning is `0.y.z` while the project is pre-1.0.
   `instructions` now lead with "wrap the command" — the 2026-11-27 data showed three AI
   sessions (one 212 minutes long) with **zero** lease usage, because the jobs were plain
   commands started by an agent, not MCP tool calls.
-
-## [Unreleased]
 
 ### Added
 - **Automatic reservation for AI sessions** (Settings → 租约 API, **off by default**).
