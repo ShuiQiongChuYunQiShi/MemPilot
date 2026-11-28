@@ -70,12 +70,16 @@ public partial class MainWindow : Window
         SetAutoClose.IsChecked = _config.Config.AutoCloseCleanMatches;
         SetAutoJunkSweep.IsChecked = _config.Config.AutoJunkSweepEnabled;
         SetJunkAdvice.IsChecked = _config.Config.JunkAdviceEnabled;
+        SetLongResidentAdvice.IsChecked = _config.Config.LongResidentAdviceEnabled;
+        SetWslHint.IsChecked = _config.Config.WslShutdownHintEnabled;
         SetAutoJunkSweepOrphansOnly.IsChecked = _config.Config.AutoJunkSweepOrphansOnly;
         SetAutoCommitRelief.IsChecked = _config.Config.AutoCommitReliefEnabled;
         SetCommitReliefL3.IsChecked = _config.Config.CommitReliefL3Enabled;
         SetLeaseApi.IsChecked = _config.Config.LeaseApiEnabled;
         SetLeasePort.Text = _config.Config.LeaseApiPort.ToString();
         SetLeaseToken.Text = _vm.LeaseToken;
+        SetAutoLeaseAi.IsChecked = _config.Config.AutoLeaseForAiEnabled;
+        SetAutoLeaseAiGb.Text = _config.Config.AutoLeaseForAiGb.ToString("0.#");
         SetShowAlerts.IsChecked = _config.Config.ShowAlerts;
         SetGpuSampling.IsChecked = _config.Config.GpuSamplingEnabled;
         SelectGpuInterval(_config.Config.GpuSampleIntervalSeconds);
@@ -148,12 +152,17 @@ public partial class MainWindow : Window
         _config.Config.AutoCloseCleanMatches = SetAutoClose.IsChecked == true;
         _config.Config.AutoJunkSweepEnabled = SetAutoJunkSweep.IsChecked == true;
         _config.Config.JunkAdviceEnabled = SetJunkAdvice.IsChecked == true;
+        _config.Config.LongResidentAdviceEnabled = SetLongResidentAdvice.IsChecked == true;
+        _config.Config.WslShutdownHintEnabled = SetWslHint.IsChecked == true;
         _config.Config.AutoJunkSweepOrphansOnly = SetAutoJunkSweepOrphansOnly.IsChecked == true;
         _config.Config.AutoCommitReliefEnabled = SetAutoCommitRelief.IsChecked == true;
         _config.Config.CommitReliefL3Enabled = SetCommitReliefL3.IsChecked == true;
         _config.Config.LeaseApiEnabled = SetLeaseApi.IsChecked == true;
         if (int.TryParse(SetLeasePort.Text, out var leasePort) && leasePort is >= 1024 and <= 65535)
             _config.Config.LeaseApiPort = leasePort;
+        _config.Config.AutoLeaseForAiEnabled = SetAutoLeaseAi.IsChecked == true;
+        if (double.TryParse(SetAutoLeaseAiGb.Text, out var autoGb))
+            _config.Config.AutoLeaseForAiGb = Math.Clamp(autoGb, 1, 64);
         _config.Config.ShowAlerts = SetShowAlerts.IsChecked == true;
         _config.Config.GpuSamplingEnabled = SetGpuSampling.IsChecked == true;
         _config.Config.GpuSampleIntervalSeconds = SelectedGpuInterval();
@@ -212,7 +221,8 @@ public partial class MainWindow : Window
                 return;
             }
             var audio = new HashSet<int>(_vm.Processes.Where(p => p.AudioActive).Select(p => p.Pid));
-            var safe = TrimSelection.BuildSafeTrimSet(_vm.Processes.ToList(), _vm.Engine.LastForegroundPid, audio);
+            var safe = TrimSelection.BuildSafeTrimSet(_vm.Processes.ToList(), _vm.Engine.LastForegroundPid, audio,
+                releaseRatio: _vm.Cleanup.TrimFeedback.RatioOf);
             if (safe.Count == 0)
             {
                 MessageBox.Show(UiStrings.Get("Settings_NoSafeProcesses"), UiStrings.Get("Common_Notice"), MessageBoxButton.OK, MessageBoxImage.Information);

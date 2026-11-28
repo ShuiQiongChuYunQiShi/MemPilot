@@ -29,10 +29,15 @@ public class SuspendRegistry
     {
         var list = JsonFileStore.Load<List<SuspendRecord>>(_path);
         if (list == null) return;
+        int dropped = 0;
         foreach (var rec in list)
         {
             if (IsRecordAlive(rec)) _records[rec.Pid] = rec;
+            else dropped++;
         }
+        // v0.20.0（P1）：丢弃死记录后必须落盘——旧实现只清理内存，文件里永久残留幽灵记录
+        // （实测 11-18 的两条记录挂了 5 天，内存/UI 都看不到，文件永远脏）。
+        if (dropped > 0) Save();
     }
 
     private static bool IsRecordAlive(SuspendRecord rec)

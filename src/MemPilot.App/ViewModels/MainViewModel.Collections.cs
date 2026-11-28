@@ -86,26 +86,40 @@ public partial class MainViewModel
         });
     }
 
+    /// <summary>v0.22.0：上一批在线查询是否还在飞（避免叠任务）。</summary>
+    private int _lookupInFlight;
+
     private void LookupUnknowns(List<ProcessInfo> procs, CancellationToken ct)
     {
         if (!ConfigStore.Config.OnlineLookupEnabled) return;
+        if (Interlocked.CompareExchange(ref _lookupInFlight, 1, 0) != 0) return;   // 上一批还没回来
+
         var unknowns = procs.Where(p => p.Category == ProcessCategory.Unknown && !p.AccessDenied).Take(5).ToList();
-        if (unknowns.Count == 0) return;
-        // bounded parallelism, each with per-process cache so refreshes don't re-query
-        using var gate = new SemaphoreSlim(3);
-        var tasks = unknowns.Select(async p =>
+        if (unknowns.Count == 0) { Interlocked.Exchange(ref _lookupInFlight, 0); return; }
+
+        // v0.22.0：在线查询是"锦上添花"——结果下一 tick 生效即可，不再阻塞本次刷新。
+        // 旧实现 Task.WaitAll(..., 3s) 在枚举之后同步等待，是慢 tick 的候选之一。
+        _ = Task.Run(async () =>
         {
-            await gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var r = await OnlineLookup.LookupAsync(p).ConfigureAwait(false);
-                Classification.ApplyOnlineResult(p, r);
+                using var gate = new SemaphoreSlim(3);
+                var tasks = unknowns.Select(async p =>
+                {
+                    await gate.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        var r = await OnlineLookup.LookupAsync(p).ConfigureAwait(false);
+                        Classification.ApplyOnlineResult(p, r);
+                    }
+                    catch { }
+                    finally { gate.Release(); }
+                }).ToArray();
+                await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             catch { }
-            finally { gate.Release(); }
+            finally { Interlocked.Exchange(ref _lookupInFlight, 0); }
         });
-        // 未知进程查询必须有界：旧版等 15s 会把刷新管道拖死（实测刷新周期被拉长到远超 10s）
-        try { Task.WaitAll(tasks.ToArray(), TimeSpan.FromSeconds(3)); } catch { }
     }
 
     private bool _dataDiagDone;
@@ -137,6 +151,7 @@ public partial class MainViewModel
     {
         SysMem = mem;
         _lastProcs = procs;
+        _lastProcsUtc = DateTime.UtcNow;
         _lastUnused = unused;
         var cfg = ConfigStore.Config;
         CandidateRuleText = UiStrings.F("Cleanup_CandidateRule", cfg.UnusedIdleMinutes, cfg.RequiredIdleObservations);
@@ -187,13 +202,20 @@ public partial class MainViewModel
                 foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
                 break;
             case TabPage.Decisions:
-                DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
+            {
+                var recent = Decisions.Recent(200);
+                var shown = DecisionLogFilter.Filter(recent, ShowNoise, SelectedDecisionKind).ToList();
+                DecisionEntries = new ObservableCollection<DecisionEntry>(shown);
+                UpdateDecisionEmptyText(recent.Count, shown.Count);
+                RebuildDecisionKindOptions();
                 break;
+            }
             default: // 主页等轻页面：候选计数与首页决策
                 RebuildUnused();
                 SuspendedProcesses.Clear();
                 foreach (var s in Cleanup.Suspended.LiveRecords()) SuspendedProcesses.Add(s);
-                HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
+                HomeDecisions = new ObservableCollection<DecisionEntry>(
+                    DecisionLogFilter.Filter(Decisions.Recent(5), ShowNoise));
                 break;
         }
         CollectionsRebuilt?.Invoke(this, EventArgs.Empty);
@@ -213,8 +235,13 @@ public partial class MainViewModel
     {
         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            DecisionEntries = new ObservableCollection<DecisionEntry>(Decisions.Recent(200));
-            HomeDecisions = new ObservableCollection<DecisionEntry>(Decisions.Recent(5));
+            var recent = Decisions.Recent(200);
+            var shown = DecisionLogFilter.Filter(recent, ShowNoise, SelectedDecisionKind).ToList();
+            DecisionEntries = new ObservableCollection<DecisionEntry>(shown);
+            UpdateDecisionEmptyText(recent.Count, shown.Count);
+            RebuildDecisionKindOptions();
+            HomeDecisions = new ObservableCollection<DecisionEntry>(
+                DecisionLogFilter.Filter(Decisions.Recent(5), ShowNoise));
         });
     }
 }

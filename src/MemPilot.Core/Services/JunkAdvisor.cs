@@ -2,9 +2,19 @@ using MemPilot.Models;
 
 namespace MemPilot.Services;
 
-/// <summary>一次垃圾进程建议（v0.15.0，v0.17.0 补充来源信息）。</summary>
+/// <summary>建议来源（v0.21.0）：决定卡片文案与可执行动作。</summary>
+public enum JunkAdviceKind
+{
+    /// <summary>整天未使用的垃圾进程：可挂起或结束。</summary>
+    Junk,
+    /// <summary>长驻未用的高占用进程：**只建议挂起**（没有垃圾证据，结束不成立）。</summary>
+    LongResident,
+}
+
+/// <summary>一次垃圾进程建议（v0.15.0，v0.17.0 补充来源信息，v0.21.0 增加来源类型）。</summary>
 public class JunkAdvice
 {
+    public JunkAdviceKind Kind { get; init; } = JunkAdviceKind.Junk;
     public List<ProcessInfo> Candidates { get; init; } = new();
     public long TotalPrivateBytes { get; init; }
     public string Reason { get; init; } = "";

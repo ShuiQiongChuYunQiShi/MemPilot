@@ -16,10 +16,11 @@ public class LeaseHardPlannerTests
     private static ProcessInfo P(int pid, string name, ProcessCategory cat = ProcessCategory.ThirdPartyApp,
         WorkloadKind wl = WorkloadKind.Other, bool window = false, double idle = 0,
         long privateBytes = 300L * 1024 * 1024, double cpu = 0, int ageMinutes = 60,
-        bool isProtected = false, bool audio = false)
+        bool isProtected = false, bool audio = false, int parentPid = 0)
         => new()
         {
             Pid = pid,
+            ParentPid = parentPid,
             Name = name,
             Category = cat,
             Workload = wl,
@@ -129,5 +130,77 @@ public class LeaseHardPlannerTests
         Assert.Empty(LeaseHardPlanner.TakeForShortfall(new List<ProcessInfo> { P(1, "a.exe") }, 0));
         Assert.Empty(LeaseHardPlanner.TakeForShortfall(null!, 1000));
         Assert.Empty(LeaseHardPlanner.PickSuspendCandidates(null!, 0, NoAudio, Now));
+    }
+
+    // ---- v0.23.0 hard invariant: the caller and its subtree are never suspended ----
+
+    [Fact]
+    public void RequesterSubtree_IsNeverPicked_EvenWhenPerfectlyIdle()
+    {
+        // 100 = the agent (node), 101 = its python worker. Both are windowless and idle,
+        // i.e. they would otherwise be the *best* candidates. 200 is unrelated background.
+        var procs = new List<ProcessInfo>
+        {
+            P(100, "node.exe", parentPid: 0),
+            P(101, "worker.py", parentPid: 100),
+            P(200, "other-idle.exe", parentPid: 0),
+        };
+        var excluded = ProcessTreeBuilder.BuildSubtreePids(procs, 100);
+
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now, excluded);
+
+        Assert.Equal(new[] { 200 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void RequesterSubtree_DoesNotChangeBehaviourWhenNotProvided()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(100, "node.exe"),
+            P(200, "other-idle.exe", privateBytes: 900L * 1024 * 1024),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now);
+        Assert.Equal(new[] { 200, 100 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void DenyNames_ExcludeCandidates_CaseInsensitively()
+    {
+        // 调用方偏好（不是安全规则）：只缩小候选集，永不扩大
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "Weixin.exe"),
+            P(2, "other-idle.exe"),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now,
+            denyNames: new HashSet<string> { "weixin.EXE" });
+
+        Assert.Equal(new[] { 2 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void DefaultDenyNames_AlwaysApply_WithoutCallerInput()
+    {
+        // 挂起代理/VPN 内核 = 断网，包括 agent 自己的 API 调用
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "FlClashCore"),
+            P(2, "tailscaled"),
+            P(3, "other-idle.exe"),
+        };
+        var picked = LeaseHardPlanner.PickSuspendCandidates(procs, 99, NoAudio, Now);
+        Assert.Equal(new[] { 3 }, picked.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void MergeDenyNames_CombinesDefaultsAndCaller_AndDedupes()
+    {
+        var merged = LeaseHardPlanner.MergeDenyNames(new[] { "Weixin", "   ", "flclashcore" });
+
+        Assert.Contains("tailscaled", merged);                       // 默认
+        Assert.Contains("Weixin", merged);                           // 调用方
+        Assert.Contains("FlClashCore", merged);                      // 大小写去重后仍是默认名
+        Assert.Equal(LeaseHardPlanner.DefaultDenyNames.Count + 1, merged.Count);  // 只多了 Weixin
     }
 }

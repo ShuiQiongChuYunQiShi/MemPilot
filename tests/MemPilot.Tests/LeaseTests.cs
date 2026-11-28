@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using MemPilot.Models;
 using MemPilot.Services;
 using Xunit;
@@ -82,9 +83,77 @@ public class LeaseManagerTests
         Assert.Null(hit2);
     }
 
+    // ---- v0.23.0 续期（renew）：长任务跑过 TTL 不该被自己申请的内存反噬 ----
+
     [Fact]
-    public void RestoreHook_RunsBeforeEvent_SoResponseSeesResults()
+    public void Renew_ExtendsExpiry_AndCountsRenewals()
     {
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(ttl: 60), Relief(7), Now)!;   // 到期 = Now+60s
+
+        var (renewed, expired) = m.Renew(lease.Id, 300, Now.AddSeconds(45));
+        Assert.False(expired);
+        Assert.NotNull(renewed);
+        Assert.Equal(Now.AddSeconds(345), renewed!.ExpiresUtc);  // 从续期时刻重新计 300s
+        Assert.Equal(1, renewed.RenewCount);
+
+        var (again, _) = m.Renew(lease.Id, 60, Now.AddSeconds(340));
+        Assert.NotNull(again);
+        Assert.Equal(2, again!.RenewCount);
+        Assert.Equal(Now.AddSeconds(400), again.ExpiresUtc);
+    }
+
+    [Fact]
+    public void Renew_WrongIdOrAlreadyReleased_ReturnsNullNotExpired()
+    {
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(), Relief(7), Now)!;
+
+        Assert.Null(m.Renew("wrong-id", 60, Now.AddSeconds(10)).lease);   // 404
+        Assert.False(m.Renew("wrong-id", 60, Now.AddSeconds(10)).expired);
+
+        m.Release(lease.Id, Now.AddSeconds(20));
+        var (afterRelease, expiredAfterRelease) = m.Renew(lease.Id, 60, Now.AddSeconds(30));
+        Assert.Null(afterRelease);
+        Assert.False(expiredAfterRelease);
+    }
+
+    [Fact]
+    public void Renew_AfterExpiry_ReportsExpired_AndRestoresSuspended()
+    {
+        var m = new LeaseManager();
+        var events = new List<string>();
+        bool restored = false;
+        m.RestoreHook = l => { restored = true; return (1, 0); };
+        m.LeaseEvent += (l, ev) => events.Add(ev);
+
+        var lease = m.Acquire(Req(ttl: 60), Relief(7), Now)!;
+        var (renewed, expired) = m.Renew(lease.Id, 600, Now.AddMinutes(2));
+
+        Assert.Null(renewed);
+        Assert.True(expired);                    // API 据此返回 410，而不是 404
+        Assert.True(restored);                   // 过期必须恢复挂起进程（不能只记账）
+        Assert.Contains("过期", events);
+        Assert.Equal("expired", lease.State);
+    }
+
+    [Fact]
+    public void Renew_DoesNotSwallowAGuardAlert()
+    {
+        // 续期只延长时间，不该重置"已被侵蚀"的告警状态——
+        // 否则调用方可以用 renew 把真实的侵蚀告警刷掉
+        var m = new LeaseManager();
+        var lease = m.Acquire(Req(), Relief(7), Now)!;
+        var eroded = new SystemMemoryInfo { AvailablePhysicalBytes = (long)(4.0 * 1024 * 1024 * 1024) };
+        Assert.NotNull(m.CheckGuard(eroded, Now.AddMinutes(1)));
+
+        m.Renew(lease.Id, 600, Now.AddMinutes(2));
+
+        Assert.Null(m.CheckGuard(eroded, Now.AddMinutes(3)));   // 仍然只告警一次
+    }
+
+    [Fact]
+    public void RestoreHook_RunsBeforeEvent_SoResponseSeesResults()    {
         var m = new LeaseManager();
         var order = new List<string>();
         var suspended = new List<LeaseSuspendedProcess>
@@ -142,6 +211,7 @@ public class LeaseApiTests : IDisposable
     private const string Token = "test-token-0123456789abcdef";
     private int _reliefCalls;
     private LeasePolicy _lastPolicy = LeasePolicy.Soft;
+    private int _lastRequesterPid = -1;
 
     public LeaseApiTests()
     {
@@ -157,6 +227,7 @@ public class LeaseApiTests : IDisposable
             {
                 _reliefCalls++;
                 _lastPolicy = policy;
+                _lastRequesterPid = req.RequesterPid;
                 var suspended = policy == LeasePolicy.Hard
                     ? new List<LeaseSuspendedProcess> { new() { Pid = 4242, Name = "idle.exe", StartTime = DateTime.UtcNow } }
                     : new List<LeaseSuspendedProcess>();
@@ -294,6 +365,173 @@ public class LeaseApiTests : IDisposable
     {
         await Call("POST", "/api/lease", """{"targetAvailableGb":6}""");
         Assert.Equal(1, _reliefCalls);
+    }
+
+    [Fact]
+    public async Task Renew_ExtendsLease_AndReportsRemaining()
+    {
+        var (s1, b1) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"ttlSeconds":60,"requester":"ai"}""");
+        Assert.Equal(200, s1);
+        var id = ExtractId(b1);
+
+        var (status, body) = await Call("POST", $"/api/lease/{id}/renew", """{"ttlSeconds":600}""");
+        Assert.Equal(200, status);
+        Assert.Contains("\"renewCount\":1", body);
+        Assert.Contains("remainingSeconds", body);   // agent 能直接看"还能用多久"
+        Assert.Equal(1, _reliefCalls);               // 续期不重新腾挪（只有 acquire 那一次）
+    }
+
+    [Fact]
+    public async Task Renew_WrongId_Is404()
+    {
+        var (status, _) = await Call("POST", "/api/lease/does-not-exist/renew", """{"ttlSeconds":60}""");
+        Assert.Equal(404, status);
+    }
+
+    [Fact]
+    public async Task Renew_ThenRelease_StillWorks()
+    {
+        var (_, b1) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"ai"}""");
+        var id = ExtractId(b1);
+        await Call("POST", $"/api/lease/{id}/renew", """{"ttlSeconds":600}""");
+
+        var (status, body) = await Call("DELETE", $"/api/lease/{id}");
+        Assert.Equal(200, status);
+        Assert.Contains("\"state\":\"released\"", body);
+    }
+
+    private static string ExtractId(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("id").GetString()!;
+    }
+
+    // ---- v0.23.0: requesterPid is carried through and auditable ----
+    [Fact]
+    public async Task RequesterPid_IsPassedToRelief_AndEchoedInResponse()
+    {
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"claude-code","requesterPid":4321}""");
+        Assert.Equal(200, status);
+        Assert.Equal(4321, _lastRequesterPid);          // relief 执行前就能看到它，才能排除自身子树
+        Assert.Contains("\"requesterPid\":4321", body); // 账本里可核对
+    }
+
+    [Fact]
+    public async Task Conflict_ReportsHolderAndRetryAfter()
+    {
+        await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"first","ttlSeconds":600}""");
+        var (status, body) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"second"}""");
+
+        Assert.Equal(409, status);
+        Assert.Contains("\"error\":\"lease_active\"", body);
+        Assert.Contains("\"requester\":\"first\"", body);     // 等待方知道是谁占着
+        Assert.Contains("\"holder\"", body);
+        Assert.Contains("\"retryAfterSeconds\"", body);      // 知道该等多久
+        Assert.Contains("\"remainingSeconds\"", body);
+    }
+
+    [Fact]
+    public async Task ManualRequest_PreemptsAutomaticReservation()
+    {
+        // v0.25.0：自动预留（requester 以 auto: 开头）给手动申请让位——
+        // "帮你预留"不该变成"把你挡在门外"。
+        await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"auto:ai-session","ttlSeconds":43200}""");
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"manual"}""");
+
+        Assert.Equal(200, status);
+        Assert.Contains("\"requester\":\"manual\"", body);
+    }
+
+    [Fact]
+    public async Task ManualRequest_DoesNotPreemptAnotherManualLease()
+    {
+        await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"first"}""");
+        var (status, body) = await Call("POST", "/api/lease", """{"targetAvailableGb":6,"requester":"second"}""");
+
+        Assert.Equal(409, status);                       // 手动之间仍然互斥
+        Assert.Contains("\"requester\":\"first\"", body);
+    }
+
+    [Fact]
+    public async Task NegativeRequesterPid_Is400_AndNoReliefRuns()
+    {
+        var (status, body) = await Call("POST", "/api/lease",
+            """{"targetAvailableGb":6,"requester":"x","requesterPid":-1}""");
+        Assert.Equal(400, status);
+        Assert.Contains("requesterPid", body);
+        Assert.Equal(0, _reliefCalls);                  // 校验发生在占位/腾挪之前，不留脏账
+    }
+
+    [Fact]
+    public async Task Plan_WithoutPlanner_Is503_NotAFakeSuccess()
+    {
+        // App 没注入 planner 时（例如未来的 CLI 宿主），必须老实说"不支持"，
+        // 而不是返回一个全 0 的 plan 让调用方以为"可行"
+        var (status, body) = await Call("POST", "/api/plan", """{"targetAvailableGb":4}""");
+        Assert.Equal(503, status);
+        Assert.Contains("plan_unavailable", body);
+        Assert.Equal(0, _reliefCalls);
+    }
+
+    [Fact]
+    public async Task Status_WithoutPlanner_AdvertisesLeaseAndRenewOnly()
+    {
+        var (_, body) = await Call("GET", "/api/status");
+        Assert.Contains("\"capabilities\":[\"lease\",\"lease.renew\"]", body);
+        Assert.DoesNotContain("lease.plan", body);               // 没接 planner 就不许声称支持
+        Assert.Contains("maxSuspendCount", body);
+    }
+
+    // ---- v0.23.0 修偶发 400：body 落在第二个 TCP 段时必须仍被读到 ----
+
+    [Fact]
+    public async Task SplitPacket_BodyArrivesLater_StillParsed()
+    {
+        // 回归：旧实现只 ReadAsync 一次，body 分第二段到达时被丢掉 → 400 bad_json。
+        // 实测 lease-demo.py 连跑 3 次命中 1 次；调用方会误判成参数错并放弃。
+        const string body = """{"targetAvailableGb":6,"requester":"split"}""";
+        var raw = await SendSplit("POST /api/lease", body);
+
+        Assert.Contains("200", raw.Split("\r\n")[0]);
+        Assert.Contains("\"state\":\"active\"", raw);
+    }
+
+    [Fact]
+    public async Task SplitPacket_MultibyteRequester_IsNotMangled()
+    {
+        // 分段时按字节累积、只在完整 body 后解码 UTF-8，否则中文 requester 会被切成替换字符
+        const string body = """{"targetAvailableGb":6,"requester":"中文调用方"}""";
+        var raw = await SendSplit("POST /api/lease", body);
+
+        var json = raw[(raw.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..];
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("中文调用方", doc.RootElement.GetProperty("requester").GetString());
+    }
+
+    /// <summary>先发 header、等一会再发 body，模拟 TCP 分段。</summary>
+    private async Task<string> SendSplit(string requestLine, string body)
+    {
+        using var client = new TcpClient("127.0.0.1", _port);
+        var stream = client.GetStream();
+        var head = $"{requestLine} HTTP/1.1\r\nHost: 127.0.0.1\r\n" +
+                   $"Authorization: Bearer {Token}\r\nContent-Type: application/json\r\n" +
+                   $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n";
+
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
+        await stream.FlushAsync();
+        await Task.Delay(80);                           // 让服务端先完成一次"只有 header"的读
+        await stream.WriteAsync(Encoding.UTF8.GetBytes(body));
+        await stream.FlushAsync();
+
+        var buf = new byte[64 * 1024];
+        using var ms = new MemoryStream();
+        int n;
+        while ((n = await stream.ReadAsync(buf)) > 0) ms.Write(buf, 0, n);
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 }
 

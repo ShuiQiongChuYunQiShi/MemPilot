@@ -139,5 +139,31 @@ public partial class MainViewModel
         // swap the whole collection instead of Clear+Add: one Reset notification beats
         // 500 Add notifications every refresh (the periodic-jank fix)
         FilteredProcesses = new ObservableCollection<ProcessInfo>(src);
+        // v0.22.0：空状态要能区分"还在枚举"与"筛选后没有匹配"
+        OnPropertyChanged(nameof(HasProcessFilter));
+        OnPropertyChanged(nameof(ProcessEmptyText));
+    }
+
+    /// <summary>当前是否叠加了任一进程筛选（v0.22.0）。</summary>
+    public bool HasProcessFilter =>
+        !string.IsNullOrWhiteSpace(SearchText)
+        || !string.IsNullOrEmpty(_workloadFilter)
+        || _categoryChip != null;
+
+    /// <summary>空状态文案：有筛选 → "没有匹配结果"；无筛选 → 按当前刷新间隔格式化"正在枚举"。</summary>
+    public string ProcessEmptyText => HasProcessFilter
+        ? UiStrings.Get("Process_NoMatch")
+        : UiStrings.F("Empty_Processes", ConfigStore.Config.RefreshIntervalSeconds);
+
+    /// <summary>可清理页空状态：按当前观察轮数格式化（v0.22.0，原本文案硬编码 6 轮）。</summary>
+    public string CleanupEmptyText => UiStrings.F("Empty_Cleanup", ConfigStore.Config.RequiredIdleObservations);
+
+    /// <summary>一键清除搜索 / 用途 / 类别三个筛选（v0.22.0，空状态里的按钮与快捷键共用）。</summary>
+    public void ClearProcessFilters()
+    {
+        if (!string.IsNullOrWhiteSpace(SearchText)) SearchText = "";
+        if (!string.IsNullOrEmpty(_workloadFilter)) WorkloadFilter = "";
+        if (_categoryChip != null) CategoryChip = null;
+        ApplyFilter();
     }
 }

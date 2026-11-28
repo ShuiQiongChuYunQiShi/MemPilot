@@ -26,7 +26,11 @@ public class CleanupEngine
         _audit = audit;
         Suspended = new SuspendRegistry(dataDir);
         Disposals = new DisposalRegistry(dataDir);
+        TrimFeedback = new TrimFeedbackStore(dataDir);   // v0.25.0：压缩收益历史
     }
+
+    /// <summary>压缩收益历史（v0.25.0）。排序用它把"工作集大"换成"预计可回收"。</summary>
+    public TrimFeedbackStore TrimFeedback { get; }
 
     public record ActionResult(bool Success, string Message, bool Exited);
 
@@ -47,9 +51,29 @@ public class CleanupEngine
         foreach (var p in procs)
         {
             if (p.Pid == self) continue;      // 永远不压自己
+
+            // v0.25.0：逐进程测"压前工作集 → 压后工作集"，喂给排序用的历史释放率。
+            // 读不到（进程已退出 / 权限）就用快照值或跳过观测，绝不影响清理本身。
+            long wsBefore = p.Memory.PrivateWorkingSetBytes;
+            try
+            {
+                long live = _procs.ReadPrivateWorkingSet(p.Pid);
+                if (live > 0) wsBefore = live;
+            }
+            catch { }
+
             try { _procs.TrimWorkingSet(p.Pid); ok++; }
-            catch { fail++; }
+            catch { fail++; continue; }
+
+            try
+            {
+                long wsAfter = _procs.ReadPrivateWorkingSet(p.Pid);
+                if (wsBefore > 0 && wsAfter >= 0 && wsAfter < wsBefore)
+                    TrimFeedback.Observe(p.Name, wsBefore, wsBefore - wsAfter);
+            }
+            catch { }
         }
+        TrimFeedback.Flush();
         long after = _procs.GetSystemMemory().AvailablePhysicalBytes;
         long freed = Math.Max(0, after - before);
         _audit.Log(new AuditEntry
@@ -64,7 +88,11 @@ public class CleanupEngine
         return new BatchTrimResult(ok, fail, freed);
     }
 
-    public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec, bool escalateToKill = false)
+    /// <param name="suspendReason">L2 挂起写进账本的原因（v0.24.0）。租约挂起传"租约挂起"，
+    /// 这样启动时可以识别"租约期间崩溃留下的孤儿"并自动恢复——旧实现硬编码"手动挂起"，
+    /// 而租约账本只在内存，崩溃重启后那批进程没有任何恢复路径。</param>
+    public ActionResult Execute(ProcessInfo p, CleanupActionLevel level, int gracefulTimeoutSec,
+        bool escalateToKill = false, string suspendReason = "手动挂起")
     {
         // v0.18.0（P0）：复检与动作共用同一句柄，消除 TOCTOU。
         // 旧实现按 PID 复检一次、再按 PID OpenProcess 一次——两次打开之间进程可能退出、
@@ -133,7 +161,7 @@ public class CleanupEngine
                 case CleanupActionLevel.L2Suspend:
                     _procs.SuspendProcessHandle(handle);
                     // 身份已验证，StartTime 一定有效——到期恢复才能配对成功
-                    Suspended.Add(p.Pid, p.StartTime, p.Name, "手动挂起");
+                    Suspended.Add(p.Pid, p.StartTime, p.Name, suspendReason);
                     result = "进程已挂起（可在“已挂起”中恢复）";
                     break;
                 case CleanupActionLevel.L3GracefulClose:
@@ -278,6 +306,25 @@ public class CleanupEngine
         catch { return false; }
     }
 
+    /// <summary>租约挂起写进账本的原因（v0.24.0）。稳定标识，恢复孤儿时按它精确匹配。</summary>
+    public const string LeaseSuspendReason = "租约挂起";
+
+    /// <summary>
+    /// 恢复指定原因留下的挂起记录（v0.24.0）。
+    /// 用于"租约期间崩溃 → 内存账本丢失"的孤儿：传 <see cref="LeaseSuspendReason"/> 把它们全部唤醒。
+    /// 带 StartTime 走句柄级验证——进程已退出或 PID 被复用的记录会被跳过，不会误恢复别的进程。
+    /// </summary>
+    public (int restored, int failed) ResumeOrphans(string reason)
+    {
+        int restored = 0, failed = 0;
+        foreach (var r in Suspended.LiveRecords().Where(x => x.Reason == reason).ToList())
+        {
+            var res = Resume(r.Pid, r.Name, r.StartTime);
+            if (res.Success) restored++; else failed++;
+        }
+        return (restored, failed);
+    }
+
     public ActionResult Resume(int pid, string name, DateTime expectedStartTime = default)
     {
         long before = _procs.GetSystemMemory().AvailablePhysicalBytes;
@@ -387,7 +434,9 @@ public class CleanupEngine
         {
             if (p.IsProtected || p.IsSystemProcess || p.IsService) continue;
             if (p.Category is ProcessCategory.Unknown or ProcessCategory.SystemCritical
-                or ProcessCategory.SecuritySoftware or ProcessCategory.AntiCheat or ProcessCategory.Driver) continue;
+                or ProcessCategory.SecuritySoftware or ProcessCategory.AntiCheat or ProcessCategory.Driver
+                // v0.22.0：vmmem 一族永不进 make-room 候选（L4 会直接杀掉 WSL/Hyper-V 的内存宿主）
+                or ProcessCategory.ContainerVm) continue;
             if (p.IsWhitelisted) continue;
             if (p.Pid == foregroundPid || p.AudioActive || audioPids.Contains(p.Pid) || p.IsSuspended) continue;
             if (p.StartTime != DateTime.MinValue && (DateTime.Now - p.StartTime).TotalSeconds < 60) continue;

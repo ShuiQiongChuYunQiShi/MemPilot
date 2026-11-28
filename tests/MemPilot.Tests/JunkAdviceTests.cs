@@ -70,8 +70,10 @@ public class JunkAdviceTests : IDisposable
     [Fact]
     public void Recommend_SkipsProcessActiveToday()
     {
+        // 用"此刻"而不是 UtcNow-30min：后者在 UTC 日界（00:00–00:30）会落到昨天，
+        // 被判成"今天没用过"，测试每天必红一次（CI 实测 2026-11-26T00:10Z）。
         var procs = new List<ProcessInfo> { P(1, "wps") };
-        var advice = JunkAdvisor.Recommend(procs, Behaviors(("wps", DateTime.UtcNow - TimeSpan.FromMinutes(30))),
+        var advice = JunkAdvisor.Recommend(procs, Behaviors(("wps", DateTime.UtcNow)),
             -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow);
         Assert.Null(advice);   // 今天有活动 → 不打扰
     }
@@ -335,7 +337,8 @@ public class JunkAdviceTests : IDisposable
             P(1, "svc1", cat: ProcessCategory.SystemCritical),
             P(2, "activesvc"),
         };
-        var behaviors = Behaviors(("activesvc", DateTime.UtcNow - TimeSpan.FromMinutes(5)));
+        // 用"此刻"：UtcNow-5min 在 UTC 00:00–00:05 会落到昨天，判成"今天没用过"
+        var behaviors = Behaviors(("activesvc", DateTime.UtcNow));
         var advice = JunkAdvisor.Recommend(procs, behaviors,
             -1, new HashSet<int>(), Array.Empty<string>(), 120, null, DateTime.UtcNow,
             markedCleanable: new[] { "svc1", "activesvc" });
@@ -382,6 +385,41 @@ public class JunkAdviceTests : IDisposable
 
         store.ClearAdviceDay();                                            // 托盘回滚
         Assert.Equal("", new JunkAdviceStore(_dir).AdviceDayKey);
+    }
+
+    [Fact]
+    public void DailyGate_RespectsRetryCooldown()
+    {
+        // v0.20.0（P0）：交付失败后进入了重试冷却 → 不评估（旧实现每 tick 空转，60 秒一轮）
+        var evening = new DateTime(2026, 11, 11, 19, 5, 0);
+        var nowUtc = evening.ToUniversalTime();
+
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, nowUtc.AddMinutes(15)));  // 冷却中
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, nowUtc.AddMinutes(-1)));   // 冷却已过
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default));                 // 从未设置
+    }
+
+    [Fact]
+    public void DailyGate_SkipsWhenWindowNotVisible()
+    {
+        // v0.20.0（P0）：托盘/窗口不可见时从源头不评估——11 天里 2,190 条「跳过」全来自这条路径
+        var evening = new DateTime(2026, 11, 11, 19, 5, 0);
+        Assert.False(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default, uiActive: false));
+        Assert.True(ResidentEngine.ShouldEvaluateJunkAdvice(evening, 19, null, default, uiActive: true));
+    }
+
+    [Fact]
+    public void Store_DeferDelivery_RollsBackDayKey_AndPersistsCooldown()
+    {
+        var store = new JunkAdviceStore(_dir);
+        store.MarkAdviceDelivered("20261111");
+        store.DeferDelivery(TimeSpan.FromMinutes(15));
+
+        var reloaded = new JunkAdviceStore(_dir);                              // 跨重启保留
+        Assert.Equal("", reloaded.AdviceDayKey);                               // 当日标记已回滚
+        Assert.True(reloaded.RetryAfterUtc > DateTime.UtcNow.AddMinutes(14),
+            "15 分钟冷却应已落盘（跨重启后仍生效）");
+        Assert.True(reloaded.RetryAfterUtc < DateTime.UtcNow.AddMinutes(16));
     }
 
     [Fact]
@@ -494,7 +532,9 @@ public class JunkAdviceTests : IDisposable
         Assert.Equal(DateTime.Now.ToString("yyyyMMdd"), engine.JunkAdvice!.AdviceDayKey);  // 当日标记已落
         decisions.Flush();
         var log = decisions.Recent(10);
-        Assert.Contains(log, e => e.Kind == "JunkAdvice" && e.Decision == "建议");
+        // v0.20.0：「建议」日志改由 VM 在真正弹卡时写——引擎只发事件，不再抢写（旧实现在托盘
+        // 模式也写「建议」再由 VM 写「跳过」，11 天产生 4,387 条噪声）
+        Assert.DoesNotContain(log, e => e.Kind == "JunkAdvice");
     }
 
     [Fact]

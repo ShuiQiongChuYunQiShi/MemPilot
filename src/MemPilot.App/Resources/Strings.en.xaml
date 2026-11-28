@@ -84,8 +84,28 @@
     <sys:String x:Key="Kind_AutoCleanup">Auto cleanup</sys:String>
     <sys:String x:Key="Kind_AutoJunkSweep">Junk sweep</sys:String>
     <sys:String x:Key="Kind_JunkAdvice">Junk advice</sys:String>
+    <sys:String x:Key="Kind_LongResident">Long-resident</sys:String>
+    <sys:String x:Key="Kind_WslHint">WSL resident hint</sys:String>
     <sys:String x:Key="Kind_JunkSweep">Junk sweep</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">Auto optimize (deprecated)</sys:String>
+
+    <!-- ===== Decision reason templates (v0.22.0): stable code → localized text;
+         free-text args (skip reason / result message) keep the original language ===== -->
+    <sys:String x:Key="Decision_junk_advice_suggested">Suggested handling {0} (expected to free {1} MB)</sys:String>
+    <sys:String x:Key="Decision_long_resident_suggested">Long-resident advice: {0} (expected to free {1} MB; suspend only)</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_ok">Suspended {0}; auto-resumes in {1} h</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_fail">Could not suspend {0}: {1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_dismissed">Dismissed {0}: no more hints for {1} days (dismissed {2} times)</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_ok">{0} timed suspend expired; resumed automatically (suspended at {1})</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_retry">{0} resume failed: {1}; retry scheduled in 5 minutes</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_cancel">{0} resume cancelled: {1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_no_candidate">Check now: no eligible target</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_skipped">Skipped {0}: {1}</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_trim">{0}: working set trimmed (mode {1} clean list)</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_close">{0}: graceful close (mode {1} clean list) — {2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_done">{0}: {1} handled — {2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_failed">{0}: {1} failed — {2}</sys:String>
+    <sys:String x:Key="Decision_wsl_hint_suggested">vmmemWSL holds about {0} GB after {1} h — hinted to run wsl shutdown (not executed)</sys:String>
 
     <!-- ===== Classification evidence (stable ids) ===== -->
     <sys:String x:Key="Reason_access_denied_no_path">Access denied — path unavailable</sys:String>
@@ -186,6 +206,28 @@
     <sys:String x:Key="Col_Count">Count</sys:String>
     <sys:String x:Key="Relief_Title">Commit memory is low — close idle background apps?</sys:String>
     <sys:String x:Key="Relief_Body">Commit free is below 5%. Can gracefully close:</sys:String>
+    <!-- v0.24.0: available-floor fallback (mild / critical / disabled by user / continue prompt) -->
+    <sys:String x:Key="Floor_MildTitle">Memory getting tight</sys:String>
+    <sys:String x:Key="Floor_MildBody">Trimmed {0} background processes, freeing {1} MB (available was {2:F1} GB). Switching back to them may feel slow for a few seconds — no action needed.</sys:String>
+    <sys:String x:Key="Floor_FullTitle">Memory critical</sys:String>
+    <sys:String x:Key="Floor_FullBody">Only {2:F1} GB available; trimmed {0} background processes to free {1} MB. Switching back to them may feel slow for a few seconds.</sys:String>
+    <sys:String x:Key="Floor_SkippedTitle">Memory getting tight (nothing trimmed)</sys:String>
+    <sys:String x:Key="Floor_SkippedBody">{1:F1} GB available and {0} background processes could be trimmed, but automatic commit relief is turned off. Free memory manually if you need it.</sys:String>
+    <sys:String x:Key="Floor_CardTitle">Continue trimming?</sys:String>
+    <sys:String x:Key="Floor_CardBody">There are still </sys:String>
+    <sys:String x:Key="Floor_CardReclaim"> background processes that could be trimmed, expected to free </sys:String>
+    <sys:String x:Key="Floor_CardBodyEnd">. Nothing happens if you do not respond in 20s — already-trimmed pages are not rolled back.</sys:String>
+    <sys:String x:Key="Floor_BtnContinue">Continue trimming</sys:String>
+    <sys:String x:Key="Floor_ContinueDone">Trimmed {0} more processes, freeing about {1:F0} MB</sys:String>
+    <sys:String x:Key="Lease_OrphanRestored">Restored {0} process(es) left suspended by a previous lease (failed {1})</sys:String>
+    <!-- v0.24.0: decision-log templates for the available-floor fallback -->
+    <sys:String x:Key="Decision_floor_trim_mild">Memory getting tight ({3} GB available): mildly trimmed {0}/{1}, freeing {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_full">Memory critical ({3} GB available): trimmed all {0}/{1}, freeing {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_skipped_by_user">Low memory but automatic relief is off ({1} GB available, {0} candidates); notify only</sys:String>
+    <sys:String x:Key="Decision_floor_trim_deferred">Kept the mild trim ({0} candidates left untouched)</sys:String>
+    <sys:String x:Key="Decision_floor_trim_continue">User confirmed: trimmed {0} more, freeing {1} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_declined">User declined further trimming (already-trimmed pages are not rolled back)</sys:String>
+    <sys:String x:Key="Decision_lease_orphan_resume">Previous run ended during a lease: restored {0} suspended process(es), {1} failed</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">, expected to free commit</sys:String>
     <sys:String x:Key="Relief_BodyEnd">. They only receive a normal close request; nothing is force-killed.</sys:String>
     <sys:String x:Key="Btn_ConfirmClose">Confirm close</sys:String>
@@ -193,6 +235,13 @@
     <sys:String x:Key="Junk_Title">These junk processes were not used today. Handle them?</sys:String>
     <sys:String x:Key="Junk_Reclaim">, expected to free</sys:String>
     <sys:String x:Key="Junk_BodyEnd">. Suspending freezes CPU and auto-resumes at expiry; ending goes through the confirmation flow.</sys:String>
+    <sys:String x:Key="LongResident_Title">These processes ran all day without being used. Suspend them for a while?</sys:String>
+    <sys:String x:Key="Wsl_Title">WSL is holding a lot of memory. Shut it down?</sys:String>
+    <sys:String x:Key="Wsl_Body">vmmemWSL has run for {1} h and holds about {0:F1} GB, with no WSL activity detected today. Shutting down WSL closes all distributions (they restart automatically next time) and does not affect Windows. This is only a hint — nothing is executed automatically.</sys:String>
+    <sys:String x:Key="Wsl_CopyCommand">Copy wsl --shutdown</sys:String>
+    <sys:String x:Key="Wsl_Copied">Copied wsl --shutdown — run it in a terminal</sys:String>
+    <sys:String x:Key="Wsl_DecisionReason">vmmemWSL holds about {0:F1} GB after {1} h with zero activity today — hinted to run wsl --shutdown (not executed)</sys:String>
+    <sys:String x:Key="LongResident_BodyEnd">. They are not junk, so only suspending is suggested (auto-resume at expiry); to end one, use the Processes page.</sys:String>
     <sys:String x:Key="Btn_Suspend2h">Suspend 2 h</sys:String>
     <sys:String x:Key="Btn_Suspend8h">Suspend 8 h</sys:String>
     <sys:String x:Key="Btn_EndProcess">End process</sys:String>
@@ -235,7 +284,7 @@
     <sys:String x:Key="Process_TreeHint">Click to expand / collapse children</sys:String>
     <sys:String x:Key="Col_PrivateWs">Private WS</sys:String>
     <sys:String x:Key="Col_IdleMin">Idle (min)</sys:String>
-    <sys:String x:Key="Empty_Processes">Enumerating processes (every 10 s)… this takes a few seconds. If the list stays empty for over a minute, check the refresh interval in Settings.</sys:String>
+    <sys:String x:Key="Empty_Processes">Enumerating processes (every {0} s)… this takes a few seconds. If the list stays empty for over a minute, check the refresh interval in Settings.</sys:String>
     <sys:String x:Key="Cleanup_Hint">These programs have been idle for a long time: no window, low CPU/IO, no audio, not in the foreground. You will be asked to confirm before anything happens.</sys:String>
     <sys:String x:Key="Col_Publisher">Publisher</sys:String>
     <sys:String x:Key="Menu_MarkJunk">Mark as bloatware (cleanable)</sys:String>
@@ -247,7 +296,7 @@
     <sys:String x:Key="Term_Idle">Idle</sys:String>
     <sys:String x:Key="Col_ResidentScore">Resident score</sys:String>
     <sys:String x:Key="Col_SuggestedLevel">Suggested level</sys:String>
-    <sys:String x:Key="Empty_Cleanup">No cleanable candidates right now — the observation window (6 consecutive idle checks) is likely not full yet, especially right after launch.</sys:String>
+    <sys:String x:Key="Empty_Cleanup">No cleanable candidates right now — the observation window ({0} consecutive idle checks) is likely not full yet, especially right after launch.</sys:String>
     <sys:String x:Key="Action_L1TrimShort">L1 trim working set</sys:String>
     <sys:String x:Key="Action_L2Short">L2 suspend process</sys:String>
     <sys:String x:Key="Action_L3Short">L3 graceful close</sys:String>
@@ -280,6 +329,25 @@
     <sys:String x:Key="Btn_ResumeAll">Resume all</sys:String>
     <sys:String x:Key="Btn_Relaunch">Relaunch selected</sys:String>
     <sys:String x:Key="Decisions_Hint">Every automatic decision: why a mode switched, who was executed or skipped, and exactly which guard skipped them</sys:String>
+    <sys:String x:Key="Decisions_ShowNoise">Show advice/growth observations</sys:String>
+    <sys:String x:Key="Decisions_KindFilterAll">All kinds</sys:String>
+    <sys:String x:Key="Btn_ExportDecisions">Export</sys:String>
+    <sys:String x:Key="Decisions_Exported">Exported {0} entries to {1}</sys:String>
+    <sys:String x:Key="Decisions_ExportFailed">Export failed: </sys:String>
+    <sys:String x:Key="Decisions_HiddenByFilter">Showing 0 entries — {0} advice/growth records are hidden. Tick "Show advice/growth observations" above to see them.</sys:String>
+    <sys:String x:Key="Process_NoMatch">No processes match. Check the search text, or clear the filters to see everything.</sys:String>
+    <sys:String x:Key="Process_SearchPlaceholder">Search name / path / window title</sys:String>
+    <sys:String x:Key="Process_SearchTooltip">Ctrl+F focuses the search box; Esc clears it</sys:String>
+    <sys:String x:Key="Btn_ClearFilters">Clear filters</sys:String>
+    <sys:String x:Key="Btn_RestoreDefaultColumns">Restore default columns</sys:String>
+    <sys:String x:Key="Process_ColumnsReset">Default columns and widths restored</sys:String>
+    <sys:String x:Key="Process_SortDisabledInTree">Column sorting is unavailable in tree view — switch to flat view to sort</sys:String>
+    <sys:String x:Key="Btn_CommitDemo">60-second check</sys:String>
+    <sys:String x:Key="Btn_CommitDemoTip">Trim idle working sets and show physical vs commit side by side (safe subset only)</sys:String>
+    <sys:String x:Key="Demo_Title">Result: physical moved, why didn't commit?</sys:String>
+    <sys:String x:Key="Demo_PhysLine">Available physical: {0} GB → {1} GB ({2} GB)</sys:String>
+    <sys:String x:Key="Demo_CommitLine">Commit headroom: {0} GB → {1} GB ({2} GB)</sys:String>
+    <sys:String x:Key="Demo_Explain">Commit staying flat is expected: trimming working sets only frees physical pages. To make the next big job (say a 12 GB AI generation) safer, close idle processes or have the job request memory through the lease API.</sys:String>
     <sys:String x:Key="Col_Kind">Kind</sys:String>
     <sys:String x:Key="Col_Decision">Decision</sys:String>
     <sys:String x:Key="Empty_Decisions">No entries yet. Every automatic decision appears here — including who was skipped and why.</sys:String>
@@ -359,9 +427,11 @@
     <sys:String x:Key="Settings_AutoJunkSweep">Auto-clean resident junk (windowless / silent bloatware and orphaned residue; graceful close at most, never force kill)</sys:String>
     <sys:String x:Key="Settings_OrphansOnly">Low-risk mode: only sweep orphaned residue whose host has exited; resident bloatware is left alone (L1 or L3, never L4)</sys:String>
     <sys:String x:Key="Settings_JunkAdvice">Junk process advice: suggest all-day unused bloatware on the home page (on by default; evaluated after 19:00)</sys:String>
+    <sys:String x:Key="Settings_LongResidentAdvice">Long-resident advice: for processes running 8h+ with zero activity today and ≥512 MB, suggest suspending only (off by default)</sys:String>
+    <sys:String x:Key="Settings_WslHint">WSL resident hint: when vmmemWSL holds ≥2 GB with zero activity today, suggest shutting WSL down (on by default; hint only)</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">Check junk advice now</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">More ignores mean fewer prompts (7 → 30 → 90 days)</sys:String>
-    <sys:String x:Key="Settings_CommitRelief">Commit relief: below 5% commit free, purge the low-priority standby list first; only after 2 more minutes of pressure trim the "safe subset" (work / game / foreground / busy processes are never touched)</sys:String>
+    <sys:String x:Key="Settings_CommitRelief">Automatic relief: below 5% commit free, purge the low-priority standby list first and trim the "safe subset" only if pressure persists; below 3 GB available, mildly trim 20 processes and then ask (work / game / foreground / busy processes are never touched). When off, the mild tier only notifies — but the critical tier (below 1.5 GB) still trims to prevent OOM.</sys:String>
     <sys:String x:Key="Settings_CommitReliefL3">When commit is critical, allow gracefully closing idle background apps after confirmation (the only action that really lowers commit; always confirmed, never during an AI session or game)</sys:String>
     <sys:String x:Key="Settings_Alerts">Important alerts (tray balloon + home banner; unchecked = decision log only)</sys:String>
     <sys:String x:Key="Settings_LowRiskProfile">Apply the low-risk auto profile (auto-optimize + orphan-only sweep; cleanup still L1 only)</sys:String>
@@ -380,6 +450,14 @@
     <sys:String x:Key="Settings_Token">Token</sys:String>
     <sys:String x:Key="Btn_Regenerate">Regenerate</sys:String>
     <sys:String x:Key="Settings_LeaseNote">See tools/lease-example.py for a working example; sync the new token to callers after regenerating. The soft policy only trims the safe subset (never work / game / foreground processes) and returns the measured amount actually achieved.</sys:String>
+    <!-- v0.25.0: automatic reservation for AI sessions (off by default, soft only) -->
+    <sys:String x:Key="Settings_AutoLeaseAi">Reserve memory automatically for AI tasks (soft, never suspends a process)</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseGb">Target available</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseNote">When an AI session starts, a 12-hour lease is acquired and released when it ends. Detection lags about 2 minutes, so short jobs should use mempilot lease run; a manual request preempts the automatic lease.</sys:String>
+    <sys:String x:Key="Decision_lease_auto_acquired">Automatic reservation of {0} GB is active (lease {1})</sys:String>
+    <sys:String x:Key="Decision_lease_auto_skipped">Another lease is active; automatic reservation skipped (manual wins)</sys:String>
+    <sys:String x:Key="Decision_lease_auto_failed">Automatic reservation failed (HTTP {0})</sys:String>
+    <sys:String x:Key="Decision_lease_auto_released">Automatic reservation released ({0})</sys:String>
     <sys:String x:Key="Settings_Resident">Resident</sys:String>
     <sys:String x:Key="Settings_AutoStart">Start with Windows (applies immediately)</sys:String>
     <sys:String x:Key="Settings_StartMinimized">Start minimized to tray</sys:String>
@@ -544,6 +622,8 @@
     <sys:String x:Key="History_NoVramDetail">(No VRAM samples yet — the first one appears 30 seconds after launch; if it stays empty, the GPU counters are unavailable)</sys:String>
     <sys:String x:Key="History_NoSamples">(No samples yet — the first sample appears 5 minutes after launch)</sys:String>
     <sys:String x:Key="Junk_BalloonTitle">Junk process advice</sys:String>
+    <sys:String x:Key="LongResident_BalloonTitle">Long-resident advice</sys:String>
+    <sys:String x:Key="LongResident_BalloonBody">Ran all day unused: {0} (about {1} MB). Suspend from the home page (auto-resumes at expiry).</sys:String>
     <sys:String x:Key="Lease_StatusOff">Lease API stopped</sys:String>
     <sys:String x:Key="Lease_StatusNotStarted">Lease API did not start: </sys:String>
     <sys:String x:Key="Lease_StatusDisabled">Lease API is disabled</sys:String>
@@ -654,6 +734,8 @@ Continue?</sys:String>
     <sys:String x:Key="Lease_StatusNotStartedBody">Lease API did not start: {0}</sys:String>
     <sys:String x:Key="Lease_PurgeFailed">Standby purge failed ({0})</sys:String>
     <sys:String x:Key="Lease_TrimDetail">{0}; trimmed the safe subset: {1} (excluded {2})</sys:String>
+    <sys:String x:Key="Lease_RequesterExcluded">; caller and its subtree excluded ({0} seen in snapshot)</sys:String>
+    <sys:String x:Key="Lease_DeniedDetail">; skipped {0} process(es) on the deny list</sys:String>
     <sys:String x:Key="Lease_SuspendDetail">; suspended {0} idle processes (restorable)</sys:String>
     <sys:String x:Key="Lease_AvailableDetail">{0}; available {1:F1} → {2:F1} GB</sys:String>
     <sys:String x:Key="Lease_ActiveBody">Freed {1:F1} GB for {0} (target {2:F1} GB) until {3}.</sys:String>

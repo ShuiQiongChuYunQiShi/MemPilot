@@ -4,6 +4,335 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [0.25.0] — lease run CLI, automatic reservation, measured-yield trim ordering
+
+### Added
+- **`mempilot lease run --gb N -- <command>`.** One command wraps a job: plan → acquire →
+  run the child → release. Release is guaranteed by the process boundary (including failure
+  and Ctrl+C), which fixes the most common way an agent-managed lease leaks. `requesterPid`
+  comes from the wrapper, so the whole process tree is protected without a second round-trip;
+  the child is bound to a job object so it dies with the wrapper instead of outliving an
+  expired lease. `--policy hard|soft`, `--wait`, `--ttl`, `--dry-run`, `--port`.
+  Exit codes: child's code passed through; 2 usage; 3 unavailable; 4 conflict; 130 Ctrl+C.
+- **`RefreshTimings.AfterMs`** — the `AfterRefresh` stage pipeline (including
+  `available-floor`, i.e. the low-memory trim) is finally timed and written to
+  `history/self-*.jsonl`. On 2026-11-27 a 1055 ms tick had 746 ms unattributable because
+  this path was outside every existing segment.
+- **`LeaseHttp` in Core** — the lease HTTP client moved out of `App.Mcp` so the CLI and the
+  MCP server share one implementation of token/port discovery, timeouts and error text.
+  `ILeaseApi` moved with it (the MCP protocol layer is still unit-testable via a fake).
+
+### Fixed
+- **Stale timings attribution.** If a refresh threw before writing its segment snapshot, the
+  tick was recorded with the *previous* refresh's segments, pointing attribution at the wrong
+  stage. `LastTimingsUtc` now guards it: a snapshot older than 30 s is recorded as zero.
+
+### Changed
+- `skills/mempilot/SKILL.md`, `docs/agents/mempilot-agents-snippet.md` and the MCP
+  `instructions` now lead with "wrap the command" — the 2026-11-27 data showed three AI
+  sessions (one 212 minutes long) with **zero** lease usage, because the jobs were plain
+  commands started by an agent, not MCP tool calls.
+
+### Added
+- **Automatic reservation for AI sessions** (Settings → 租约 API, **off by default**).
+  When an AI session starts, a **soft** lease is acquired (configurable GB, 12 h TTL) and
+  released when the session ends. Hard is deliberately excluded: suspending processes
+  automatically would leave the "observe only, don't act" boundary behind. A manual request
+  preempts it — `requester` starts with `auto:` and `LeaseApiService` releases it before
+  retrying, so "helping you reserve" never turns into "locking you out".
+  Known limit: detection lags ~2–2.5 minutes, so it only covers long sessions; short jobs
+  should use `mempilot lease run`.
+- **Trim ordering now uses measured yield, not working-set size.** `TrimWorkingSets` records
+  per-process `freed / workingSet` (keyed by name, stored in `trim-feedback.json`), and
+  `BuildSafeTrimSet` sorts by `workingSet × historicalRatio` (0.6 fallback, needs ≥2 samples).
+  On 2026-11-27 two rounds of 20 processes freed 1493 MB and 164 MB — a 9× spread caused by
+  picking "biggest" rather than "most reclaimable".
+
+### Fixed
+- `TrimFeedbackStore` silently failed to persist when the data directory did not exist yet
+  (`File.WriteAllText` threw, the catch swallowed it, history stayed empty forever). It now
+  creates the directory on construction.
+
+## [0.24.1] — automatic trimming never touches the lease caller
+
+### Fixed
+- **Automatic trimming could compress the lease caller's own processes.** `FloorTrim` and
+  CommitRelief's TrimSafe are independent paths that never read the lease ledger — so while a
+  lease was active, a memory crunch could trim the caller's process tree, evicting the pages
+  of the very job the lease was making room for. The engine now receives `LeaseRequesterPid`
+  (synced on lease start / release / expiry) and excludes that whole subtree from both
+  automatic paths, including the `reserving` window. Residual value after an aborted
+  reservation is harmless: it only excludes one more PID, which is the safe direction.
+
+## [0.24.0] — available-floor tiers, orphan lease recovery, agent skill
+
+### Fixed
+- **An available-floor trim could touch 152 processes at once and made the machine feel
+  slower, with no way to undo it.** `K32EmptyWorkingSet` has no inverse API — the pages come
+  back only when each process touches them again — so the fix is to trim less and say more:
+  `< 1.5 GB` still trims everything (OOM is worse than a short read-back), `1.5–3 GB` now
+  trims only the 20 largest and then asks whether to continue (20 s timeout = keep the mild
+  trim). Explanations go to the tray balloon + status bar, **not** the home banner: the
+  banner is only visible on the home tab and `RaiseAlert` overwrites it unconditionally, so
+  using it would hide "memory is still tight".
+- **Floor trim ignored the "automatic commit relief" switch** even though that field's own
+  comment promises it is "the only automatic behaviour that trims working sets without
+  asking" (`Models.cs:474-477`). It is now respected for the mild tier; the critical tier
+  still runs and records "forced, OOM prevention" in the decision log. Ordering is pinned by
+  a unit test (`FloorTierTests`).
+- **Processes suspended by a lease became orphans if MemPilot died mid-lease.** Every L2
+  suspend was recorded with the hardcoded reason "manual suspend" (`CleanupEngine.cs:136`)
+  while the lease ledger lives only in memory — after a crash the records said "manually
+  suspended", the user had never suspended them, and nothing would resume them. The reason is
+  now a parameter (`"租约挂起"` for leases) and startup resumes lease-reason orphans after a
+  30 s delay (the original job may still be running).
+- **Lease release resumed processes without the handle-level `StartTime` check**
+  (`MainViewModel.cs:607`), bypassing the v0.18.0 TOCTOU guard — a reused PID could have been
+  resumed instead of the intended process.
+
+### Added
+- **`FloorTrim` stage events + `ClassifyFloor` pure function.** Judgment (which tier) is
+  separated from execution, so the three-way split is unit-testable without a live engine.
+- **`skills/mempilot/SKILL.md` + `docs/agents/mempilot-agents-snippet.md`.** MCP makes the
+  capability discoverable; these make an agent know *when* to call it (plan before big jobs,
+  branch on `shortfallGb`, renew long jobs, never deny safety-critical processes).
+- MCP `instructions` rewritten to lead with the loop and the two footguns (renew, requesterPid).
+
+### Changed
+- `docs/NOTIFICATION-POLICY.md`: added the "automatic fallback explains itself, user-initiated
+  actions don't" rule, the two floor tiers, and a table of what can and cannot be undone.
+  Also corrected the "master switch silences everything" claim — it only covers CommitWatch,
+  HabitHint and the new floor notices; the older paths don't read it (recorded as known
+  inconsistency rather than silently fixed in a feature commit).
+
+## [0.23.0] — lease safety, MCP server, zero-action planning, queuing
+
+### Fixed
+- **The lease API returned a spurious `400 bad_json` on roughly 1 in 3 requests.**
+  `ReadRequestAsync` did a single `ReadAsync` and assumed headers and body arrived in
+  the same TCP segment; when the body landed in a second segment it was dropped and
+  deserialization failed — callers read that as "bad parameters" and gave up. Caught
+  by running `tools/lease-demo.py` repeatedly against v0.22.0 (2 of the first 3 runs
+  failed). The reader now accumulates bytes until `Content-Length` is satisfied and
+  decodes the body as UTF-8 only once it is complete, so a multi-byte `requester`
+  split across segments is no longer mangled either.
+
+### Added
+- **`409` now carries the holder, and `mem_lease` can wait.** A conflict used to be a dead
+  end: the second caller got `{"error":"lease_active"}` and had to invent its own backoff.
+  The response now includes `holder` (requester, `remainingSeconds`, achieved GB) and
+  `retryAfterSeconds` — a quarter of the remaining time, capped at 10s, because the holder
+  may release early. `mem_lease` takes `waitSeconds` (0–120) and retries in **the client**:
+  a long-polled server-side request would leave leases granted to clients that already
+  timed out, while a client-side retry stops when the process dies. Verified on a real
+  machine: holder A released at t+5s, waiter B acquired at t+10s ("Waited 10s").
+- **`plan.samplingWarm`.** CPU/IO usage comes from differencing two enumerations; the first one
+  has no baseline, so most processes look "busy" and `wouldSuspend` comes back empty (observed
+  for real: `excluded.inUse` went 1 → 62 right after a restart). Plans now report `samplingWarm`,
+  and the MCP tool prepends a "retry in ~30s" note instead of letting a model conclude the machine
+  can free nothing.
+- **Default deny list for network infrastructure.** Suspending a proxy or VPN core
+  (`FlClashCore`, `tailscaled`, `mihomo`, `sing-box`, …) cuts **all** network — including the
+  caller's own LLM API connection. The caller then sees request timeouts and retries, never
+  suspecting the memory tool. Those processes are windowless, idle and large, i.e. a perfect
+  hard-lease candidate, so this happened on the first real `plan` run. The list is always
+  active (merged with the caller's `denyNames`) and reported under `denied.defaultCount`;
+  it is a default *preference*, not a safety rule, so it lives in the planner and not in
+  `TrimSelection`.
+- **`denyNames` (caller preference).** `POST /api/lease` and `POST /api/plan` accept a list
+  of process names the caller does not want touched (exact, case-insensitive, trimmed).
+  `plan` reports them under `denied` — deliberately separate from `excluded`, because
+  "the caller said no" is not "the safety rules said no". Without this, a plan that lists
+  `Weixin` left the caller only one option: don't run the job.
+- **`POST /api/lease/{id}/renew`.** Long jobs used to be punished by their own lease: on TTL
+  expiry every suspended process is restored immediately — exactly when the job needs that
+  memory most. Renewing extends `expiresUtc` from the renewal moment and returns
+  `renewCount` + `remainingSeconds`. `410 expired` (distinct from `404` "wrong id") means the
+  lease is already dead, so the caller acquires instead of retrying. Renew does not re-run
+  relief and does **not** reset the guard alert — otherwise a caller could renew its way past
+  a real "memory was eroded" warning.
+- **MCP server (`MemPilot.exe --mcp`).** Three tools over stdio JSON-RPC
+  (`initialize` / `tools/list` / `tools/call`, hand-written, no new dependencies):
+  `mem_status`, `mem_plan`, `mem_lease`. The server is a **client only** — it forwards to
+  the local lease API, because the lease ledger and the restore hook live in the single
+  long-running process; a second process with its own ledger is how you get processes
+  suspended with nobody to resume them. `--mcp` is intercepted *before* the single-instance
+  check, otherwise the second instance would just wake the GUI and exit.
+- **`POST /api/plan` — zero-action preview.** Returns measured current memory, an
+  upper-bound projection, the processes that *would* be suspended, and
+  `excluded.byReason` counts (so "L4 never automatic / Unknown never automatic" is a number
+  the caller can see, not a sentence in a README). `projectionBasis` says whether the
+  number is `hard-upper-bound` or `current-only`. Returns `503 plan_unavailable` when no
+  planner is wired instead of a fake all-zero plan. Writes `Kind=LeasePlan` with a 30-second
+  dedupe and **no** share of the important-record quota.
+- `GET /api/status` gained `capabilities` and `limits` (`minTargetGb`, `maxTtlSeconds`,
+  `maxSuspendCount` — the last one reads `LeaseHardPlanner.MaxSuspendCount`, so the API and
+  the scheduler cannot drift).
+- `TrimSelection.ExplainUnsafe` — the safety filter now reports *why* a process was
+  rejected (`caller`/`self`/`protected`/`category`/`workload`/`inUse`). `IsSafe` is a
+  boolean projection of the same implementation, so there is still exactly one judgement
+  (v0.9.2's convergence lesson).
+- **`requesterPid` (safety).** A lease can name its caller; that process and its whole
+  subtree are excluded from every reclaim candidate (trim and hard-suspend). An agent's
+  worker is typically windowless and idle — exactly the hard-lease suspend profile — so
+  without this a caller could freeze its own worker and wait forever. This is a hard
+  invariant evaluated before the protection/category rules; omitting the field (`0`)
+  keeps the old behaviour.
+- `tools/lease-demo.py` — zero-dependency self-check that reads the token and port
+  itself and asserts four claims: reachable, measured-not-promised, caller not
+  disposed, every suspension restored.
+- winget and scoop manifests (`manifests/`), with `mempilot` exposed on PATH so an
+  agent can spawn it directly.
+- `docs/SIGNING.md` — what the existing self-signed step does *not* solve, and the
+  SignPath OSS path (the only route to a signature other machines trust).
+
+### Fixed
+- **MCP server deadlocked on its first HTTP request.** It ran on the WPF `OnStartup`
+  thread, which carries a `DispatcherSynchronizationContext`; waiting synchronously on
+  async HTTP (`GetAwaiter().GetResult()`) posted the continuation back to the blocked
+  thread. Moved to `Task.Run` + `ConfigureAwait(false)`. Symptom: no output at all, then
+  a timeout — the JSON-RPC handshake had already worked, which made it look like a
+  transport bug.
+- **MCP HTTP requests went through the system proxy.** `HttpClient` inherits the system
+  proxy by default; with a local proxy configured but not running, `mem_status` hung until
+  the 60-second timeout. Loopback requests now use `UseProxy = false`.
+- **The lease API returned a spurious `400 bad_json` on roughly 1 in 3 requests.**
+  `ReadRequestAsync` did a single `ReadAsync` and assumed headers and body arrived in
+  the same TCP segment; when the body landed in a second segment it was dropped and
+  deserialization failed — callers read that as "bad parameters" and gave up. Caught
+  by running `tools/lease-demo.py` repeatedly against v0.22.0 (2 of the first 3 runs
+  failed). The reader now accumulates bytes until `Content-Length` is satisfied and
+  decodes the body as UTF-8 only once it is complete, so a multi-byte `requester`
+  split across segments is no longer mangled either.
+
+### Changed
+- `docs/LEASE-API.md` documents `requesterPid`, `POST /api/plan`, and the new
+  `capabilities`/`limits` fields (the status example had also drifted: it showed a
+  `commitLimitGb` field that does not exist); both READMEs gained a "60 seconds" section
+  built on the demo script and an MCP setup section.
+
+## [0.22.0] — safety fixes, WSL hint, decision export, process-page polish
+
+### Fixed
+- **Cross-page selection leak (safety).** The process page's context menu reused the
+  cleanup page's L1–L4 handlers, and `GetSelectedUnused()` fell back from one grid to
+  the other. Right-clicking "force kill" on a process could target the *other* page's
+  stale selection. The two pages now have page-scoped selectors, and right-click
+  selects the row under the cursor first.
+- **`ContainerVm` was not excluded from any action path.** `vmmemWSL` could be
+  working-set-trimmed (evicting the whole WSL instance to disk) and was eligible for
+  make-room L4. `TrimSelection`, `UnusedDetector` and `CleanupEngine.BuildPlan` now
+  exclude it.
+- **Slow-tick root cause.** `self-*.jsonl` showed the 1086/1090 ms spikes all in the
+  enumeration stage, on an 11-minute cadence: `schtasks.exe` ran synchronously when
+  its 10-minute cache expired. `GetScheduledTasksCached()` is now
+  stale-while-revalidate (old list returned, refresh on the thread pool);
+  `LookupUnknowns` no longer blocks the refresh (`Task.WaitAll(3s)` removed), and
+  `RefreshTimings` gained a `LookupMs` segment to confirm it.
+- **Sorting was lost on every refresh** (the collection is replaced wholesale). The
+  last sort is now recorded and replayed; tree mode says why sorting is unavailable
+  instead of silently ignoring it.
+- Double-click and the tree glyph used the previous `SelectedItem` (double-clicking
+  empty space opened Explorer for an unrelated process); both now resolve the row
+  under the cursor and stop propagation.
+- The process grid's default visible columns (1067 px) overflowed a 1280-wide window
+  (1025 px available); the name column is now `*` with a 160 px minimum.
+- Empty states: filtering to zero rows said "enumerating processes", and the decision
+  log said "no entries yet" even when it was merely hiding noise. Both now explain
+  the real state and offer a fix (clear filters / show noise).
+- `Kind_LongResident` was missing from both dictionaries (the log showed the raw enum).
+- Home page "sweep junk" reported results only to the cleanup page's hint line.
+
+### Added
+- **WSL resident hint** (on by default): when `vmmemWSL` holds ≥2 GB with no WSL
+  activity today, the home page suggests `wsl --shutdown` with a copy button —
+  hint only, never executed. One per day, with the same 7/30/90-day learning
+  cooldown, and independent of the junk/long-resident advice slots.
+- **Decision log**: Kind filter dropdown; CSV/JSON export with RFC 4180 escaping;
+  reason templates with stable codes (15 high-frequency writers migrated; legacy
+  rows fall back to the original Chinese text and are flagged `legacy` in JSON).
+- **60-second commit check** on the home page: trims the safe subset and shows
+  physical vs commit before/after side by side, stating plainly that commit staying
+  flat is the expected outcome.
+- **Unified ComboBox styling** (min-height 30, chip radius, real dark-theme colors,
+  custom chevron) — the old style only overrode `Foreground`, leaving Aero2 chrome
+  that looked foreign in the toolbar and was unreadable in dark mode.
+- Search box placeholder + tooltip; Esc now clears the search when it has focus.
+- Column-width persistence, "restore default columns", and a duplicated "VRAM"
+  group header removed from the column menu.
+
+### Changed
+- `docs/README-zh.md` updated from v0.13.1 to v0.22.0 (bilingual UI, export, WSL
+  hint, commit check); portable size documented as ~500 KB zip / ~440 KB extracted;
+  `DocsGuardTests` now fails if the Chinese doc drifts back to an old release or the
+  "English UI pending" claim.
+
+## [0.21.0] — long-resident advice (suspend only, off by default)
+
+### Added
+- **Long-resident advice**: processes that have run for 8 h+, had zero window /
+  audio / CPU activity today, and still hold ≥512 MB. This covers the case the
+  11-23 log review surfaced — `vmmemWSL`, OEM services like `ArmouryCrate`,
+  `MSPC` — processes with **no junk evidence** (so `JunkAdvisor` never touched
+  them) that nevertheless hold memory for nothing. The home card offers
+  **suspend 2 h / 8 h only**; there is no "end process" button, because these
+  are not junk.
+- Settings → Automation → long-resident advice (**off by default**). "Check now"
+  falls back to this pool when the junk pool is empty.
+- Shares the junk ledger's 7/30/90-day learning cooldown, and the two advice
+  kinds are mutually exclusive — at most one advice card per day.
+
+### Safety
+- `vmmem*` is never suggested (suspending the VM memory host freezes
+  WSL/Hyper-V); services, protected/system categories and `Unknown` are excluded
+  by the shared `JunkSafetyFilter`, and so are bloatware and orphan-residue
+  processes (those belong to `JunkAdvisor` / `JunkSweeper`).
+- No behaviour ledger entry means no advice: a freshly started process is never
+  mistaken for a long-resident one.
+
+## [0.20.1] — decision log hint row was hidden behind the grid
+
+### Fixed
+- The decision log's hint row (and the new "Show advice/growth observations"
+  checkbox) was covered by the `DataGrid`: the inner wrapper grid had no
+  `Grid.Row`, so it landed in row 0 on top of the hint. The hint had been
+  invisible since it was introduced; the checkbox made it a real dead end —
+  noise could never be unfolded. The wrapper now occupies `Grid.Row="1"`.
+
+## [0.20.0] — log review: no more junk-advice idle churn, clean ledger, stage timings
+
+Driven by a review of 10-30 → 11-23 real usage logs (5,000 decisions, 754 audit
+entries, 12 days of samples).
+
+### Fixed
+- **Junk advice ran an empty evaluation every 60 s while the window was hidden.**
+  `JunkAdvice` was 87.7% of the decision log (4,387/5,000) and 2,190 of those were
+  "user not present, card not shown" pairs. The engine now skips the whole
+  evaluation when the shell reports no visible window (`UiActive`), and a failed
+  delivery sets a persisted 15-minute retry cooldown (`JunkAdviceStore.RetryAfterUtc`)
+  instead of retrying on every tick. The "advice" decision entry is now written
+  by the view-model at the moment the card is actually shown, so the log no
+  longer claims deliveries that never happened.
+- **`suspended.json` kept ghost records forever.** `SuspendRegistry.LoadAndValidate`
+  dropped records whose process had exited but never wrote the file back — two
+  11-18 entries sat there for five days. The registry now saves after pruning.
+- **Slow ticks (8–12 s) were unattributable.** `history/self-*.jsonl` only had the
+  total duration. `SelfCostSample` now carries per-stage means
+  (`EnumMs` / `ClassifyMs` / `GpuMs` / `UiMs`) so a slow tick points at
+  enumeration, signature verification, PDH sampling or UI marshalling.
+- **The decision log was 87% noise.** Advice and growth observations are now
+  folded by default behind a "Show advice/growth observations" checkbox.
+  Real actions that share the `JunkAdvice` kind (suspend / dismiss / automatic
+  resume) are always visible — see `DecisionLogFilter`.
+- `EnumerationIntegrationTests.RealEnumeration_AntiCheatPathsAreNeverGame` never
+  actually classified the enumerated processes, so it had been passing
+  vacuously; it now runs the real classification pipeline (caught by ACE
+  anti-cheat appearing on the dev machine).
+
+### Added
+- `DecisionLogFilter` (Core, pure functions + tests) and
+  `RefreshTimings` (per-refresh stage durations).
+
 ## [0.19.0] — bilingual UI (zh-CN / en) + pre-open-source cleanup
 
 ### Added

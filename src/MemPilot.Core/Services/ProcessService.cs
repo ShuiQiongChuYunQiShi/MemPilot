@@ -405,16 +405,52 @@ public partial class ProcessService
 
     // ---- caches for slow external data ----
 
+    /// <summary>v0.22.0：schtasks.exe 后台刷新状态（0=空闲，1=刷新中），避免并发重复启动。</summary>
+    private static int _taskRefreshRunning;
+
+    /// <summary>
+    /// 计划任务列表（10 分钟 TTL）。
+    /// v0.22.0：**过期时先返回旧数据并在线程池刷新**（stale-while-revalidate）。
+    /// 旧实现在过期的瞬间同步跑 `schtasks.exe /query`（实测 0.6–0.9s），在枚举阶段里
+    /// 制造了 11 分钟节律的慢 tick（self-*.jsonl 实证）。首次无缓存时才同步。
+    /// </summary>
     public static List<ScheduledTaskInfo> GetScheduledTasksCached()
     {
+        List<ScheduledTaskInfo>? stale = null;
         lock (_cacheLock)
         {
-            if (_taskCache != null && (DateTime.UtcNow - _taskCache.Value.time).TotalMinutes < 10)
-                return _taskCache.Value.tasks;
+            if (_taskCache != null)
+            {
+                if ((DateTime.UtcNow - _taskCache.Value.time).TotalMinutes < 10)
+                    return _taskCache.Value.tasks;
+                stale = _taskCache.Value.tasks;
+            }
         }
+
+        if (stale != null)
+        {
+            StartBackgroundTaskRefresh();
+            return stale;
+        }
+
         var tasks = new ScheduledTaskService().Enumerate();
         lock (_cacheLock) { _taskCache = (DateTime.UtcNow, tasks); }
         return tasks;
+    }
+
+    private static void StartBackgroundTaskRefresh()
+    {
+        if (Interlocked.Exchange(ref _taskRefreshRunning, 1) == 1) return;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var tasks = new ScheduledTaskService().Enumerate();
+                lock (_cacheLock) { _taskCache = (DateTime.UtcNow, tasks); }
+            }
+            catch { /* 刷新失败：保留旧缓存，下个 tick 再试 */ }
+            finally { Interlocked.Exchange(ref _taskRefreshRunning, 0); }
+        });
     }
 
     public static List<StartupItem> GetStartupItemsCached()

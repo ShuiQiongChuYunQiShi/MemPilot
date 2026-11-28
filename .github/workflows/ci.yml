@@ -1,13 +1,26 @@
 ﻿name: ci
 
 on:
-  # 2026-11-15：push 不再触发 CI。
-  # 原因：windows-latest 是 2x 计费倍率，每次日常提交都跑一遍 test + coverage 太贵
-  # （账号 Actions 额度当日已用到 90%）。
-  # 统一为手动 Run workflow；PR 也不再触发（dependabot 的 PR 同样不跑，
-  # 合并前需要验证时手动触发一次）。
-  # 发版仍只走 release.yml 的 workflow_dispatch，不受影响。
+  # 2026-11-25：恢复 push 触发。
+  # 2026-11-15 关掉它的理由是"windows-latest 是 2x 计费倍率、私有仓库额度吃到 90%"；
+  # 仓库同月已转为公开，公开仓库的标准托管 runner 不计费（也不分倍率），该前提消失。
+  # 而代价是真的：单人直接 push main、没有 PR 门禁，push 再不跑，main 就完全没有
+  # 自动回归——只有发版时 release.yml 才跑测试，回归会在最贵的时刻才被发现。
+  #
+  # paths-ignore：纯文档/manifest 改动不占用一次运行（免费但会刷 Actions 列表）。
+  # 同一提交里只要有一个代码文件变化，照常跑。
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'manifests/**'
   workflow_dispatch:
+
+# 手动也不会叠加：同一分支最多留一个在跑，后触发的取消前一个。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-and-build:

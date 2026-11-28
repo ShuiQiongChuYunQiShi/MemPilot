@@ -233,6 +233,15 @@ public class DecisionEntry
     public string Decision { get; set; } = "";  // 执行 / 跳过 / 切换 / 提示
     public string Reason { get; set; } = "";
 
+    /// <summary>
+    /// 稳定原因 code（v0.22.0）：`Kind.action` 形式，例如 `junk_advice.suggested`。
+    /// 有 code 时 UI/导出按当前语言渲染（模板键 `Decision_&lt;code 下划线化&gt;`）；
+    /// 为空表示旧记录或未迁移的写入点，回退到 <see cref="Reason"/> 的中文原文。
+    /// </summary>
+    public string? Code { get; set; }
+    /// <summary>模板参数（只放已格式化的字符串，模板里用 {0}/{1}）。</summary>
+    public string[]? Args { get; set; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public string TimeText => TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
     [System.Text.Json.Serialization.JsonIgnore]
@@ -447,6 +456,17 @@ public class AppConfig
     // 垃圾进程建议（v0.15.0）：整天未使用的垃圾进程在主页提示「挂起 2h/8h 或结束」。
     // 只建议不执行，动作必须用户点；默认开启（用户 2026-11-09 决策：启动即检测）。
     public bool JunkAdviceEnabled { get; set; } = true;
+    // 长驻未用建议（v0.21.0）：跑满 8h、今天零活动、私有提交 ≥512MB 的非垃圾进程，
+    // 只建议挂起 2h/8h（不提供结束）。**默认关闭**——这类进程通常是厂商服务/WSL，
+    // 用户明确要求过"偶用服务只杀不卸"，需要他自己确认要不要被提醒。
+    public bool LongResidentAdviceEnabled { get; set; } = false;
+    // WSL 常驻提示（v0.22.0）：vmmemWSL 占用 ≥ MinMb 且今天零活动时，提示可 `wsl --shutdown`。
+    // 只提示 + 复制命令，绝不自动执行；默认开启——被动提示，不改变任何进程状态。
+    public bool WslShutdownHintEnabled { get; set; } = true;
+    /// <summary>vmmemWSL 占用低于该值不提示（MB）。实测本机峰值 10.4 GB。</summary>
+    public int WslShutdownHintMinMb { get; set; } = 2048;
+    /// <summary>WSL 启动不足该分钟数不提示（避免刚开的发行版被劝退）。</summary>
+    public int WslShutdownHintMinAgeMinutes { get; set; } = 60;
     // 低风险模式：自动清扫只处理"宿主已退出的孤儿残留"，不动常驻垃圾（更保守）
     public bool AutoJunkSweepOrphansOnly { get; set; } = false;
     // 提交内存兜底（v0.5.0）：提交余量 <5%（或 10 分钟涨 ≥8GB 且余量 <25%）时，
@@ -455,6 +475,14 @@ public class AppConfig
     // （压缩会让下次访问重新读盘、卡顿一秒）。开源后陌生人装上就该什么都不做，
     // 让他看完说明再自己打开。已有的 config.json 里这个键已存在，改默认值不会影响老用户。
     public bool AutoCommitReliefEnabled { get; set; } = false;
+    // 为 AI 任务自动预留内存（v0.25.0，默认关）。
+    // 开启后检测到 AI 会话开始就申请一个 **soft** 租约（12h），会话结束归还。
+    // 只做 soft：hard 会挂起进程，而"自动挂起"离"只观察不处置"太远。
+    // 检测有 2–2.5 分钟延迟（5 个 30 秒样本里 ≥3 个），所以只对长任务有效——
+    // 短脚本请用 `mempilot lease run`。
+    public bool AutoLeaseForAiEnabled { get; set; } = false;
+    /// <summary>自动预留的目标可用内存（GB）。clamp 到 1–64。</summary>
+    public double AutoLeaseForAiGb { get; set; } = 16;
     // 提交告急时是否允许「征得同意后优雅关闭闲置后台」来真正释放提交内存。
     // 默认关：L3 会关掉程序，必须由用户逐次确认（压缩/清缓存已被实测证明降不了提交）。
     public bool CommitReliefL3Enabled { get; set; } = false;
@@ -472,7 +500,10 @@ public class AppConfig
     // 否则加语言会让设置静默重置）。默认收起 9 个低频/证据列——19 列合计约 1.7k px，
     // 1280 宽窗口下会把「签名/分类依据」挤到视口外，等于把判断依据藏起来（棱镜 ui/table-density）。
     // PID 与名称固定可见（DataGrid FrozenColumnCount=2），不在此列表中生效。
-    public List<string> ProcessHiddenColumns { get; set; } = new()
+    public List<string> ProcessHiddenColumns { get; set; } = DefaultHiddenColumns();
+
+    /// <summary>默认隐藏列（v0.22.0：列设置菜单的「恢复默认列」与首次启动共用一份定义）。</summary>
+    public static List<string> DefaultHiddenColumns() => new()
     {
         PersistedIds.Column.MemoryGrowth, PersistedIds.Column.ChildCount,
         PersistedIds.Column.Threads, PersistedIds.Column.WindowTitle,
@@ -480,6 +511,9 @@ public class AppConfig
         PersistedIds.Column.ModeKeep, PersistedIds.Column.Signature,
         PersistedIds.Column.CategoryReason
     };
+
+    /// <summary>列宽持久化（v0.22.0）：key = 列稳定 id，value = 像素宽。空 = 用 XAML 默认。</summary>
+    public Dictionary<string, double> ProcessColumnWidths { get; set; } = new();
     // 进程页用途筛选："" = 全部；否则为 **稳定 id**（work/entertainment/ai/system/other/unknown，
     // 见 `PersistedIds.Workload`）。v0.10.0 起不再存中文用途名。
     public string WorkloadFilter { get; set; } = "";

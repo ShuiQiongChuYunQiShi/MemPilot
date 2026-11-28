@@ -22,21 +22,27 @@ public partial class MainWindow : Window
 
     // ---- cleanup actions ----
 
-    private UnusedCandidate? GetSelectedUnused()
+    /// <summary>
+    /// 可清理页的选中候选（v0.22.0：**只看本页表格**）。
+    /// 旧实现回退到进程页的 ProcessGrid.SelectedItem——在进程页右键「强制结束」时，
+    /// 若清理页还留着上次的选择，动作会落到那个进程上（跨页串扰，实测可复现）。
+    /// </summary>
+    private UnusedCandidate? GetSelectedFromCleanupPage()
+        => UnusedGrid?.SelectedItem as UnusedCandidate;
+
+    /// <summary>进程页右键菜单的选中项（v0.22.0：只看 ProcessGrid，永不回退到别的页面）。</summary>
+    private UnusedCandidate? GetSelectedFromProcessPage()
     {
-        if (UnusedGrid != null && UnusedGrid.SelectedItem is UnusedCandidate uc) return uc;
-        // context menu may target the process grid
-        if (ProcessGrid != null && ProcessGrid.SelectedItem is ProcessInfo pi)
-            return new UnusedCandidate
-            {
-                Process = pi,
-                Reasons = new List<string> { UiStrings.Get("Cleanup_ManualSelect") },
-                EstimatedReclaimableBytes = pi.Memory.PrivateWorkingSetBytes,
-                EstimatedCommitReclaimableBytes = pi.Memory.PrivateBytes,
-                Risk = ProcessRiskLevel.Medium,
-                SuggestedLevel = CleanupActionLevel.L1Trim
-            };
-        return null;
+        if (ProcessGrid?.SelectedItem is not ProcessInfo pi) return null;
+        return new UnusedCandidate
+        {
+            Process = pi,
+            Reasons = new List<string> { UiStrings.Get("Cleanup_ManualSelect") },
+            EstimatedReclaimableBytes = pi.Memory.PrivateWorkingSetBytes,
+            EstimatedCommitReclaimableBytes = pi.Memory.PrivateBytes,
+            Risk = ProcessRiskLevel.Medium,
+            SuggestedLevel = CleanupActionLevel.L1Trim
+        };
     }
 
     private async Task RunCleanup(UnusedCandidate c, CleanupActionLevel level)
@@ -72,7 +78,7 @@ public partial class MainWindow : Window
 
     private async Task SelectedCleanup(CleanupActionLevel level)
     {
-        var c = GetSelectedUnused();
+        var c = GetSelectedFromCleanupPage();
         if (c == null)
         {
             SelectionHint.Text = UiStrings.Get("Cleanup_NoSelection");
@@ -160,7 +166,14 @@ public partial class MainWindow : Window
     private async void SweepJunk_Click(object sender, RoutedEventArgs e)
     {
         var plan = _vm.BuildJunkSweepPlan();
-        if (plan.Count == 0) { SelectionHint.Text = UiStrings.Get("Cleanup_NoJunk"); return; }
+        // v0.22.0：SelectionHint 在可清理页——从主页点这个按钮时用户看不到，
+        // 所以结果同时写到全局状态栏（与「回收闲置工作集」一致）。
+        if (plan.Count == 0)
+        {
+            SelectionHint.Text = UiStrings.Get("Cleanup_NoJunk");
+            _vm.SetActionStatus(UiStrings.Get("Cleanup_NoJunk"));
+            return;
+        }
         int kills = plan.Count(i => i.Action == CleanupActionLevel.L4ForceKill);
         int trims = plan.Count - kills;
         var names = string.Join(UiStrings.Get("Common_ListSeparator"), plan.Take(10).Select(i => $"{i.Process.Name}(PID {i.Process.Pid})"));
@@ -168,8 +181,10 @@ public partial class MainWindow : Window
         var msg = UiStrings.F("Cleanup_JunkPlanConfirm", kills, trims, names, more);
         if (MessageBox.Show(msg, UiStrings.Get("Btn_ConfirmSweep"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         SelectionHint.Text = UiStrings.Get("Cleanup_Sweeping");
+        _vm.SetActionStatus(UiStrings.Get("Cleanup_Sweeping"));
         var summary = await _vm.ExecuteJunkSweepAsync(plan);
         SelectionHint.Text = summary;
+        _vm.SetActionStatus(summary);
         await _vm.RefreshAsync();
     }
 
@@ -220,8 +235,15 @@ public partial class MainWindow : Window
         await _vm.RefreshAsync();
     }
 
-    private async void CtxL1_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L1Trim); }
-    private async void CtxL2_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L2Suspend); }
-    private async void CtxL3_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L3GracefulClose); }
-    private async void CtxL4_Click(object sender, RoutedEventArgs e) { var c = GetSelectedUnused(); if (c != null) await RunCleanup(c, CleanupActionLevel.L4ForceKill); }
+    // 进程页右键菜单（MainWindow.xaml:661-664）：只作用于 ProcessGrid 的选中行
+    private async void CtxL1_Click(object sender, RoutedEventArgs e) { var c = GetSelectedFromProcessPage(); if (c != null) await RunCleanup(c, CleanupActionLevel.L1Trim); }
+    private async void CtxL2_Click(object sender, RoutedEventArgs e) { var c = GetSelectedFromProcessPage(); if (c != null) await RunCleanup(c, CleanupActionLevel.L2Suspend); }
+    private async void CtxL3_Click(object sender, RoutedEventArgs e) { var c = GetSelectedFromProcessPage(); if (c != null) await RunCleanup(c, CleanupActionLevel.L3GracefulClose); }
+    private async void CtxL4_Click(object sender, RoutedEventArgs e) { var c = GetSelectedFromProcessPage(); if (c != null) await RunCleanup(c, CleanupActionLevel.L4ForceKill); }
+
+    // 可清理页右键菜单（MainWindow.xaml:768-771）：只看 UnusedGrid
+    private async void UnusedL1_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L1Trim);
+    private async void UnusedL2_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L2Suspend);
+    private async void UnusedL3_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L3GracefulClose);
+    private async void UnusedL4_Click(object sender, RoutedEventArgs e) => await SelectedCleanup(CleanupActionLevel.L4ForceKill);
 }

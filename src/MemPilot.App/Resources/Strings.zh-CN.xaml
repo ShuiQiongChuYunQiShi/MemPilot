@@ -84,8 +84,28 @@
     <sys:String x:Key="Kind_AutoCleanup">自动清理</sys:String>
     <sys:String x:Key="Kind_AutoJunkSweep">常驻垃圾清扫</sys:String>
     <sys:String x:Key="Kind_JunkAdvice">垃圾建议</sys:String>
+    <sys:String x:Key="Kind_LongResident">长驻未用</sys:String>
+    <sys:String x:Key="Kind_WslHint">WSL 常驻提示</sys:String>
     <sys:String x:Key="Kind_JunkSweep">垃圾清扫</sys:String>
     <sys:String x:Key="Kind_AutoOptimize">系统内存自动优化（已废弃）</sys:String>
+
+    <!-- ===== 决策原因模板（v0.22.0）：稳定 code → 本地化文案；
+         参数里的自由文本（跳过原因/结果消息）仍为写入时的原文 ===== -->
+    <sys:String x:Key="Decision_junk_advice_suggested">建议处理 {0}（预计释放 {1} MB）</sys:String>
+    <sys:String x:Key="Decision_long_resident_suggested">长驻未用建议：{0}（预计释放 {1} MB，只建议挂起）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_ok">已挂起 {0}，{1} 小时后自动恢复</sys:String>
+    <sys:String x:Key="Decision_junk_advice_suspend_fail">挂起 {0} 失败：{1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_dismissed">已忽略 {0}：{1} 天内不再提示（累计忽略 {2} 次）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_ok">{0} 定时挂起到期，已自动恢复（挂起于 {1}）</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_retry">{0} 恢复失败：{1}；已安排 5 分钟后重试</sys:String>
+    <sys:String x:Key="Decision_junk_advice_resume_cancel">{0} 恢复取消：{1}</sys:String>
+    <sys:String x:Key="Decision_junk_advice_no_candidate">立即检查：没有符合条件的目标</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_skipped">跳过 {0}：{1}</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_trim">{0}：回收工作集（模式 {1} 清理名单）</sys:String>
+    <sys:String x:Key="Decision_auto_cleanup_close">{0}：优雅关闭（模式 {1} 清理名单）——{2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_done">{0}：{1} 已处置——{2}</sys:String>
+    <sys:String x:Key="Decision_junk_sweep_failed">{0}：{1} 失败——{2}</sys:String>
+    <sys:String x:Key="Decision_wsl_hint_suggested">vmmemWSL 占用约 {0} GB、已运行 {1} 小时——已提示可执行 wsl shutdown（未自动执行）</sys:String>
 
     <!-- ===== 分类依据（CategoryReason 稳定 id → 文案） ===== -->
     <sys:String x:Key="Reason_access_denied_no_path">权限不足，读不到路径</sys:String>
@@ -186,6 +206,28 @@
     <sys:String x:Key="Col_Count">数量</sys:String>
     <sys:String x:Key="Relief_Title">提交内存告急——要关闭闲置后台吗？</sys:String>
     <sys:String x:Key="Relief_Body">提交余量低于 5%。可优雅关闭：</sys:String>
+    <!-- v0.24.0：低可用兜底（温和档 / 危急档 / 用户关闭 / 继续确认） -->
+    <sys:String x:Key="Floor_MildTitle">内存偏紧</sys:String>
+    <sys:String x:Key="Floor_MildBody">已温和压缩 {0} 个后台进程，释放 {1} MB（当时可用 {2:F1} GB）。切回这些程序可能短暂变慢，通常几秒恢复，无需操作。</sys:String>
+    <sys:String x:Key="Floor_FullTitle">内存危急</sys:String>
+    <sys:String x:Key="Floor_FullBody">可用仅 {2:F1} GB，已压缩 {0} 个后台进程释放 {1} MB。切回这些程序可能短暂变慢，通常几秒恢复。</sys:String>
+    <sys:String x:Key="Floor_SkippedTitle">内存偏紧（未自动压缩）</sys:String>
+    <sys:String x:Key="Floor_SkippedBody">可用 {1:F1} GB，{0} 个后台进程可压缩，但「自动提交兜底」已关闭。需要腾内存请手动执行。</sys:String>
+    <sys:String x:Key="Floor_CardTitle">要继续压缩吗？</sys:String>
+    <sys:String x:Key="Floor_CardBody">还有 </sys:String>
+    <sys:String x:Key="Floor_CardReclaim"> 个后台进程可继续压缩，预计释放 </sys:String>
+    <sys:String x:Key="Floor_CardBodyEnd">。20 秒内不操作将保持当前状态（已压缩的部分不会回滚）。</sys:String>
+    <sys:String x:Key="Floor_BtnContinue">继续压缩</sys:String>
+    <sys:String x:Key="Floor_ContinueDone">已继续压缩 {0} 个进程，释放约 {1:F0} MB</sys:String>
+    <sys:String x:Key="Lease_OrphanRestored">已恢复上次租约遗留的 {0} 个挂起进程（失败 {1} 个）</sys:String>
+    <!-- v0.24.0：低可用兜底的决策日志模板（code → Decision_*） -->
+    <sys:String x:Key="Decision_floor_trim_mild">内存偏紧（可用 {3} GB）：温和压缩 {0}/{1} 个，释放 {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_full">内存危急（可用 {3} GB）：全量压缩 {0}/{1} 个，释放 {2} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_skipped_by_user">低可用但已关闭自动兜底（可用 {1} GB，候选 {0} 个）；仅通知</sys:String>
+    <sys:String x:Key="Decision_floor_trim_deferred">保持温和档（剩余候选 {0} 个未处理）</sys:String>
+    <sys:String x:Key="Decision_floor_trim_continue">用户确认继续：压缩 {0} 个，释放 {1} MB</sys:String>
+    <sys:String x:Key="Decision_floor_trim_declined">用户选择不继续压缩（已压缩的不会回滚）</sys:String>
+    <sys:String x:Key="Decision_lease_orphan_resume">上次运行在租约期间结束：恢复 {0} 个挂起进程，失败 {1} 个</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">，预计释放提交</sys:String>
     <sys:String x:Key="Relief_BodyEnd">。它们只会收到正常关闭请求，不会被强制结束。</sys:String>
     <sys:String x:Key="Btn_ConfirmClose">确认关闭</sys:String>
@@ -193,6 +235,13 @@
     <sys:String x:Key="Junk_Title">今天没用到这些垃圾进程，要处理吗？</sys:String>
     <sys:String x:Key="Junk_Reclaim">，预计释放</sys:String>
     <sys:String x:Key="Junk_BodyEnd">。挂起会冻结 CPU、到期自动恢复；结束会走确认流程。</sys:String>
+    <sys:String x:Key="LongResident_Title">这些进程跑了一整天却没用过，要临时挂起吗？</sys:String>
+    <sys:String x:Key="Wsl_Title">WSL 常驻占用较高，要退出 WSL 吗？</sys:String>
+    <sys:String x:Key="Wsl_Body">vmmemWSL 已运行 {1} 小时、占用约 {0:F1} GB，今天没有检测到 WSL 活动。退出 WSL 会关闭所有发行版（下次使用自动重启），不会影响 Windows。这里只提示，不会自动执行。</sys:String>
+    <sys:String x:Key="Wsl_CopyCommand">复制 wsl --shutdown</sys:String>
+    <sys:String x:Key="Wsl_Copied">已复制 wsl --shutdown（在终端里执行即可）</sys:String>
+    <sys:String x:Key="Wsl_DecisionReason">vmmemWSL 占用约 {0:F1} GB、已运行 {1} 小时、今天零活动——已提示可执行 wsl --shutdown（未自动执行）</sys:String>
+    <sys:String x:Key="LongResident_BodyEnd">。它们不是垃圾，所以只建议挂起（到期自动恢复）；要结束请到「进程」页手动操作。</sys:String>
     <sys:String x:Key="Btn_Suspend2h">挂起 2 小时</sys:String>
     <sys:String x:Key="Btn_Suspend8h">挂起 8 小时</sys:String>
     <sys:String x:Key="Btn_EndProcess">结束进程</sys:String>
@@ -235,7 +284,7 @@
     <sys:String x:Key="Process_TreeHint">点击折叠/展开子进程</sys:String>
     <sys:String x:Key="Col_PrivateWs">私有WS</sys:String>
     <sys:String x:Key="Col_IdleMin">空闲(min)</sys:String>
-    <sys:String x:Key="Empty_Processes">正在枚举进程（每 10 秒一次）……几秒内就会出现。列表为空且持续超过 1 分钟时，检查设置里的刷新间隔。</sys:String>
+    <sys:String x:Key="Empty_Processes">正在枚举进程（每 {0} 秒一次）……几秒内就会出现。列表为空且持续超过 1 分钟时，检查设置里的刷新间隔。</sys:String>
     <sys:String x:Key="Cleanup_Hint">这些程序长期空闲：无窗口、低 CPU/IO、没在发声、也不在前台。处置前会再次确认。</sys:String>
     <sys:String x:Key="Col_Publisher">发布者</sys:String>
     <sys:String x:Key="Menu_MarkJunk">标记为垃圾（可清理）</sys:String>
@@ -247,7 +296,7 @@
     <sys:String x:Key="Term_Idle">空闲</sys:String>
     <sys:String x:Key="Col_ResidentScore">驻留分</sys:String>
     <sys:String x:Key="Col_SuggestedLevel">建议级别</sys:String>
-    <sys:String x:Key="Empty_Cleanup">当前没有可清理候选——观察期（连续 6 轮空闲观察）未满是正常的，刚启动时尤其如此。</sys:String>
+    <sys:String x:Key="Empty_Cleanup">当前没有可清理候选——观察期（连续 {0} 轮空闲观察）未满是正常的，刚启动时尤其如此。</sys:String>
     <sys:String x:Key="Action_L1TrimShort">L1 回收工作集</sys:String>
     <sys:String x:Key="Action_L2Short">L2 挂起进程</sys:String>
     <sys:String x:Key="Action_L3Short">L3 优雅关闭</sys:String>
@@ -280,6 +329,25 @@
     <sys:String x:Key="Btn_ResumeAll">恢复全部挂起</sys:String>
     <sys:String x:Key="Btn_Relaunch">重启选中程序</sys:String>
     <sys:String x:Key="Decisions_Hint">引擎的每个自动决定：为什么切换模式、执行/跳过了谁、跳过原因（自动行为可解释）</sys:String>
+    <sys:String x:Key="Decisions_ShowNoise">显示建议/增长观察</sys:String>
+    <sys:String x:Key="Decisions_KindFilterAll">全部类型</sys:String>
+    <sys:String x:Key="Btn_ExportDecisions">导出</sys:String>
+    <sys:String x:Key="Decisions_Exported">已导出 {0} 条到 {1}</sys:String>
+    <sys:String x:Key="Decisions_ExportFailed">导出失败：</sys:String>
+    <sys:String x:Key="Decisions_HiddenByFilter">当前显示 0 条，已隐藏 {0} 条建议/增长记录。勾选上方「显示建议/增长观察」即可看到。</sys:String>
+    <sys:String x:Key="Process_NoMatch">没有匹配的进程。检查搜索词，或清除筛选查看全部。</sys:String>
+    <sys:String x:Key="Process_SearchPlaceholder">搜索名称 / 路径 / 窗口标题</sys:String>
+    <sys:String x:Key="Process_SearchTooltip">Ctrl+F 聚焦搜索框；Esc 清空</sys:String>
+    <sys:String x:Key="Btn_ClearFilters">清除筛选</sys:String>
+    <sys:String x:Key="Btn_RestoreDefaultColumns">恢复默认列</sys:String>
+    <sys:String x:Key="Process_ColumnsReset">已恢复默认列与列宽</sys:String>
+    <sys:String x:Key="Process_SortDisabledInTree">树状视图下不支持列排序——切回平铺即可排序</sys:String>
+    <sys:String x:Key="Btn_CommitDemo">60 秒对比</sys:String>
+    <sys:String x:Key="Btn_CommitDemoTip">回收闲置工作集，并排显示物理与提交的前后变化（只动安全子集）</sys:String>
+    <sys:String x:Key="Demo_Title">对比结果：物理变了，提交为什么没变？</sys:String>
+    <sys:String x:Key="Demo_PhysLine">可用物理：{0} GB → {1} GB（{2} GB）</sys:String>
+    <sys:String x:Key="Demo_CommitLine">提交余量：{0} GB → {1} GB（{2} GB）</sys:String>
+    <sys:String x:Key="Demo_Explain">提交没变是预期的：回收工作集只释放物理页。要让下一次大任务（如 12 GB 的 AI 生成）更稳，只能结束闲置进程，或让任务通过租约 API 提前申请。</sys:String>
     <sys:String x:Key="Col_Kind">类别</sys:String>
     <sys:String x:Key="Col_Decision">决定</sys:String>
     <sys:String x:Key="Empty_Decisions">还没有记录。引擎的每个自动决定都会出现在这里——包括它「跳过」了谁、为什么跳过。</sys:String>
@@ -359,9 +427,11 @@
     <sys:String x:Key="Settings_AutoJunkSweep">自动清理垃圾驻守（无窗口/无音频的 Bloatware 与孤儿残留；最多优雅关闭，永不强制结束）</sys:String>
     <sys:String x:Key="Settings_OrphansOnly">低风险模式：自动清扫只清「宿主已退出的孤儿残留」，不动常驻垃圾（动作为 L1 或 L3，无 L4）</sys:String>
     <sys:String x:Key="Settings_JunkAdvice">垃圾进程建议：整天未使用的垃圾进程在主页提示（默认开；每天 19 点后评估）</sys:String>
+    <sys:String x:Key="Settings_LongResidentAdvice">长驻未用建议：跑满 8 小时、今天零活动且占用 ≥512MB 的进程只提示挂起（默认关）</sys:String>
+    <sys:String x:Key="Settings_WslHint">WSL 常驻提示：vmmemWSL 占用 ≥2GB 且今天零活动时提示退出 WSL（默认开，只提示不执行）</sys:String>
     <sys:String x:Key="Btn_CheckJunkNow">立即检查垃圾建议</sys:String>
     <sys:String x:Key="Settings_JunkCooldown">忽略次数越多，提示越少（7→30→90 天）</sys:String>
-    <sys:String x:Key="Settings_CommitRelief">提交内存兜底：提交余量 &lt;5% 先清备用列表，2 分钟后仍告急才压缩「安全子集」（工作/游戏/前台/忙碌进程一律不碰）</sys:String>
+    <sys:String x:Key="Settings_CommitRelief">自动兜底：提交余量 &lt;5% 先清备用列表、仍告急才压缩「安全子集」；可用 &lt;3 GB 时先温和压缩 20 个再询问（工作/游戏/前台/忙碌进程一律不碰）。关闭后偏紧档只提醒不压缩；但可用 &lt;1.5 GB 的危急档仍会压缩，以防 OOM。</sys:String>
     <sys:String x:Key="Settings_CommitReliefL3">提交告急时允许「征得同意后优雅关闭闲置后台」来释放提交（唯一真正有效的动作；每次都会弹窗确认，AI 会话/游戏期间不做）</sys:String>
     <sys:String x:Key="Settings_Alerts">重要提示触达（托盘气泡 + 主页横幅；取消勾选 = 仅写决策日志）</sys:String>
     <sys:String x:Key="Settings_LowRiskProfile">应用低风险自动档（自动优化 + 仅清孤儿残留，清理仍只 L1）</sys:String>
@@ -380,6 +450,14 @@
     <sys:String x:Key="Settings_Token">令牌</sys:String>
     <sys:String x:Key="Btn_Regenerate">重新生成</sys:String>
     <sys:String x:Key="Settings_LeaseNote">调用示例见 tools/lease-example.py；令牌重新生成后记得同步给调用方。软策略只压缩安全子集（不碰工作/游戏/前台进程），返回的是实测达成量。</sys:String>
+    <!-- v0.25.0：AI 任务自动预留（默认关，只做 soft） -->
+    <sys:String x:Key="Settings_AutoLeaseAi">为 AI 任务自动预留内存（soft，不挂起任何进程）</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseGb">目标可用</sys:String>
+    <sys:String x:Key="Settings_AutoLeaseNote">检测到 AI 任务开始时申请 12 小时租约、结束时归还。检测有约 2 分钟延迟，短任务请用 mempilot lease run；手动申请会挤掉自动预留（手动优先）。</sys:String>
+    <sys:String x:Key="Decision_lease_auto_acquired">自动预留 {0} GB 已生效（租约 {1}）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_skipped">已有租约在占用，自动预留跳过（手动优先）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_failed">自动预留失败（HTTP {0}）</sys:String>
+    <sys:String x:Key="Decision_lease_auto_released">自动预留已归还（{0}）</sys:String>
     <sys:String x:Key="Settings_Resident">驻守</sys:String>
     <sys:String x:Key="Settings_AutoStart">开机自启（勾选即生效）</sys:String>
     <sys:String x:Key="Settings_StartMinimized">启动时最小化到托盘</sys:String>
@@ -544,6 +622,8 @@
     <sys:String x:Key="History_NoVramDetail">（还没有显存采样——工具运行 30 秒后出现第一条；若一直为空说明 GPU 计数器不可用）</sys:String>
     <sys:String x:Key="History_NoSamples">（还没有采样数据——工具运行 5 分钟后会出现第一个采样点）</sys:String>
     <sys:String x:Key="Junk_BalloonTitle">垃圾进程建议</sys:String>
+    <sys:String x:Key="LongResident_BalloonTitle">长驻未用建议</sys:String>
+    <sys:String x:Key="LongResident_BalloonBody">跑了一整天没用过：{0}（约 {1} MB）。可在主页选择挂起（到期自动恢复）。</sys:String>
     <sys:String x:Key="Lease_StatusOff">租约 API 已关闭</sys:String>
     <sys:String x:Key="Lease_StatusNotStarted">租约 API 未启动：</sys:String>
     <sys:String x:Key="Lease_StatusDisabled">租约 API 未启用</sys:String>
@@ -654,6 +734,8 @@
     <sys:String x:Key="Lease_StatusNotStartedBody">租约 API 未启动：{0}</sys:String>
     <sys:String x:Key="Lease_PurgeFailed">备用列表清理失败（{0}）</sys:String>
     <sys:String x:Key="Lease_TrimDetail">{0}；压缩安全子集 {1} 个（排除 {2} 个）</sys:String>
+    <sys:String x:Key="Lease_RequesterExcluded">；调用方自身及子树已排除（快照命中 {0} 个）</sys:String>
+    <sys:String x:Key="Lease_DeniedDetail">；按排除名单跳过 {0} 个进程</sys:String>
     <sys:String x:Key="Lease_SuspendDetail">；挂起 {0} 个闲置进程（可恢复）</sys:String>
     <sys:String x:Key="Lease_AvailableDetail">{0}；可用 {1:F1} → {2:F1} GB</sys:String>
     <sys:String x:Key="Lease_ActiveBody">已为 {0} 腾出 {1:F1} GB 可用内存（目标 {2:F1} GB），至 {3}。</sys:String>

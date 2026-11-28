@@ -17,6 +17,7 @@
         <helpers:IndentConverter x:Key="Indent"/>
         <helpers:CollapsedGlyphConverter x:Key="Glyph"/>
         <helpers:CategoryTextConverter x:Key="CatText"/>
+        <helpers:DecisionReasonConverter x:Key="DecisionReason"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- sidebar tab -->
@@ -497,23 +498,70 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- v0.24.0：低可用兜底的"继续压缩"确认卡。
+                                 温和档（前 20 个）已经压过一轮，这张卡只问要不要压剩下的；
+                                 20 秒无响应按"不继续"处理（DispatcherTimer 在 VM 里）。
+                                 与 L3 卡的区别：L3 超时=放弃（什么都不做），这里超时=维持温和档。 -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding FloorTrimPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource WarnBg}" Background="{DynamicResource WarnBg}" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Floor_CardTitle}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12">
+                                        <Run Text="{DynamicResource Floor_CardBody}"/>
+                                        <Run Text="{Binding FloorTrimRemaining, Mode=OneWay}"/>
+                                        <Run Text="{DynamicResource Floor_CardReclaim}"/>
+                                        <Run Text="{Binding FloorTrimReclaimMb, Mode=OneWay, StringFormat={}{0} MB}"/>
+                                        <Run Text="{DynamicResource Floor_CardBodyEnd}"/>
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{DynamicResource Floor_BtnContinue}" Click="ConfirmFloorTrim_Click" Style="{StaticResource GhostBtn}"/>
+                                        <Button Content="{DynamicResource Btn_GiveUp}" Click="DismissFloorTrim_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
                             <!-- v0.15.0：垃圾进程建议卡（整天未使用的垃圾进程）。
                                  只建议不执行：挂起 2h/8h 到期自动恢复；结束进程走既有确认流程。 -->
                             <Border Style="{StaticResource Card}" Visibility="{Binding JunkAdvicePending, Converter={StaticResource BoolToVis}}"
                                     BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
                                 <StackPanel>
-                                    <TextBlock Text="{DynamicResource Junk_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding JunkAdviceTitle}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
                                     <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12">
                                         <Run Text="{Binding JunkAdviceNames, Mode=OneWay}"/>
                                         <Run Text="{DynamicResource Junk_Reclaim}"/>
                                         <Run Text="{Binding JunkAdviceTotalMb, Mode=OneWay, StringFormat={}{0} MB}"/>
-                                        <Run Text="{DynamicResource Junk_BodyEnd}"/>
+                                        <Run Text="{Binding JunkAdviceBodyEnd, Mode=OneWay}"/>
                                     </TextBlock>
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <Button Content="{DynamicResource Btn_Suspend2h}" Click="SuspendJunk2h_Click" Style="{StaticResource PrimaryBtn}"/>
                                         <Button Content="{DynamicResource Btn_Suspend8h}" Click="SuspendJunk8h_Click" Style="{StaticResource PrimaryBtn}" Margin="8,0,0,0"/>
-                                        <Button Content="{DynamicResource Btn_EndProcess}" Click="CleanupJunk_Click" Style="{StaticResource DangerBtn}" Margin="8,0,0,0"/>
+                                        <!-- v0.21.0：长驻未用建议只建议挂起，不提供结束（没有垃圾证据） -->
+                                        <Button Content="{DynamicResource Btn_EndProcess}" Click="CleanupJunk_Click" Margin="8,0,0,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource DangerBtn}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding JunkAdviceIsLongResident}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
                                         <Button Content="{DynamicResource Common_Ignore}" Click="DismissJunkAdvice_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- v0.22.0：WSL 常驻提示（vmmemWSL 占用够大且今天零活动）。
+                                 只提示 + 复制 wsl shutdown 命令，绝不自动执行。 -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding WslHintPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Wsl_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding WslHintText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,4,0,0" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{DynamicResource Wsl_CopyCommand}" Click="CopyWslCommand_Click" Style="{StaticResource PrimaryBtn}"/>
+                                        <Button Content="{DynamicResource Common_Ignore}" Click="DismissWslHint_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -565,7 +613,22 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <Button Content="{DynamicResource Action_TrimIdle}" Click="TrimAllWs_Click" Style="{StaticResource PrimaryBtn}"/>
                                         <Button Content="{DynamicResource Btn_SweepJunk}" Click="SweepJunk_Click" Style="{StaticResource GhostBtn}"/>
+                                        <!-- v0.22.0：60 秒 commit 演示——把「物理降了、提交没动」变成可感知 -->
+                                        <Button Content="{DynamicResource Btn_CommitDemo}" Click="RunCommitDemo_Click" Style="{StaticResource GhostBtn}" ToolTip="{DynamicResource Btn_CommitDemoTip}"/>
                                     </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- v0.22.0：60 秒对比结果（并排显示物理与提交的前后值） -->
+                            <Border Style="{StaticResource Card}" Visibility="{Binding DemoPending, Converter={StaticResource BoolToVis}}"
+                                    BorderBrush="{DynamicResource NoticeBorder}" Background="{DynamicResource NoticeBg}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Demo_Title}" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource WarnFg}"/>
+                                    <TextBlock Text="{Binding DemoPhysText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,6,0,0" FontSize="12"/>
+                                    <TextBlock Text="{Binding DemoCommitText}" TextWrapping="Wrap" Foreground="{DynamicResource WarnInk}" Margin="0,2,0,0" FontSize="12"/>
+                                    <TextBlock Text="{DynamicResource Demo_Explain}" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,6,0,0" FontSize="11"/>
+                                    <Button Content="{DynamicResource Common_Close}" Click="CloseCommitDemo_Click" Style="{StaticResource GhostBtn}"
+                                            HorizontalAlignment="Left" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -583,8 +646,38 @@
                     <DockPanel Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Right" Text="{DynamicResource Process_Hint}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
                         <WrapPanel>
-                            <TextBox x:Name="SearchBox" Width="200" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged" Padding="6,5" VerticalContentAlignment="Center"/>
-                            <ComboBox x:Name="WorkloadFilterBox" Width="104" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="{DynamicResource Process_WorkloadFilter}" SelectionChanged="WorkloadFilter_Changed">
+                            <!-- v0.22.0：占位文案 + 统一圆角（旧实现是空白输入框，用户不知道能搜什么） -->
+                            <TextBox x:Name="SearchBox" Width="220" Margin="0,0,8,0" TextChanged="SearchBox_TextChanged"
+                                     ToolTip="{DynamicResource Process_SearchTooltip}" VerticalContentAlignment="Center">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="TextBox">
+                                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource RadiusChip}">
+                                                        <Grid>
+                                                            <TextBlock x:Name="Placeholder" Text="{DynamicResource Process_SearchPlaceholder}"
+                                                                       Foreground="{DynamicResource TextSecondary}" Margin="9,0"
+                                                                       VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
+                                                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="Text" Value="">
+                                                            <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                                                        </Trigger>
+                                                        <Trigger Property="Text" Value="{x:Null}">
+                                                            <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </TextBox.Style>
+                            </TextBox>
+                            <ComboBox x:Name="WorkloadFilterBox" MinWidth="120" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="{DynamicResource Process_WorkloadFilter}" SelectionChanged="WorkloadFilter_Changed">
                                 <ComboBoxItem Content="{DynamicResource Filter_AllWorkloads}" Tag=""/>
                                 <ComboBoxItem Content="{DynamicResource Term_Work}" Tag="work"/>
                                 <ComboBoxItem Content="{DynamicResource Term_Entertainment}" Tag="entertainment"/>
@@ -611,11 +704,13 @@
                                         <MenuItem Header="{DynamicResource Col_Audio}" Tag="audio" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Concept_Protected}" Tag="protected" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_ModeKeep}" Tag="mode_keep" IsCheckable="True" Click="ColumnToggle_Click"/>
-                                        <MenuItem Header="{DynamicResource Col_Vram}" IsEnabled="False" FontWeight="SemiBold"/>
+                                        <!-- v0.22.0：删掉重复的「显存」组头（与下面的可勾选项同名，一个灰一个可点） -->
                                         <MenuItem Header="{DynamicResource Col_Vram}" Tag="gpu_memory" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_Evidence}" IsEnabled="False" FontWeight="SemiBold"/>
                                         <MenuItem Header="{DynamicResource Col_Signature}" Tag="signature" IsCheckable="True" Click="ColumnToggle_Click"/>
                                         <MenuItem Header="{DynamicResource Col_CategoryReason}" Tag="category_reason" IsCheckable="True" Click="ColumnToggle_Click"/>
+                                        <Separator/>
+                                        <MenuItem Header="{DynamicResource Btn_RestoreDefaultColumns}" Click="RestoreDefaultColumns_Click"/>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>
@@ -628,7 +723,7 @@
                             <ToggleButton x:Name="ChipUnknown" Content="{DynamicResource Term_Unrecognized}" Style="{StaticResource ToolToggle}" Click="CategoryChip_Click"/>
                         </WrapPanel>
                     </DockPanel>
-                    <Grid Grid.Row="1"><DataGrid x:Name="ProcessGrid" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="2" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting">
+                    <Grid Grid.Row="1"><DataGrid x:Name="ProcessGrid" ItemsSource="{Binding FilteredProcesses}" AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="2" SelectionChanged="ProcessGrid_SelectionChanged" MouseDoubleClick="ProcessGrid_DoubleClick" Sorting="ProcessGrid_Sorting" PreviewMouseRightButtonDown="ProcessGrid_PreviewMouseRightButtonDown">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                 <Style.Triggers>
@@ -678,7 +773,9 @@
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
-                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="210" SortMemberPath="Name">
+                            <!-- v0.22.0：名称列 180（不再是 210）——默认可见列合计 947px，1280 窗口可用 ~1025px。
+                                 注意不能用 Width="*"：它和 FrozenColumnCount=2 同用会把第一列（PID）压到不可读。 -->
+                            <DataGridTemplateColumn Header="{DynamicResource Col_Name}" Width="180" MinWidth="160" SortMemberPath="Name">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -710,10 +807,16 @@
                             <DataGridTextColumn Header="{DynamicResource Col_CategoryReason}" Binding="{Binding CategoryReason}" Width="130"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                        <TextBlock Text="{DynamicResource Empty_Processes}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" MaxWidth="440"
-                                   TextAlignment="Center" FontSize="12"
-                                   Visibility="{Binding FilteredProcesses, Converter={StaticResource CollEmpty}}"/></Grid>
+                        <!-- v0.22.0：空状态区分「还在枚举」与「筛选后没有匹配」，后者给一键清除 -->
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460"
+                                    Visibility="{Binding FilteredProcesses, Converter={StaticResource CollEmpty}}">
+                            <TextBlock Text="{Binding ProcessEmptyText}"
+                                       Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"
+                                       TextAlignment="Center" FontSize="12"/>
+                            <Button Content="{DynamicResource Btn_ClearFilters}" Click="ClearProcessFilters_Click"
+                                    Style="{StaticResource GhostBtn}" HorizontalAlignment="Center" Margin="0,10,0,0"
+                                    Visibility="{Binding HasProcessFilter, Converter={StaticResource BoolToVis}}"/>
+                        </StackPanel></Grid>
                 </Grid>
             </TabItem>
 
@@ -754,10 +857,10 @@
                     <Grid Grid.Row="2"><DataGrid x:Name="UnusedGrid" ItemsSource="{Binding UnusedCandidates}" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="UnusedGrid_SelectionChanged">
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="{DynamicResource Menu_L1}" Click="CtxL1_Click"/>
-                                <MenuItem Header="{DynamicResource Menu_L2}" Click="CtxL2_Click"/>
-                                <MenuItem Header="{DynamicResource Menu_L3}" Click="CtxL3_Click"/>
-                                <MenuItem Header="{DynamicResource Btn_ForceKillConfirm}" Click="CtxL4_Click"/>
+                                <MenuItem Header="{DynamicResource Menu_L1}" Click="UnusedL1_Click"/>
+                                <MenuItem Header="{DynamicResource Menu_L2}" Click="UnusedL2_Click"/>
+                                <MenuItem Header="{DynamicResource Menu_L3}" Click="UnusedL3_Click"/>
+                                <MenuItem Header="{DynamicResource Btn_ForceKillConfirm}" Click="UnusedL4_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
@@ -772,7 +875,7 @@
                             <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding ReasonsText}" Width="220"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                        <TextBlock Text="{DynamicResource Empty_Cleanup}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        <TextBlock Text="{Binding CleanupEmptyText}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" MaxWidth="440"
                                    TextAlignment="Center" FontSize="12"
                                    Visibility="{Binding UnusedCandidates, Converter={StaticResource CollEmpty}}"/></Grid>
@@ -921,17 +1024,37 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="{DynamicResource Decisions_Hint}" Margin="0,0,0,8" Foreground="{DynamicResource TextSecondary}"/>
-                    <Grid><DataGrid Grid.Row="1" ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{DynamicResource Decisions_Hint}" Foreground="{DynamicResource TextSecondary}"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <!-- v0.20.0：默认折叠建议/增长观察（实测占决策日志 87.7%）；v0.22.0：按 Kind 筛选 -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ComboBox Width="150" ItemsSource="{Binding DecisionKindOptions}"
+                                      SelectedItem="{Binding SelectedDecisionKindOption, Mode=TwoWay}"
+                                      Margin="12,0,0,0"/>
+                            <CheckBox Content="{DynamicResource Decisions_ShowNoise}"
+                                      IsChecked="{Binding ShowNoise, Mode=TwoWay}"
+                                      VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            <Button Content="{DynamicResource Btn_ExportDecisions}" Click="ExportDecisions_Click"
+                                    Style="{StaticResource GhostBtn}" Margin="12,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <!-- v0.20.1：内层 Grid 必须显式占 Row 1——缺省 Row 0 会让 DataGrid 盖住上面的
+                         提示行与「显示建议/增长观察」勾选框（提示文字从 v0.19 起就一直被遮挡） -->
+                    <Grid Grid.Row="1"><DataGrid ItemsSource="{Binding DecisionEntries}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="{DynamicResource Col_Time}" Binding="{Binding TimeText}" Width="150"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Kind}" Binding="{Binding Kind, Converter={StaticResource KindText}}" Width="110"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Target}" Binding="{Binding Target}" Width="220"/>
                             <DataGridTextColumn Header="{DynamicResource Col_Decision}" Binding="{Binding Decision}" Width="130"/>
-                            <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding Reason}" Width="*"/>
+                            <DataGridTextColumn Header="{DynamicResource Col_Reason}" Binding="{Binding Converter={StaticResource DecisionReason}}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
-                        <TextBlock Text="{DynamicResource Empty_Decisions}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        <TextBlock Text="{Binding DecisionEmptyText}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" MaxWidth="440"
                                    TextAlignment="Center" FontSize="12"
                                    Visibility="{Binding DecisionEntries, Converter={StaticResource CollEmpty}}"/></Grid>
@@ -1275,6 +1398,8 @@
                                     <Button Content="{DynamicResource Btn_CheckJunkNow}" Click="ForceJunkAdvice_Click" Style="{StaticResource GhostBtn}" Padding="10,2"/>
                                     <TextBlock Text="{DynamicResource Settings_JunkCooldown}" Foreground="{DynamicResource TextSecondary}" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </StackPanel>
+                                <CheckBox x:Name="SetLongResidentAdvice" Content="{DynamicResource Settings_LongResidentAdvice}" Margin="16,3"/>
+                                <CheckBox x:Name="SetWslHint" Content="{DynamicResource Settings_WslHint}" Margin="16,3"/>
                                 <CheckBox x:Name="SetAutoCommitRelief" Content="{DynamicResource Settings_CommitRelief}" Margin="0,3"/>
                                 <CheckBox x:Name="SetCommitReliefL3" Content="{DynamicResource Settings_CommitReliefL3}" Margin="16,3"/>
                                 <CheckBox x:Name="SetShowAlerts" Content="{DynamicResource Settings_Alerts}" Margin="0,3"/>
@@ -1316,6 +1441,13 @@
                                     <Button Content="{DynamicResource Btn_Regenerate}" Click="RegenerateLeaseToken_Click" Style="{StaticResource GhostBtn}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock Text="{DynamicResource Settings_LeaseNote}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="16,4,0,0" TextWrapping="Wrap"/>
+                                <!-- v0.25.0：为 AI 任务自动预留（默认关；只做 soft，不挂起进程） -->
+                                <CheckBox x:Name="SetAutoLeaseAi" Content="{DynamicResource Settings_AutoLeaseAi}" Margin="16,8,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="16,4,0,0">
+                                    <TextBlock Text="{DynamicResource Settings_AutoLeaseGb}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="0,0,8,0"/>
+                                    <TextBox x:Name="SetAutoLeaseAiGb" Width="60" Padding="6,4" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="{DynamicResource Settings_AutoLeaseNote}" FontSize="11" Foreground="{DynamicResource TextSecondary}" Margin="16,4,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
 

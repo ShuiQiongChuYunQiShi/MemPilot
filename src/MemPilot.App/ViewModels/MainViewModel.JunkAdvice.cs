@@ -1,4 +1,5 @@
-﻿using MemPilot.Models;
+﻿using MemPilot.Helpers;
+using MemPilot.Models;
 using MemPilot.Services;
 
 namespace MemPilot.ViewModels;
@@ -26,35 +27,63 @@ public partial class MainViewModel
     /// <summary>预计释放的私有提交（MB，取整）。</summary>
     public long JunkAdviceTotalMb => (_junkAdvice?.TotalPrivateBytes ?? 0) / 1048576;
 
-    /// <summary>引擎事件 → 卡片（托盘模式只记日志不打扰）。</summary>
+    /// <summary>卡片标题（v0.21.0）：长驻未用 / 垃圾进程两种来源文案不同。</summary>
+    public string JunkAdviceTitle => _junkAdvice?.Kind == JunkAdviceKind.LongResident
+        ? UiStrings.Get("LongResident_Title")
+        : UiStrings.Get("Junk_Title");
+
+    /// <summary>是否长驻未用建议（v0.21.0）：是则卡片不提供「结束进程」。</summary>
+    public bool JunkAdviceIsLongResident => _junkAdvice?.Kind == JunkAdviceKind.LongResident;
+
+    /// <summary>卡片正文尾句（v0.21.0）：长驻建议不提"结束会走确认流程"（没有该按钮）。</summary>
+    public string JunkAdviceBodyEnd => _junkAdvice?.Kind == JunkAdviceKind.LongResident
+        ? UiStrings.Get("LongResident_BodyEnd")
+        : UiStrings.Get("Junk_BodyEnd");
+
+    private void NotifyJunkAdviceChanged()
+    {
+        OnPropertyChanged(nameof(JunkAdviceNames));
+        OnPropertyChanged(nameof(JunkAdviceTotalMb));
+        OnPropertyChanged(nameof(JunkAdviceTitle));
+        OnPropertyChanged(nameof(JunkAdviceIsLongResident));
+        OnPropertyChanged(nameof(JunkAdviceBodyEnd));
+    }
+
+    /// <summary>引擎事件 → 卡片（窗口不可见只记诊断、不写决策日志）。</summary>
     private void AttachJunkAdvice()
     {
         Engine.JunkAdvised += advice => System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!UiActive)
             {
-                // v0.17.0：这里**回滚当日标记**，窗口可见后的下一次 tick 还能再弹。
-                // 实测教训：v0.16 在这里写"次日再评估"就返回，但引擎已在发送前落了
-                // 7 天冷却（junk-advice.json 4 条）——用户永远看不到这张卡。
-                Engine.RejectJunkAdvice();
-                Decisions.Log(new DecisionEntry
-                {
-                    Kind = "JunkAdvice",
-                    Target = advice.NamesText,
-                    Decision = "跳过",
-                    Reason = "用户不在场（托盘模式），未弹卡——窗口可见后会自动重试（不消耗提示冷却）"
-                });
+                // v0.20.0（P0）：引擎已在源头按 UiActive 挡住评估，这里是竞态兜底（窗口刚隐藏）。
+                // 只设 15 分钟冷却 + 写诊断（决定日志不再记录这种"用户没看到"的事件，占 87.7% 噪声）。
+                Engine.DeferJunkAdvice(ResidentEngine.JunkAdviceRetryCooldown);
+                Diag.Record("junk-advice:deferred", $"window not visible; retry after {ResidentEngine.JunkAdviceRetryCooldown.TotalMinutes:F0}min");
                 return;
             }
             // 真正展示前才写"已建议"冷却（引擎不再提前写）
             foreach (var p in advice.Candidates)
                 Engine.JunkAdvice?.RecordSuggested(p.Name, DateTime.UtcNow);
             _junkAdvice = advice;
-            OnPropertyChanged(nameof(JunkAdviceNames));
-            OnPropertyChanged(nameof(JunkAdviceTotalMb));
+            NotifyJunkAdviceChanged();
             JunkAdvicePending = true;
+            bool longResident = advice.Kind == JunkAdviceKind.LongResident;
+            // v0.20.0：日志改在这里写——必然真交付（旧实现引擎写、VM 回滚，日志与事实不符）
+            Decisions.Log(new DecisionEntry
+            {
+                Kind = longResident ? "LongResident" : "JunkAdvice",
+                Target = advice.NamesText,
+                Decision = DecisionLogFilter.DecisionAdvice,
+                Reason = advice.Reason + $"；预计释放 {advice.TotalPrivateBytes / 1048576.0:F0} MB",
+                // v0.22.0：稳定 code + 参数（UI/导出按当前语言渲染）
+                Code = longResident ? "long_resident.suggested" : "junk_advice.suggested",
+                Args = new[] { advice.NamesText, (advice.TotalPrivateBytes / 1048576).ToString() }
+            });
             // 每日一次托盘气球（通知策略第 5 类白名单）
-            RaiseAlert(UiStrings.Get("Junk_BalloonTitle"), UiStrings.F("Junk_BalloonBody", advice.NamesText, JunkAdviceTotalMb));
+            RaiseAlert(UiStrings.Get(longResident ? "LongResident_BalloonTitle" : "Junk_BalloonTitle"),
+                UiStrings.F(longResident ? "LongResident_BalloonBody" : "Junk_BalloonBody",
+                    advice.NamesText, JunkAdviceTotalMb));
         }));
     }
 
@@ -71,8 +100,7 @@ public partial class MainViewModel
         var advice = _junkAdvice;
         JunkAdvicePending = false;
         _junkAdvice = null;                      // v0.17.0：清空，避免快照读到已处理候选
-        OnPropertyChanged(nameof(JunkAdviceNames));
-        OnPropertyChanged(nameof(JunkAdviceTotalMb));
+        NotifyJunkAdviceChanged();
         if (advice == null) return;
         _ = Task.Run(async () =>
         {
@@ -84,10 +112,14 @@ public partial class MainViewModel
                 if (r.Success) Engine.JunkAdvice?.RecordAccepted(p.Name, DateTime.UtcNow);
                 Decisions.Log(new DecisionEntry
                 {
-                    Kind = "JunkAdvice",
+                    Kind = advice.Kind == JunkAdviceKind.LongResident ? "LongResident" : "JunkAdvice",
                     Target = $"{p.Name} (PID {p.Pid})",
                     Decision = r.Success ? "挂起" : "挂起失败",
-                    Reason = $"{r.Message}（{hold.TotalHours:F0} 小时后自动恢复）"
+                    Reason = $"{r.Message}（{hold.TotalHours:F0} 小时后自动恢复）",
+                    Code = r.Success ? "junk_advice.suspend_ok" : "junk_advice.suspend_fail",
+                    Args = r.Success
+                        ? new[] { p.Name, hold.TotalHours.ToString("F0") }
+                        : new[] { p.Name, r.Message }
                 });
             }
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
@@ -123,8 +155,7 @@ public partial class MainViewModel
             if (!string.IsNullOrEmpty(name)) Engine.JunkAdvice?.RecordAccepted(name, DateTime.UtcNow);
         }
         _junkAdvice = null;
-        OnPropertyChanged(nameof(JunkAdviceNames));
-        OnPropertyChanged(nameof(JunkAdviceTotalMb));
+        NotifyJunkAdviceChanged();
         await RefreshAsync();
     }
 
@@ -134,8 +165,7 @@ public partial class MainViewModel
         var advice = _junkAdvice;
         JunkAdvicePending = false;
         _junkAdvice = null;
-        OnPropertyChanged(nameof(JunkAdviceNames));
-        OnPropertyChanged(nameof(JunkAdviceTotalMb));
+        NotifyJunkAdviceChanged();
         if (advice == null) return;
         foreach (var p in advice.Candidates)
         {
@@ -147,7 +177,9 @@ public partial class MainViewModel
                 Kind = "JunkAdvice",
                 Target = p.Name,
                 Decision = "忽略",
-                Reason = $"已学会：{p.Name} 在 {cool.TotalDays:F0} 天内不再提示（累计忽略 {n} 次）"
+                Reason = $"已学会：{p.Name} 在 {cool.TotalDays:F0} 天内不再提示（累计忽略 {n} 次）",
+                Code = "junk_advice.dismissed",
+                Args = new[] { p.Name, cool.TotalDays.ToString("F0"), n.ToString() }
             });
         }
         SetActionStatus(UiStrings.F("Junk_Ignored", advice.Candidates.Count));

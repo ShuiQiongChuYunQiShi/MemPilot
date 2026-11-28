@@ -25,6 +25,35 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (s, args) => TryLogCrash(args.ExceptionObject as Exception);
 
+        // v0.23.0：MCP server 必须在单实例检查**之前**拦截。
+        // 它是被 agent spawn 的独立进程、只做 HTTP 客户端；若走单实例路径，它会去唤起
+        // 已有窗口然后退出，MCP 直接失效。同步阻塞到 stdin EOF——MCP 模式没有 UI、
+        // 也不需要 Dispatcher，所以 Environment.Exit 是正确退出方式（不走 WPF 清理）。
+        bool isMcp = false;
+        foreach (var arg in e.Args)
+            if (arg is "--mcp" or "/mcp") { isMcp = true; break; }
+        if (isMcp)
+        {
+            int exitCode = Mcp.McpServer.Run();
+            // 用 Shutdown 而不是 Environment.Exit：后者在 WPF OnStartup 期间会卡在
+            // Dispatcher/终结器等待上（实测：进程活着但不退出）。Shutdown 让消息循环正常收尾。
+            Shutdown(exitCode);
+            return;
+        }
+
+        // v0.25.0：`mempilot lease run ...` 同样必须在单实例检查之前拦截。
+        // 它只做 HTTP 客户端 + 子进程托管，不启动 GUI；走单实例路径会被当成"第二个实例"
+        // 去唤起已有窗口然后退出。Task.Run 是为了脱离 OnStartup 的 SynchronizationContext
+        // ——里面用 GetAwaiter().GetResult() 等 HTTP，同步等待会死锁。
+        if (e.Args.Length >= 2 &&
+            (e.Args[0] is "lease" or "/lease") &&
+            string.Equals(e.Args[1], "run", StringComparison.OrdinalIgnoreCase))
+        {
+            int exitCode = Task.Run(() => Cli.LeaseRun.Run(e.Args[2..])).GetAwaiter().GetResult();
+            Shutdown(exitCode);
+            return;
+        }
+
         // single instance: two copies would fight over standby purges and suspend registries
         _singleInstance = new Mutex(true, @"Local\MemPilot.SingleInstance", out var isNew);
         if (!isNew)
@@ -115,30 +144,5 @@ public partial class App : Application
         catch { }
     }
 
-    internal static string ResolveDataDir()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MemPilot"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemPilot"),
-            Path.Combine(AppContext.BaseDirectory, "data"),
-            Path.Combine(Path.GetTempPath(), "MemPilot")
-        };
-        foreach (var c in candidates)
-        {
-            try
-            {
-                Directory.CreateDirectory(c);
-                var test = Path.Combine(c, ".writetest");
-                File.WriteAllText(test, "x");
-                File.Delete(test);
-                // 落盘失败诊断（JsonFileStore）写这里；只在首次可用目录时确定
-                if (Diag.LogPath == null)
-                    Diag.LogPath = Path.Combine(c, "diag.log");
-                return c;
-            }
-            catch { }
-        }
-        return candidates[candidates.Length - 1];
-    }
+    internal static string ResolveDataDir() => MemPilotPaths.ResolveDataDir();
 }

@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.24.1
+PackageLocale: en-US
+Publisher: ShuiQiongChuYunQiShi
+PublisherUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+PublisherSupportUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/issues
+PackageName: MemPilot
+PackageUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+License: Apache-2.0
+LicenseUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/LICENSE
+Copyright: Copyright (c) 2026 ShuiQiongChuYunQiShi
+Moniker: mempilot
+ShortDescription: Windows memory and process pilot with a measured lease API and an MCP server for AI tasks.
+Description: >-
+  MemPilot watches both physical memory and commit charge, decides which processes are
+  genuinely idle, and reclaims memory only through reversible actions. AI tasks can request
+  a memory lease over a local HTTP API or MCP before loading a model and release it
+  afterwards; the response reports what was actually freed, not what was promised. When
+  memory runs low it trims a small number of processes first and asks before doing more,
+  and it explains what it did and why. Safety boundaries are enforced in code: force-kill is
+  never automatic, unidentified processes are never touched, and neither automatic trimming
+  nor leases ever touch the lease caller or system-level processes.
+Tags:
+  - memory
+  - process-manager
+  - ai
+  - agent
+  - lease
+  - mcp
+  - windows
+ReleaseNotesUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/tag/v0.24.1
+Documentations:
+  - DocumentLabel: Lease API reference
+    DocumentUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/docs/LEASE-API.md
+  - DocumentLabel: Agent skill (for MCP clients)
+    DocumentUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/skills/mempilot/SKILL.md
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

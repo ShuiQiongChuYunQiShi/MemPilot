@@ -49,6 +49,107 @@ public partial class MainViewModel : INotifyPropertyChanged
         get => _homeDecisions;
         private set { _homeDecisions = value; OnPropertyChanged(); }
     }
+
+    private bool _showNoise;
+    /// <summary>
+    /// 决策日志是否显示「建议/增长观察」噪声（v0.20.0，默认折叠）。
+    /// 实测 11 天 5,000 条记录中 JunkAdvice 占 87.7%——用户要滚过几百条建议才能看到真实动作。
+    /// 注意挂起/自动恢复属于真实动作，不受此开关影响（判定见 DecisionLogFilter）。
+    /// </summary>
+    public bool ShowNoise
+    {
+        get => _showNoise;
+        set
+        {
+            if (_showNoise == value) return;
+            _showNoise = value;
+            OnPropertyChanged();
+            ReloadDecisions();
+        }
+    }
+
+    private string _decisionEmptyText = UiStrings.Get("Empty_Decisions");
+    /// <summary>
+    /// 决策日志空状态文案（v0.22.0）：有记录但被折叠/筛选隐藏时，
+    /// 不能再说"还没有记录"——那会把"用户自己折叠了"误导成"什么都没发生"。
+    /// </summary>
+    public string DecisionEmptyText
+    {
+        get => _decisionEmptyText;
+        private set { _decisionEmptyText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>按"总记录数 vs 当前显示数"更新决策页空状态文案。</summary>
+    private void UpdateDecisionEmptyText(int recentCount, int shownCount)
+        => DecisionEmptyText = recentCount > 0 && shownCount == 0
+            ? UiStrings.F("Decisions_HiddenByFilter", recentCount)
+            : UiStrings.Get("Empty_Decisions");
+
+    /// <summary>决策日志 Kind 下拉项（v0.22.0）。ToString 返回显示名——自定义 ComboBox 模板
+    /// 的 SelectionBox 走 ContentPresenter，不依赖 DisplayMemberPath。</summary>
+    public sealed record DecisionKindOption(string Kind, string Display)
+    {
+        public override string ToString() => Display;
+    }
+
+    public ObservableCollection<DecisionKindOption> DecisionKindOptions { get; } = new();
+
+    private string _selectedDecisionKind = DecisionLogFilter.AllKinds;
+    /// <summary>决策日志 Kind 筛选（v0.22.0）：空串 = 全部。与 ShowNoise 是两个独立过滤（AND）。</summary>
+    public string SelectedDecisionKind
+    {
+        get => _selectedDecisionKind;
+        set
+        {
+            var v = value ?? DecisionLogFilter.AllKinds;
+            if (_selectedDecisionKind == v) return;
+            _selectedDecisionKind = v;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedDecisionKindOption));
+            ReloadDecisions();
+        }
+    }
+
+    /// <summary>
+    /// 下拉框的选中项（v0.22.0）。用 SelectedItem 而不是 SelectedValue：
+    /// 后者在初始值 `""` 时不会与第一项（Kind=""）匹配，下拉框会显示空白。
+    /// </summary>
+    public DecisionKindOption? SelectedDecisionKindOption
+    {
+        get => DecisionKindOptions.FirstOrDefault(o => o.Kind == _selectedDecisionKind)
+               ?? DecisionKindOptions.FirstOrDefault();
+        set
+        {
+            var v = value?.Kind ?? DecisionLogFilter.AllKinds;
+            if (_selectedDecisionKind == v) return;
+            _selectedDecisionKind = v;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedDecisionKindOption));
+            ReloadDecisions();
+        }
+    }
+
+    /// <summary>重建 Kind 下拉：包含当前日志里出现过的全部 Kind（按条数降序），首项"全部类型"。</summary>
+    private void RebuildDecisionKindOptions()
+    {
+        var current = _selectedDecisionKind;
+        DecisionKindOptions.Clear();
+        DecisionKindOptions.Add(new DecisionKindOption(DecisionLogFilter.AllKinds,
+            UiStrings.Get("Decisions_KindFilterAll")));
+        foreach (var kv in Decisions.CountByKind()
+                     .Where(kv => !string.IsNullOrEmpty(kv.Key))
+                     .OrderByDescending(kv => kv.Value)
+                     .ThenBy(kv => kv.Key, StringComparer.Ordinal))
+            DecisionKindOptions.Add(new DecisionKindOption(kv.Key, UiTerms.OfKind(kv.Key)));
+
+        // 旧选择已不在列表里（日志轮转/清空）→ 回到"全部"
+        if (!DecisionKindOptions.Any(o => o.Kind == current))
+        {
+            _selectedDecisionKind = DecisionLogFilter.AllKinds;
+            OnPropertyChanged(nameof(SelectedDecisionKind));
+        }
+        OnPropertyChanged(nameof(SelectedDecisionKindOption));
+    }
     public ObservableCollection<DisposalRecord> DisposalRecords { get; } = new();
 
     private SystemMemoryInfo _sysMem = new();
@@ -308,6 +409,13 @@ public partial class MainViewModel : INotifyPropertyChanged
     public event EventHandler? AuditChanged;
 
     private List<ProcessInfo> _lastProcs = new();
+    /// <summary>快照时间（UTC）。/api/plan 靠它如实报告 snapshotAgeSeconds——
+    /// plan 基于上一次 tick 的进程列表，不是实时枚举，隐瞒年龄会让 agent 高估可行量。</summary>
+    private DateTime _lastProcsUtc = DateTime.MinValue;
+    /// <summary>完整枚举次数。/api/plan 靠它判断 CPU/IO 采样是否预热：
+    /// 首次枚举没有上一次的 CPU 时间基线，会把大量进程算成"忙"（真机 inUse 从 1 涨到 62），
+    /// 于是 plan 报"什么都腾不出来"——方向保守但会误导 agent 放弃。</summary>
+    private int _enumerationCount;
 
     /// <summary>Window visible? When hidden, refreshes skip rebuilding UI collections
     /// (tray lightweight mode — the engine keeps working, the UI stays cheap).</summary>
@@ -328,7 +436,8 @@ public partial class MainViewModel : INotifyPropertyChanged
             ExecuteLeaseRelief,
             LeaseManager,
             () => _leaseToken,
-            () => ConfigStore.Config.LeaseApiPort);
+            () => ConfigStore.Config.LeaseApiPort,
+            BuildLeasePlan);
         _workloadLookup = p => Feedback.FindWorkload(p.Name, p.ExecutablePath);
         ModeManager = new ModeManager(config.Config);
         ProgramCatalog = ProgramCatalogService.TryLoad(Path.Combine(ConfigStore.DataDirectory, "programs.json"))
@@ -366,6 +475,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             switch (ev)
             {
                 case "开始":
+                    // v0.24.1：把申请方 PID 同步给引擎——自动兜底（FloorTrim / CommitRelief 的
+                    // TrimSafe）也必须排除它及其子树，不能压缩"为工作让路"的那一方。
+                    Engine.LeaseRequesterPid = lease.RequesterPid;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "开始",
                         Reason = $"{lease.Requester} 申请 {lease.TargetAvailableGb:F1} GB（策略 {lease.Policy}，挂起 {lease.Suspended.Count} 个）；实测达成 {achieved:F1} GB（{lease.Details}）" });
                     RaiseAlert(UiStrings.Get("Lease_Active"), UiStrings.F("Lease_ActiveBody",
@@ -373,11 +485,13 @@ public partial class MainViewModel : INotifyPropertyChanged
                     AlertRaised?.Invoke(UiStrings.Get("Lease_Active"), $"{achieved:F1} / {peak:F1} GB", false);
                     break;
                 case "归还":
+                    Engine.LeaseRequesterPid = 0;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "归还",
                         Reason = $"{lease.Requester} 主动归还（占用 {(lease.EndUtc - lease.StartUtc)?.TotalMinutes:F0} 分钟，策略 {lease.Policy}）" });
                     RaiseAlert(UiStrings.Get("Lease_ReturnedTitle"), UiStrings.F("Lease_ReturnedBody", lease.Requester));
                     break;
                 case "过期":
+                    Engine.LeaseRequesterPid = 0;
                     Decisions.Log(new DecisionEntry { Kind = "Lease", Target = lease.Id, Decision = "过期",
                         Reason = $"TTL 到期自动结束（占用至 {lease.ExpiresUtc.ToLocalTime():HH:mm}，策略 {lease.Policy}）" });
                     RaiseAlert(UiStrings.Get("Lease_ExpiredTitle"), UiStrings.Get("Lease_ExpiredBody"));
@@ -404,6 +518,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             .Where(f => f.MarkCleanable && f.Status == "applied")
             .Select(f => f.ProcessName).ToList();   // v0.15.1：用户标记直接喂给建议器
         AttachJunkAdvice();
+        AttachWslHint();
 
         Engine.CommitReliefL3Suggested += (candidates, reclaimBytes) =>
             System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -437,8 +552,14 @@ public partial class MainViewModel : INotifyPropertyChanged
                 CommitReliefPending = true;
             }));
 
+        // v0.24.0：低可用兜底的阶段通知（温和完成 / 全量完成 / 询问继续 / 用户关闭后跳过）
+        Engine.FloorTrim += notice => SetUi(() => HandleFloorTrim(notice));
+
         GpuMonitor.AiSessionChanged += (summary, started) => SetUi(() =>
         {
+            // v0.25.0：可选自动预留（默认关）。放在会话状态同步之后，
+            // 因为 HandleAutoLeaseForAi 会读 ConfigStore，不依赖 AiSessionActive。
+            HandleAutoLeaseForAi(started);
             Engine.AiSessionActive = started;
             AiSessionActive = started;
             double peakGb = summary.PeakUsedBytes / 1073741824.0;
@@ -480,9 +601,11 @@ public partial class MainViewModel : INotifyPropertyChanged
         WindowsEventLog.Enabled = config.Config.WriteEventLogAudit;
         SetMode(config.Config.CurrentMode, "startup");
         foreach (var a in audit.Recent(200)) AuditEntries.Add(a);
-        foreach (var d in Decisions.Recent(200)) DecisionEntries.Add(d);
+        foreach (var d in DecisionLogFilter.Filter(Decisions.Recent(200), ShowNoise, SelectedDecisionKind)) DecisionEntries.Add(d);
+        RebuildDecisionKindOptions();
         foreach (var r in Cleanup.Disposals.All()) DisposalRecords.Add(r);
         foreach (var f in feedback.All()) FeedbackEntries.Add(f);
+        ScheduleOrphanLeaseResume();
     }
 
     /// <summary>
@@ -508,7 +631,7 @@ public partial class MainViewModel : INotifyPropertyChanged
                     s.RestoreNote = UiStrings.Get("Common_ProcessExited");
                     continue;
                 }
-                var r = Cleanup.Resume(s.Pid, s.Name);
+                var r = Cleanup.Resume(s.Pid, s.Name, s.StartTime);
                 s.Restored = r.Success;
                 s.RestoreNote = r.Message;
                 if (r.Success) restored++; else failed++;
@@ -568,7 +691,7 @@ public partial class MainViewModel : INotifyPropertyChanged
             RefreshStatus(UiStrings.Get("Process_Enumerating"));
             IsBusy = true;
 
-            long enumMs = 0, classifyMs = 0;
+            long enumMs = 0, classifyMs = 0, gpuMs = 0, lookupMs = 0;
             var data = await Task.Run(() =>
             {
                 Engine.SampleForeground();
@@ -591,11 +714,15 @@ public partial class MainViewModel : INotifyPropertyChanged
                 }
                 classifyMs = swC.ElapsedMilliseconds;
 
+                var swL = System.Diagnostics.Stopwatch.StartNew();
                 LookupUnknowns(procs, ct);
+                lookupMs = swL.ElapsedMilliseconds;          // v0.22.0：非阻塞后应接近 0
                 MaybeSuggestPromotions();
 
                 var mem = ProcessService.GetSystemMemory();
+                var swG = System.Diagnostics.Stopwatch.StartNew();
                 var gpuMem = GpuMemory.Sample();          // 显存：逐进程 + 适配器（PDH，独立于 UI 可见性）
+                gpuMs = swG.ElapsedMilliseconds;          // v0.20.0：慢 tick 常见元凶单独计量
                 ApplyGpuMemory(procs, gpuMem);            // 填 ProcessInfo.Gpu*（不可用则保持 false → UI 显示 "-"）
                 var unused = UnusedDetector.Detect(procs, mem, Engine.LastForegroundPid, audio, suspended);
                 var gpu = GpuService.GetAdapters(gpuMem); // 名称/容量 + DXGI 缺失时的 PDH 用量兜底
@@ -603,12 +730,15 @@ public partial class MainViewModel : INotifyPropertyChanged
             }, ct).ConfigureAwait(false);
 
             _lastProcs = data.procs;
+            _lastProcsUtc = DateTime.UtcNow;
+            _enumerationCount++;
             var memOut = data.mem;
             var unusedOut = data.unused;
             var gpuOut = data.gpu;
             var gpuMemOut = data.gpuMem;
 
             var uiActive = UiActive;
+            var swU = System.Diagnostics.Stopwatch.StartNew();
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (uiActive)
@@ -632,6 +762,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                 RefreshStatus(UiStrings.F("Status_Enumerated",
                     _lastProcs.Count, unusedOut.Count, enumMs, classifyMs));
             });
+            // v0.20.0：分段耗时交给引擎落盘（self-*.jsonl），慢 tick 可定位到具体阶段
+            Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds, lookupMs);
+            Engine.LastTimingsUtc = DateTime.UtcNow;   // v0.25.0：给"分段过期"判定用
 
             Engine.AfterRefresh(_lastProcs, memOut);
             LeaseManager.CheckGuard(memOut, DateTime.UtcNow);   // v0.7.0：占用期守护

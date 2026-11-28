@@ -174,4 +174,70 @@ public class SafeTrimSelectionTests
         Assert.Empty(TrimSelection.BuildSafeTrimSet(Array.Empty<ProcessInfo>(), 0, NoAudio));
         Assert.Empty(TrimSelection.BuildSafeTrimSet(null!, 0, NoAudio));
     }
+
+    // ---- v0.23.0: 租约调用方自身及子树永不处置 ----
+    // 放在这个文件是因为它属于"谁不能被处置"，与保护/系统/Unknown 同一层，
+    // 不是租约私有的规则（LeaseHardPlanner 只是复用同一份判定）。
+
+    [Fact]
+    public void ExcludedPids_AreRejected_EvenWhenOtherwiseSafe()
+    {
+        var p = P(1, "worker.exe", ProcessCategory.ThirdPartyApp);
+
+        Assert.True(TrimSelection.IsSafe(p, 0, NoAudio, Now));
+        Assert.False(TrimSelection.IsSafe(p, 0, NoAudio, Now, new HashSet<int> { 1 }));
+    }
+
+    [Fact]
+    public void BuildSafeTrimSet_OmitsExcludedPids()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "a.exe", ProcessCategory.ThirdPartyApp),
+            P(2, "b.exe", ProcessCategory.ThirdPartyApp),
+            P(3, "c.exe", ProcessCategory.ThirdPartyApp),
+        };
+
+        var set = TrimSelection.BuildSafeTrimSet(procs, 0, NoAudio, new HashSet<int> { 2 });
+
+        Assert.Equal(new[] { 1, 3 }, set.Select(p => p.Pid).OrderBy(x => x).ToArray());
+    }
+
+    // ---- v0.25.0：排序从"工作集大小"改为"预计释放" ----
+
+    [Fact]
+    public void BuildSafeTrimSet_OrdersByExpectedRelease_NotRawWorkingSet()
+    {
+        // A：工作集大但历史释放率低（活跃代码，压完立刻读回）→ expected 1000×0.1 = 100
+        // B：工作集小但释放率高（闲置 buffered 数据）        → expected 300×0.9 = 270
+        // 旧排序会先压 A（白压），新排序先压 B。
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "big-but-sticky.exe", ProcessCategory.ThirdPartyApp),
+            P(2, "small-but-yielding.exe", ProcessCategory.ThirdPartyApp),
+        };
+        procs[0].Memory.PrivateWorkingSetBytes = 1000L * 1024 * 1024;
+        procs[1].Memory.PrivateWorkingSetBytes = 300L * 1024 * 1024;
+
+        var set = TrimSelection.BuildSafeTrimSet(procs, 0, NoAudio, null,
+            releaseRatio: n => n == "small-but-yielding.exe" ? 0.9 : 0.1);
+
+        Assert.Equal(new[] { 2, 1 }, set.Select(p => p.Pid).ToArray());
+    }
+
+    [Fact]
+    public void BuildSafeTrimSet_WithoutHistory_FallsBackToWorkingSetOrder()
+    {
+        var procs = new List<ProcessInfo>
+        {
+            P(1, "small.exe", ProcessCategory.ThirdPartyApp),
+            P(2, "big.exe", ProcessCategory.ThirdPartyApp),
+        };
+        procs[0].Memory.PrivateWorkingSetBytes = 100L * 1024 * 1024;
+        procs[1].Memory.PrivateWorkingSetBytes = 900L * 1024 * 1024;
+
+        var set = TrimSelection.BuildSafeTrimSet(procs, 0, NoAudio);
+
+        Assert.Equal(new[] { 2, 1 }, set.Select(p => p.Pid).ToArray());
+    }
 }

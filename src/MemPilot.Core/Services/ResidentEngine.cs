@@ -116,7 +116,15 @@ public partial class ResidentEngine
                 _sinceFullRefresh.Restart();
                 var sw = Stopwatch.StartNew();
                 try { await refreshAsync(CancellationToken.None).ConfigureAwait(false); }
-                finally { SelfCost?.RecordTick(sw.ElapsedMilliseconds, StageFailures); }
+                finally
+                {
+                    // v0.25.0：分段快照过期（本次刷新在写段之前就抛了）时用 Zero，
+                    // 否则会把上一轮的分段配到本轮的慢总耗时上，归因指向错误阶段。
+                    var timings = (DateTime.UtcNow - LastTimingsUtc).TotalSeconds < 30
+                        ? LastTimings
+                        : RefreshTimings.Zero;
+                    SelfCost?.RecordTick(sw.ElapsedMilliseconds, timings, StageFailures);
+                }
             }
             catch { }
             finally { if (taken) { lock (_tickLock) { _ticking = false; } } }
@@ -133,6 +141,17 @@ public partial class ResidentEngine
 
     /// <summary>自身开销记录（v0.18.0，由 VM 注入）。</summary>
     public SelfCostRecorder? SelfCost { get; set; }
+
+    /// <summary>
+    /// 最近一次全量刷新的分段耗时（v0.20.0，由 VM 的 RefreshAsync 写入）。
+    /// 引用类型单次赋值天然原子；tick 有防重入，读到的就是本次刷新的值。
+    /// 首帧/手动刷新前为全 0。
+    /// </summary>
+    public RefreshTimings LastTimings { get; set; } = RefreshTimings.Zero;
+
+    /// <summary>LastTimings 的写入时刻（v0.25.0）。用于识别"本次刷新异常、分段快照是上一轮的"
+    /// ——那种情况下总耗时与分段来自不同 tick，归因会指向错误的阶段。</summary>
+    public DateTime LastTimingsUtc { get; set; }
 
     /// <summary>压力判定（与 WatchAvailableFloor 同阈值）：可用 &lt;3 GB 或提交余量 &lt;10%。</summary>
     public static bool IsPressure(SystemMemoryInfo mem)
@@ -166,6 +185,8 @@ public partial class ResidentEngine
 
     /// <summary>垃圾进程建议（v0.15.0）：一天最多触发一次，VM 负责弹卡 + 气球。</summary>
     public event Action<JunkAdvice>? JunkAdvised;
+    /// <summary>WSL 常驻提示（v0.22.0）：vmmemWSL 占用够大且今天零活动，只提示不执行。</summary>
+    public event Action<WslHint>? WslHintAdvised;
     /// <summary>用户标记为「可清理」的进程名提供者（v0.15.1，由 VM 注入 FeedbackStore）。</summary>
     public Func<IReadOnlyCollection<string>>? MarkedCleanableProvider { get; set; }
     private DateTime _lastJunkAdviceDay = DateTime.MinValue.Date;
@@ -176,6 +197,7 @@ public partial class ResidentEngine
     public void AfterRefresh(List<ProcessInfo> procs, SystemMemoryInfo mem)
     {
         var cfg = _config.Config;
+        _afterStageMs = 0;
         // v0.18.0（P0）：逐阶段隔离。旧实现是一个 try 包住整条流水线，任一阶段抛出都会
         // 终止同 tick 的后续阶段——而"到期恢复挂起"排在队尾，前面的提交兜底一抛异常，
         // 已挂起的进程就不会被恢复。现在每阶段独立 try（RunStage），失败记 Diag 并累计。
@@ -190,13 +212,21 @@ public partial class ResidentEngine
         RunStage("habit-hint", CheckHabitHint);
         RunStage("behaviors", () => _behaviors?.Observe(procs));
         RunStage("junk-advice", () => MaybeAdviseJunk(procs));
+        RunStage("long-resident-advice", () => MaybeAdviseLongResident(procs));   // v0.21.0
+        RunStage("wsl-hint", () => MaybeAdviseWsl(procs));                          // v0.22.0
         RunStage("junk-resume", ResumeExpiredSuspends);   // P2 起改由 5s 轻探针驱动，这里保留兜底
         if (cfg.AutoJunkSweepEnabled) RunStage("junk-sweep", () => AutoJunkSweep(procs));
         RunStage("usage", () => _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds));
+
+        // v0.25.0：把整条阶段流水线的耗时并回分段快照。此前 available-floor（低可用压缩，
+        // 单次可达 0.7s）完全不在任何分段里，慢 tick 无法归因。
+        LastTimings = LastTimings with { AfterMs = _afterStageMs };
     }
 
     private int _consecutiveStageFailures;
     private int _totalStageFailures;
+    /// <summary>本轮 AfterRefresh 各阶段累计耗时（v0.25.0，写进 RefreshTimings.AfterMs）。</summary>
+    private long _afterStageMs;
     private DateTime _lastHealthAlertUtc = DateTime.MinValue;
 
     /// <summary>累计阶段失败次数（诊断/健康度展示用）。</summary>
@@ -208,6 +238,7 @@ public partial class ResidentEngine
     /// </summary>
     private void RunStage(string name, Action stage)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             stage();
@@ -229,6 +260,7 @@ public partial class ResidentEngine
             }
             catch { }
         }
+        finally { _afterStageMs += sw.ElapsedMilliseconds; }
     }
 
     // ---- foreground / fullscreen sampling ----

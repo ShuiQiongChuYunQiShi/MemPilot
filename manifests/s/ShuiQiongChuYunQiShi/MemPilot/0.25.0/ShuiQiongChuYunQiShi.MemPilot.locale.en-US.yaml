@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: ShuiQiongChuYunQiShi.MemPilot
+PackageVersion: 0.25.0
+PackageLocale: en-US
+Publisher: ShuiQiongChuYunQiShi
+PublisherUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+PublisherSupportUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/issues
+PackageName: MemPilot
+PackageUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot
+License: Apache-2.0
+LicenseUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/LICENSE
+Copyright: Copyright (c) 2026 ShuiQiongChuYunQiShi
+Moniker: mempilot
+ShortDescription: Windows memory and process pilot with a measured lease API, an MCP server, and a lease-run CLI for AI tasks.
+Description: >-
+  MemPilot watches both physical memory and commit charge, decides which processes are
+  genuinely idle, and reclaims memory only through reversible actions. AI tasks can reserve
+  memory before loading a model — with `mempilot lease run --gb N -- <command>`, over MCP, or
+  automatically when a session starts — and the response reports what was actually freed, not
+  what was promised. Low-memory response trims a small number of processes first, asks before
+  doing more, and explains what it did and why. Safety boundaries are enforced in code:
+  force-kill is never automatic, unidentified processes are never touched, and neither
+  automatic trimming nor leases ever touch the caller or system-level processes.
+Tags:
+  - memory
+  - process-manager
+  - ai
+  - agent
+  - lease
+  - mcp
+  - cli
+  - windows
+ReleaseNotesUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/releases/tag/v0.25.0
+Documentations:
+  - DocumentLabel: Lease API reference
+    DocumentUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/docs/LEASE-API.md
+  - DocumentLabel: Agent skill (for MCP clients)
+    DocumentUrl: https://github.com/ShuiQiongChuYunQiShi/MemPilot/blob/main/skills/mempilot/SKILL.md
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

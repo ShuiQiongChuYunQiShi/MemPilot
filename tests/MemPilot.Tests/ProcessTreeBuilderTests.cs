@@ -77,4 +77,47 @@ public class ProcessTreeBuilderTests
         ProcessTreeBuilder.Build(procs, new HashSet<int>());
         Assert.Empty(procs[0].ChildPids);
     }
+
+    // ---- BuildSubtreePids: v0.23.0 "caller and its subtree are never touched" ----
+
+    [Fact]
+    public void Subtree_IncludesSelfAndAllDescendants_ButNotSiblings()
+    {
+        // 100 -> 101 -> 102, 100 -> 103; unrelated 200 and its child 201
+        var procs = new List<ProcessInfo>
+        {
+            Proc(100, 0, 1), Proc(101, 100, 1), Proc(102, 101, 1), Proc(103, 100, 1),
+            Proc(200, 0, 1), Proc(201, 200, 1),
+        };
+        var set = ProcessTreeBuilder.BuildSubtreePids(procs, 100);
+        Assert.Equal(new HashSet<int> { 100, 101, 102, 103 }, set);
+    }
+
+    [Fact]
+    public void Subtree_IsOrderIndependent_AndCycleSafe()
+    {
+        // children listed before parents; 101 <-> 102 would loop if visited were not tracked
+        var procs = new List<ProcessInfo>
+        {
+            Proc(102, 101, 1), Proc(101, 100, 1), Proc(100, 0, 1), Proc(103, 102, 1),
+        };
+        var set = ProcessTreeBuilder.BuildSubtreePids(procs, 100);
+        Assert.Equal(new HashSet<int> { 100, 101, 102, 103 }, set);
+    }
+
+    [Fact]
+    public void Subtree_RootOutsideSnapshot_StillExcludesThatPid()
+    {
+        // caller already exited: excluding a dead pid is harmless, and if the pid was
+        // reused we must still leave it alone (safe direction)
+        var set = ProcessTreeBuilder.BuildSubtreePids(new List<ProcessInfo> { Proc(7, 0, 1) }, 999);
+        Assert.Equal(new HashSet<int> { 999 }, set);
+    }
+
+    [Fact]
+    public void Subtree_NonPositiveRoot_IsEmpty()
+    {
+        Assert.Empty(ProcessTreeBuilder.BuildSubtreePids(new List<ProcessInfo> { Proc(1, 0, 1) }, 0));
+        Assert.Empty(ProcessTreeBuilder.BuildSubtreePids(null!, 5));
+    }
 }
