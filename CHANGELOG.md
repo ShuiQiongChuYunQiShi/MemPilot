@@ -7,6 +7,10 @@ versioning is `0.y.z` while the project is pre-1.0.
 ## [0.26.0] — rebound-measured trim yield, slow-tick attribution, low-yield honesty
 
 ### Fixed
+- **MCP "Waited Ns" prefix could disappear.** The threshold was `waited >= 1`, which sits
+  exactly on `Task.Delay`'s timing boundary; occasionally the measured wait landed at 0.99x and
+  the note was dropped. Caught by the release gate (Debug passed, Release failed once) and fixed
+  to 0.5 s — worth saying once you have waited more than half a second.
 - **The trim-yield metric was meaningless.** v0.25.0 recorded "working set after ÷ before" — but
   `EmptyWorkingSet` drives almost every process to near-zero, so every process scored 1.0
   (measured: 24 entries, all 0.989–1.0) and the ordering silently degenerated to "largest

@@ -315,7 +315,9 @@ internal static class McpServer
                 {
                     var summary = SummarizeLease(r.Body);
                     double waited = (DateTime.UtcNow - started).TotalSeconds;
-                    if (waitSeconds > 0 && waited >= 1)
+                    // v0.26.1：阈值 1s 太贴近 Task.Delay 的计时边界，实测会偶发落到 0.99x，
+                    // 让"等过"的提示消失（测试因此 flaky）。半秒以上就值得说。
+                    if (waitSeconds > 0 && waited >= 0.5)
                         summary = $"Waited {waited:F0}s for the previous lease to clear. " + summary;
                     return ToolText(summary + "\n\n" + Pretty(r.Body));
                 }
