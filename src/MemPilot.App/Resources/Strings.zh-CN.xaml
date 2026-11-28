@@ -213,6 +213,8 @@
     <sys:String x:Key="Floor_FullBody">可用仅 {2:F1} GB，已压缩 {0} 个后台进程释放 {1} MB。切回这些程序可能短暂变慢，通常几秒恢复。</sys:String>
     <sys:String x:Key="Floor_SkippedTitle">内存偏紧（未自动压缩）</sys:String>
     <sys:String x:Key="Floor_SkippedBody">可用 {1:F1} GB，{0} 个后台进程可压缩，但「自动提交兜底」已关闭。需要腾内存请手动执行。</sys:String>
+    <sys:String x:Key="Floor_LowYieldTitle">内存不足，压缩收益有限</sys:String>
+    <sys:String x:Key="Floor_LowYieldBody">已压缩 {0} 个后台进程但只释放 {1} MB；其余 {2} 个在保护名单里（工作/游戏/前台/未识别）。建议关闭部分程序，而不是继续等待自动兜底。</sys:String>
     <sys:String x:Key="Floor_CardTitle">要继续压缩吗？</sys:String>
     <sys:String x:Key="Floor_CardBody">还有 </sys:String>
     <sys:String x:Key="Floor_CardReclaim"> 个后台进程可继续压缩，预计释放 </sys:String>
@@ -227,6 +229,7 @@
     <sys:String x:Key="Decision_floor_trim_deferred">保持温和档（剩余候选 {0} 个未处理）</sys:String>
     <sys:String x:Key="Decision_floor_trim_continue">用户确认继续：压缩 {0} 个，释放 {1} MB</sys:String>
     <sys:String x:Key="Decision_floor_trim_declined">用户选择不继续压缩（已压缩的不会回滚）</sys:String>
+    <sys:String x:Key="Decision_floor_trim_low_yield">低收益：压缩 {0} 个只释放 {1} MB，可用仍紧；其余 {2} 个在保护名单里</sys:String>
     <sys:String x:Key="Decision_lease_orphan_resume">上次运行在租约期间结束：恢复 {0} 个挂起进程，失败 {1} 个</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">，预计释放提交</sys:String>
     <sys:String x:Key="Relief_BodyEnd">。它们只会收到正常关闭请求，不会被强制结束。</sys:String>

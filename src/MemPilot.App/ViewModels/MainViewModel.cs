@@ -692,13 +692,18 @@ public partial class MainViewModel : INotifyPropertyChanged
             IsBusy = true;
 
             long enumMs = 0, classifyMs = 0, gpuMs = 0, lookupMs = 0;
+            long prepMs = 0, detectMs = 0, otherMs = 0;
             var data = await Task.Run(() =>
             {
+                // v0.26.0：枚举之前的 5 个动作此前完全不计时（含 SCM 服务枚举，最可疑的一段）
+                var swP = System.Diagnostics.Stopwatch.StartNew();
                 Engine.SampleForeground();
                 var audio = AudioService.GetActiveAudioPids();
                 var suspended = Cleanup.Suspended.SuspendedPids();
                 var services = ServiceService.EnumerateServices();
                 var svcByPid = ServiceService.MapByPid(services);
+                prepMs = swP.ElapsedMilliseconds;
+
                 var swE = System.Diagnostics.Stopwatch.StartNew();
                 var procs = ProcessService.EnumerateProcesses();
                 enumMs = swE.ElapsedMilliseconds;
@@ -717,15 +722,25 @@ public partial class MainViewModel : INotifyPropertyChanged
                 var swL = System.Diagnostics.Stopwatch.StartNew();
                 LookupUnknowns(procs, ct);
                 lookupMs = swL.ElapsedMilliseconds;          // v0.22.0：非阻塞后应接近 0
+
+                var swO = System.Diagnostics.Stopwatch.StartNew();
                 MaybeSuggestPromotions();
+                otherMs += swO.ElapsedMilliseconds;
 
                 var mem = ProcessService.GetSystemMemory();
                 var swG = System.Diagnostics.Stopwatch.StartNew();
                 var gpuMem = GpuMemory.Sample();          // 显存：逐进程 + 适配器（PDH，独立于 UI 可见性）
                 gpuMs = swG.ElapsedMilliseconds;          // v0.20.0：慢 tick 常见元凶单独计量
+
+                // v0.26.0：逐进程填显存字段 + 未使用判定，此前是纯盲区（500+ 进程逐个判定）
+                var swD = System.Diagnostics.Stopwatch.StartNew();
                 ApplyGpuMemory(procs, gpuMem);            // 填 ProcessInfo.Gpu*（不可用则保持 false → UI 显示 "-"）
                 var unused = UnusedDetector.Detect(procs, mem, Engine.LastForegroundPid, audio, suspended);
+                detectMs = swD.ElapsedMilliseconds;
+
+                var swA = System.Diagnostics.Stopwatch.StartNew();
                 var gpu = GpuService.GetAdapters(gpuMem); // 名称/容量 + DXGI 缺失时的 PDH 用量兜底
+                otherMs += swA.ElapsedMilliseconds;
                 return (procs, mem, unused, gpu, gpuMem);
             }, ct).ConfigureAwait(false);
 
@@ -763,7 +778,9 @@ public partial class MainViewModel : INotifyPropertyChanged
                     _lastProcs.Count, unusedOut.Count, enumMs, classifyMs));
             });
             // v0.20.0：分段耗时交给引擎落盘（self-*.jsonl），慢 tick 可定位到具体阶段
-            Engine.LastTimings = new RefreshTimings(enumMs, classifyMs, gpuMs, swU.ElapsedMilliseconds, lookupMs);
+            Engine.LastTimings = new RefreshTimings(
+                EnumMs: enumMs, ClassifyMs: classifyMs, GpuMs: gpuMs, UiMs: swU.ElapsedMilliseconds,
+                LookupMs: lookupMs, PrepMs: prepMs, DetectMs: detectMs, OtherMs: otherMs);
             Engine.LastTimingsUtc = DateTime.UtcNow;   // v0.25.0：给"分段过期"判定用
 
             Engine.AfterRefresh(_lastProcs, memOut);

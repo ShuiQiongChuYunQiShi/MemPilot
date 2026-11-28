@@ -69,7 +69,10 @@ public class CleanupEngine
             {
                 long wsAfter = _procs.ReadPrivateWorkingSet(p.Pid);
                 if (wsBefore > 0 && wsAfter >= 0 && wsAfter < wsBefore)
-                    TrimFeedback.Observe(p.Name, wsBefore, wsBefore - wsAfter);
+                    // v0.26.0：只登记，60 秒后再结算回弹——"压完能压到 0"人人都能做到，
+                    // 区别在于会不会马上长回来（v0.25.0 的即时指标全是 1.0，没有区分度）。
+                    TrimFeedback.BeginObservation(p.Name, p.Pid, p.StartTime, wsBefore, wsAfter,
+                        DateTime.UtcNow);
             }
             catch { }
         }

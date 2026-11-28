@@ -7,14 +7,16 @@ namespace MemPilot.Services;
 /// <summary>
 /// 一次全量刷新的分段耗时（v0.20.0，毫秒）。
 /// 用途：出现 8–12s 的慢 tick 时能直接看出卡在枚举、分类、显存采样还是 UI marshal。
-/// v0.25.0 增加 <c>AfterMs</c>：AfterRefresh 整条阶段流水线（含 available-floor 的低可用压缩）
-/// 此前完全不计时——2026-11-27 实测有一次 1055 ms 的 tick 里有 746 ms 无法归因。
+/// v0.25.0 增加 <c>AfterMs</c>：AfterRefresh 整条阶段流水线（此前完全不计时）。
+/// v0.26.0 增加 <c>PrepMs</c>/<c>DetectMs</c>/<c>OtherMs</c>：2026-11-28 的三条慢 tick
+/// （1264/1118/1550 ms）里各段之和只有 242–367 ms，因为 refreshAsync 委托开头 5 个动作
+/// （含 SCM 服务枚举）和结尾 3 个动作（含 UnusedDetector）从来没被插桩。
 /// </summary>
 public sealed record RefreshTimings(long EnumMs, long ClassifyMs, long GpuMs, long UiMs,
-    long LookupMs = 0, long AfterMs = 0)
+    long LookupMs = 0, long AfterMs = 0, long PrepMs = 0, long DetectMs = 0, long OtherMs = 0)
 {
     /// <summary>无数据（首帧/手动调用未填）。</summary>
-    public static readonly RefreshTimings Zero = new(0, 0, 0, 0, 0, 0);
+    public static readonly RefreshTimings Zero = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 /// <summary>一分钟的自身开销聚合（写入 history/self-yyyyMMdd.jsonl）。</summary>
@@ -44,8 +46,14 @@ public class SelfCostSample
     /// <summary>未识别进程在线查询阶段的均值耗时（ms，v0.22.0；v0.22 起非阻塞，应接近 0）。</summary>
     public long LookupMs { get; set; }
     /// <summary>AfterRefresh 阶段流水线的均值耗时（ms，v0.25.0）。
-    /// 低可用压缩（available-floor）落在这一段，此前不在任何分段的盲区里。</summary>
+    /// 低可用压缩（available-floor）落在这一段。</summary>
     public long AfterMs { get; set; }
+    /// <summary>枚举之前的准备阶段：前台采样、音频枚举、挂起账本、**SCM 服务枚举**（v0.26.0）。</summary>
+    public long PrepMs { get; set; }
+    /// <summary>ApplyGpuMemory + UnusedDetector.Detect（v0.26.0，500+ 进程逐个判定）。</summary>
+    public long DetectMs { get; set; }
+    /// <summary>其它未单独成段的动作（规则晋升建议、适配器查询）（v0.26.0）。</summary>
+    public long OtherMs { get; set; }
 }
 
 /// <summary>
@@ -168,7 +176,10 @@ public class SelfCostRecorder
             GpuMs = AverageOf(_timings, t => t.GpuMs),
             UiMs = AverageOf(_timings, t => t.UiMs),
             LookupMs = AverageOf(_timings, t => t.LookupMs),
-            AfterMs = AverageOf(_timings, t => t.AfterMs)
+            AfterMs = AverageOf(_timings, t => t.AfterMs),
+            PrepMs = AverageOf(_timings, t => t.PrepMs),
+            DetectMs = AverageOf(_timings, t => t.DetectMs),
+            OtherMs = AverageOf(_timings, t => t.OtherMs)
         };
     }
 

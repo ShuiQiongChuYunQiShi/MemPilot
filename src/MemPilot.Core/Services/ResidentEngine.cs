@@ -215,6 +215,9 @@ public partial class ResidentEngine
         RunStage("long-resident-advice", () => MaybeAdviseLongResident(procs));   // v0.21.0
         RunStage("wsl-hint", () => MaybeAdviseWsl(procs));                          // v0.22.0
         RunStage("junk-resume", ResumeExpiredSuspends);   // P2 起改由 5s 轻探针驱动，这里保留兜底
+        // v0.26.0：结算 60 秒前压缩的进程"回弹了多少"——这是 trim 排序的真实指标
+        RunStage("trim-feedback", () => _cleanup.TrimFeedback.SettleDue(
+            procs, DateTime.UtcNow, pid => _probe.ReadPrivateWorkingSet(pid)));
         if (cfg.AutoJunkSweepEnabled) RunStage("junk-sweep", () => AutoJunkSweep(procs));
         RunStage("usage", () => _usage.RecordSample(mem, procs, cfg.CurrentMode, _intervalSeconds));
 

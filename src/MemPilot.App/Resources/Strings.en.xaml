@@ -213,6 +213,8 @@
     <sys:String x:Key="Floor_FullBody">Only {2:F1} GB available; trimmed {0} background processes to free {1} MB. Switching back to them may feel slow for a few seconds.</sys:String>
     <sys:String x:Key="Floor_SkippedTitle">Memory getting tight (nothing trimmed)</sys:String>
     <sys:String x:Key="Floor_SkippedBody">{1:F1} GB available and {0} background processes could be trimmed, but automatic commit relief is turned off. Free memory manually if you need it.</sys:String>
+    <sys:String x:Key="Floor_LowYieldTitle">Memory is short and trimming yields little</sys:String>
+    <sys:String x:Key="Floor_LowYieldBody">Trimmed {0} background processes but freed only {1} MB; the other {2} are protected (work / games / foreground / unidentified). Consider closing some apps instead of waiting for automatic relief.</sys:String>
     <sys:String x:Key="Floor_CardTitle">Continue trimming?</sys:String>
     <sys:String x:Key="Floor_CardBody">There are still </sys:String>
     <sys:String x:Key="Floor_CardReclaim"> background processes that could be trimmed, expected to free </sys:String>
@@ -227,6 +229,7 @@
     <sys:String x:Key="Decision_floor_trim_deferred">Kept the mild trim ({0} candidates left untouched)</sys:String>
     <sys:String x:Key="Decision_floor_trim_continue">User confirmed: trimmed {0} more, freeing {1} MB</sys:String>
     <sys:String x:Key="Decision_floor_trim_declined">User declined further trimming (already-trimmed pages are not rolled back)</sys:String>
+    <sys:String x:Key="Decision_floor_trim_low_yield">Low yield: trimmed {0}, freed only {1} MB; memory still tight, the other {2} are protected</sys:String>
     <sys:String x:Key="Decision_lease_orphan_resume">Previous run ended during a lease: restored {0} suspended process(es), {1} failed</sys:String>
     <sys:String x:Key="Relief_ReclaimCommit">, expected to free commit</sys:String>
     <sys:String x:Key="Relief_BodyEnd">. They only receive a normal close request; nothing is force-killed.</sys:String>

@@ -52,10 +52,13 @@ public partial class ResidentEngine
         SuggestContinue,
         /// <summary>用户关闭了自动兜底且未到危急档，本次未压缩。</summary>
         SkippedByUser,
+        /// <summary>压了 20 个只换来几百 MB 且仍然紧张——继续压收益很低，该提示减负了。</summary>
+        LowYield,
     }
 
     /// <summary>一次低可用兜底的阶段快照：Count = 本次压缩/剩余候选数，FreedMb = 实测释放。</summary>
-    public sealed record FloorTrimNotice(FloorTrimStage Stage, int Count, long FreedMb, double AvailGb);
+    public sealed record FloorTrimNotice(FloorTrimStage Stage, int Count, long FreedMb, double AvailGb,
+        int ExcludedCount = 0);
 
     /// <summary>App 层据此决定提示文案、以及是否弹"继续压缩"确认卡。</summary>
     public event Action<FloorTrimNotice>? FloorTrim;
@@ -319,7 +322,28 @@ public partial class ResidentEngine
             critical ? FloorTrimStage.FullDone : FloorTrimStage.MildDone, r.Trimmed, freedMb, availGb));
 
         int remaining = critical ? 0 : safeSet.Count - toTrim.Count;
-        if (remaining > 0)
+
+        // v0.26.0：压 20 个只换来几百 MB、且仍然紧张 → 继续压的边际收益很低。
+        // 与其问"要不要继续"，不如直接说"该减负了"：2026-11-28 的 10 次兜底里，
+        // 每次释放 253–480 MB，而每次被安全边界排除 279–351 个。
+        double afterAvailGb = after.AvailablePhysicalBytes / 1073741824.0;
+        if (!critical && freedMb < 500 && afterAvailGb < 2.5)
+        {
+            int excluded = procs.Count - safeSet.Count;
+            _decisions.Log(new DecisionEntry
+            {
+                Kind = "CommitRelief",
+                Target = "FloorTrim",
+                Decision = "低收益",
+                Code = "floor_trim.low_yield",
+                Args = new[] { r.Trimmed.ToString(), freedMb.ToString(), excluded.ToString() },
+                Reason = $"压缩 {r.Trimmed} 个只释放 {freedMb} MB，可用仍 {afterAvailGb:F1} GB；" +
+                         $"其余 {excluded} 个在保护名单里，继续自动兜底收益很低"
+            });
+            RaiseFloorTrim(new FloorTrimNotice(FloorTrimStage.LowYield, r.Trimmed, freedMb,
+                afterAvailGb, excluded));
+        }
+        else if (remaining > 0)
         {
             long remainingMb = safeSet.Skip(toTrim.Count)
                 .Sum(p => Math.Max(0, p.Memory.PrivateWorkingSetBytes)) / 1048576;

@@ -157,6 +157,13 @@ public partial class MainViewModel
                     UiStrings.F("Floor_SkippedBody", n.Count, n.AvailGb));
                 break;
 
+            case ResidentEngine.FloorTrimStage.LowYield:
+                // v0.26.0：压了 20 个只换来几百 MB 且仍然紧张——与其继续问"要不要压剩下的"，
+                // 不如直说"能回收的就这么多，该减负了"。
+                RaiseNotice(UiStrings.Get("Floor_LowYieldTitle"),
+                    UiStrings.F("Floor_LowYieldBody", n.Count, n.FreedMb, n.ExcludedCount));
+                break;
+
             case ResidentEngine.FloorTrimStage.SuggestContinue:
                 // 托盘模式不弹卡：温和压缩已经做过了，无人可问时不该挡住任何东西。
                 // 与 L3 卡的"用户不在场 → 放弃"语义不同：L3 放弃 = 什么都不做，

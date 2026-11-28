@@ -4,6 +4,31 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
+## [Unreleased]
+
+### Fixed
+- **The trim-yield metric was meaningless.** v0.25.0 recorded "working set after ÷ before" — but
+  `EmptyWorkingSet` drives almost every process to near-zero, so every process scored 1.0
+  (measured: 24 entries, all 0.989–1.0) and the ordering silently degenerated to "largest
+  working set", i.e. the old behaviour. v0.26.0 measures **rebound**: a pending observation is
+  settled 60 s later, and `effective = 1 − rebound / freed`. Idle processes stay low (≈1),
+  busy ones refill immediately (≈0). Pending entries are dropped when the process exited or the
+  PID was reused (`StartTime` mismatch).
+- **Slow-tick attribution still had 70–84% blind spots.** The three >1000 ms ticks on
+  2026-11-28 had 242–367 ms in the existing segments. `refreshAsync` runs five actions before
+  enumeration (`SampleForeground`, audio PIDs, suspend registry, **`ServiceService.EnumerateServices`**,
+  service map) and three after GPU sampling (`ApplyGpuMemory`, `UnusedDetector.Detect`,
+  `GpuService.GetAdapters`) that were never instrumented. `RefreshTimings` gained `PrepMs` /
+  `DetectMs` / `OtherMs`; the first real tick after the change reconciled to within 11 ms (2.7%).
+
+### Added
+- **Low-yield floor trim now says so** instead of asking whether to keep going. When a mild trim
+  frees <500 MB and available stays <2.5 GB, the engine logs `floor_trim.low_yield` and the tray
+  says "trimming yields little, the other N are protected — consider closing some apps".
+  2026-11-28 measured 10 trims freeing 253–480 MB each while 279–351 processes were excluded
+  every time. The "continue trimming?" card is skipped in this case, because more trimming
+  would yield the same.
+
 ## [0.25.0] — lease run CLI, automatic reservation, measured-yield trim ordering
 
 ### Added
