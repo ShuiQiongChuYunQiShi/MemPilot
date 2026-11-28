@@ -4,7 +4,7 @@ All notable changes to MemPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is `0.y.z` while the project is pre-1.0.
 
-## [Unreleased]
+## [0.26.0] — rebound-measured trim yield, slow-tick attribution, low-yield honesty
 
 ### Fixed
 - **The trim-yield metric was meaningless.** v0.25.0 recorded "working set after ÷ before" — but
